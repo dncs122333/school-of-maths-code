@@ -85,3 +85,15 @@ h1, h2, h3, h4, .font-head {
 
 .glow-blue { box-shadow: 0 0 40px -8px rgba(59,130,246,0.5); }
 .glow-cyan { box-shadow: 0 0 40px -8px rgba(6,182,212,0.45); }
+
+/* Live science/maths wallpaper */
+@keyframes aurora {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+.live-wall {
+    background: linear-gradient(120deg, #0B0F19, #0d1b3a, #08283a, #101a33, #0B0F19);
+    background-size: 320% 320%;
+    animation: aurora 14s ease infinite;
+}
