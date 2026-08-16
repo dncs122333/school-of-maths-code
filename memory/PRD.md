@@ -24,11 +24,12 @@ Build an EdTech platform for CBSE Class 9 & 10 students with notes, DPP, and tim
 - JWT auth (register/login/me) with 3 roles, idempotent admin seed.
 - CBSE catalog seed (Class 9 & 10: Science, Maths, Social Science, English, Hindi + chapters).
 - Batches: create + join by code, student counts.
-- AI beautiful notes (paste text or PDF/DOCX extract) with up to 3 Nano Banana concept images.
+- AI beautiful notes — ASYNC multi-pass accuracy engine (extract every concept → write → verify coverage → gap-fill) with up to 4 Nano Banana concept images; polling UI; stale-note recovery on startup.
 - AI MCQ tests (timed, batch-bound, validity window) + DPPs (untimed, open).
-- Student test runner with countdown timer, answer navigation, submit, scored result + per-question review/explanations. Double-submit blocked; correct answers hidden during test.
-- Dashboards (role-based), stats, leaderboard endpoint.
-- Verified: 29/29 backend tests pass, frontend E2E 100%.
+- Materials (direct uploads): teacher uploads a file (PDF/image/DOCX/PPTX/TXT) to a batch; the ORIGINAL file is viewable/downloadable by students in that batch only (object storage; ?auth= token download; soft-delete).
+- Student test runner with countdown timer, submit, scored result + review. Double-submit blocked; answers hidden during test.
+- Dark "Cosmic Observatory" theme (space + science + maths); brand "School of Maths".
+- Verified: backend 100%, frontend 100% across iterations 1-3.
 
 ## Backlog / Remaining
 - P1: Student-side leaderboard UI; friendlier "already submitted" UX (currently bounces with toast).

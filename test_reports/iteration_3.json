@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend E2E testing of new Materials feature on /materials (teacher upload, list, view, download, delete; student in-batch access; outsider no access). Backend was already validated by main agent via curl (upload, list-by-batch, ?auth= download 200 with correct bytes, no-auth 401). Regression on Notes/Tests/DPP pages and navbar brand also verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "resourceFileUrl() embeds the JWT in the URL query string; it will be recorded in browser history and server access logs. Consider using a short-lived signed download token instead of the raw session JWT for view/download links.",
+    "Materials.js: `f.chapter || undefined` is passed as Radix Select value which is fine, but the empty-string chapter is still POSTed in the FormData (empty string). Backend appears to accept it; confirm chapter is treated as optional server-side."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (validated by main agent via curl)", "frontend": "100%"},
+  "seed_data_creation": "Created one outsider student account (test_outsider_<ts>@vidya.com / outside123) to verify access control. Uploaded and then deleted a 'TEST Playwright Material' resource under the teacher account.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@vidya.com/admin123, teacher@vidya.com/teacher123, student@vidya.com/student123",
+  "context_for_next_testing_agent": "Auth submit testid=auth-submit; tabs: tab-login / tab-register (not tab-signup). Signup inputs use testids name-input, email-input, password-input. Materials view/download buttons are rendered via Radix Button asChild -> so the button element itself is the anchor <a>; use `.get_attribute('href')` directly on `[data-testid^=\"view-material-\"]` (do NOT chain `.locator('a')`). Materials list is scoped by batch membership; outsider students get empty state 'No materials yet. Join a batch to see files your teacher shares.'",
+  "rca_of_the_issue": "No functional issues found. All Materials flows work: teacher upload -> appears in 'Your shared files' with view/download/delete testids; view URL includes ?auth= JWT and returns 200 with correct bytes; without auth returns 401; student in batch sees 'Available materials' (no upload form, no delete btn) and can view the raw file (200); newly-registered outsider student sees empty state. Regression: navbar shows 'School of Maths', Notes h1='Notes', Notes/Tests/DPP pages load in dark theme."
+}

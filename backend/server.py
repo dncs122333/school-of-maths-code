@@ -19,7 +19,7 @@ import bcrypt
 import jwt
 import requests
 from bson import ObjectId
-from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, Query, Header
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -127,6 +127,20 @@ def require_role(*roles):
             raise HTTPException(status_code=403, detail="Not allowed for your role")
         return user
     return checker
+
+
+async def user_from_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        user["id"] = str(user["_id"])
+        user.pop("_id", None)
+        user.pop("password_hash", None)
+        return user
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 # ------------------------- Models -------------------------
@@ -520,6 +534,84 @@ async def get_note(note_id: str, user: dict = Depends(get_current_user)):
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     return note
+
+
+# ------------------------- Materials (direct uploads, no AI) -------------------------
+_MIME = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+         "webp": "image/webp", "gif": "image/gif", "txt": "text/plain",
+         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+
+
+@api_router.post("/resources")
+async def create_resource(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    batch_id: str = Form(...),
+    class_level: str = Form(...),
+    subject: str = Form(...),
+    chapter: str = Form(""),
+    topic: str = Form(""),
+    user: dict = Depends(require_role("teacher", "admin")),
+):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin").lower()
+    ct = file.content_type or _MIME.get(ext, "application/octet-stream")
+    path = f"{APP_NAME}/resources/{user['id']}/{uuid.uuid4()}.{ext}"
+    put_object(path, data, ct)
+    doc = {"id": str(uuid.uuid4()), "title": title, "batch_id": batch_id, "batch_name": batch["name"],
+           "class_level": class_level, "subject": subject, "chapter": chapter, "topic": topic,
+           "storage_path": path, "filename": file.filename, "content_type": ct, "size": len(data),
+           "teacher_id": user["id"], "teacher_name": user["name"], "is_deleted": False,
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.resources.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/resources")
+async def list_resources(user: dict = Depends(get_current_user)):
+    q = {"is_deleted": False}
+    if user["role"] == "teacher":
+        q["teacher_id"] = user["id"]
+    elif user["role"] == "student":
+        q["batch_id"] = {"$in": user.get("batch_ids", [])}
+    items = await db.resources.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api_router.delete("/resources/{res_id}")
+async def delete_resource(res_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    res = await db.resources.find_one({"id": res_id}, {"_id": 0})
+    if not res:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user["role"] != "admin" and res["teacher_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your resource")
+    await db.resources.update_one({"id": res_id}, {"$set": {"is_deleted": True}})
+    return {"ok": True}
+
+
+@api_router.get("/resources/{res_id}/file")
+async def download_resource(res_id: str, authorization: str = Header(None), auth: str = Query(None)):
+    token = auth or (authorization[7:] if authorization and authorization.startswith("Bearer ") else None)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = await user_from_token(token)
+    res = await db.resources.find_one({"id": res_id, "is_deleted": False}, {"_id": 0})
+    if not res:
+        raise HTTPException(status_code=404, detail="Not found")
+    allowed = (user["role"] == "admin" or res["teacher_id"] == user["id"]
+               or (user["role"] == "student" and res["batch_id"] in user.get("batch_ids", [])))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="No access to this file")
+    content, ct = get_object(res["storage_path"])
+    return Response(content=content, media_type=res.get("content_type", ct),
+                    headers={"Content-Disposition": f'inline; filename="{res["filename"]}"'})
 
 
 # ------------------------- Tests / DPP -------------------------

@@ -15,6 +15,7 @@ import QuizRunner from "./pages/QuizRunner";
 import CreateNote from "./pages/CreateNote";
 import CreateQuiz from "./pages/CreateQuiz";
 import Batches from "./pages/Batches";
+import Materials from "./pages/Materials";
 
 function Shell({ children }) {
   return (
@@ -37,6 +38,7 @@ function App() {
             <Route path="/notes" element={<ProtectedRoute><Shell><NotesLibrary /></Shell></ProtectedRoute>} />
             <Route path="/notes/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateNote /></Shell></ProtectedRoute>} />
             <Route path="/notes/:id" element={<ProtectedRoute><Shell><NoteReader /></Shell></ProtectedRoute>} />
+            <Route path="/materials" element={<ProtectedRoute><Shell><Materials /></Shell></ProtectedRoute>} />
             <Route path="/tests" element={<ProtectedRoute><Shell><QuizList kind="test" /></Shell></ProtectedRoute>} />
             <Route path="/dpp" element={<ProtectedRoute><Shell><QuizList kind="dpp" /></Shell></ProtectedRoute>} />
             <Route path="/tests/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="test" /></Shell></ProtectedRoute>} />
