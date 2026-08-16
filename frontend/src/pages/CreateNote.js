@@ -49,7 +49,7 @@ export default function CreateNote() {
   return (
     <div className="max-w-3xl mx-auto">
       <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Teacher studio</span>
-      <h1 className="font-head text-3xl font-700 tracking-tight flex items-center gap-2 text-white">Create beautiful notes <Wand2 className="h-6 w-6 text-[#06B6D4]" /></h1>
+      <h1 className="font-head text-3xl font-700 tracking-tight flex items-center gap-2 text-white">Class Notes <Wand2 className="h-6 w-6 text-[#06B6D4]" /></h1>
       <p className="text-[#94A3B8] mt-2">Upload or paste rough notes. Our multi-pass AI restructures them into accurate, memorable notes with concept illustrations.</p>
 
       <div className="mt-5 flex items-center gap-2 text-sm text-[#34D399] bg-[#34D399]/10 border border-[#34D399]/30 rounded-2xl px-4 py-3">
