@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Figtree:wght@300;400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'Figtree', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #FDFDFD;
+    color: #2D3436;
+}
+
+h1, h2, h3, h4, .font-head {
+    font-family: 'Fredoka', sans-serif;
+}
+
+@layer base {
+    :root {
+        --background: 0 0% 99%;
+        --foreground: 200 9% 19%;
+        --card: 0 0% 100%;
+        --card-foreground: 200 9% 19%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 200 9% 19%;
+        --primary: 210 100% 73%;
+        --primary-foreground: 200 14% 16%;
+        --secondary: 48 100% 82%;
+        --secondary-foreground: 200 14% 16%;
+        --muted: 210 30% 96%;
+        --muted-foreground: 200 8% 42%;
+        --accent: 249 96% 80%;
+        --accent-foreground: 200 14% 16%;
+        --destructive: 0 74% 60%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 214 25% 90%;
+        --input: 214 25% 88%;
+        --ring: 210 100% 73%;
+        --radius: 1rem;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+.grain-bg {
+    background-color: #FDFDFD;
+    background-image: radial-gradient(#74b9ff14 1px, transparent 1px), radial-gradient(#a29bfe10 1px, transparent 1px);
+    background-size: 40px 40px, 40px 40px;
+    background-position: 0 0, 20px 20px;
+}
+
+.note-content {
+    line-height: 1.9;
+    white-space: pre-wrap;
+}
+
+@keyframes floaty {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+}
+.animate-floaty { animation: floaty 5s ease-in-out infinite; }

@@ -1,0 +1,103 @@
+{
+  "theme": "light",
+  "archetype": "VIBRANT PLAY + PASTEL & SOFT (Youth Coaching & Approachability)",
+  "typography": {
+    "headings_font": "Fredoka or Nunito (Playful, welcoming for teens)",
+    "body_font": "Figtree or Fira Sans (Clean, readable for dense test content)",
+    "rules": [
+      "NO Inter, Roboto, or Open Sans for headings.",
+      "Headlines (Size > 32px) MUST use tight letter spacing (tracking-tight).",
+      "Overlines / Labels MUST be Uppercase + Tiny + Wide Spacing.",
+      "Hierarchy gap rule: Jump between heading and subheading must not exceed 2 Tailwind steps.",
+      "Use large line-height (leading-relaxed or leading-loose) for AI-generated notes to improve readability."
+    ]
+  },
+  "colors": {
+    "primary": "#74B9FF",
+    "secondary": "#FFEAA7",
+    "accent": "#A29BFE",
+    "background": "#FDFDFD",
+    "text": "#2D3436",
+    "borders": "#E2E8F0",
+    "rules": [
+      "Strictly Light Theme (easy on the eyes).",
+      "The 'Tinted Grey' Rule: Never use pure #000000 or #808080. Always tint neutral greys.",
+      "Contrast Check: Normal text minimum 4.5:1 ratio. Dark slate text (#2D3436) on light pastels.",
+      "Hover state color must be a lighter hue of ACTIVE state color.",
+      "Use 'Neo-Brutalist' contrast: Pair soft pastels with solid/dark borders to avoid looking childish."
+    ]
+  },
+  "visual_enhancers": {
+    "surfaces": "Neumorphism (The 'Tactile' Variant) - mix soft shadows with sharp 1px borders.",
+    "borders": "Rounded corners (rounded-2xl to rounded-3xl) for friendly feel, paired with bold borders on interactive elements.",
+    "effects": "Subtle grain textures in the background to kill digital flatness. Soft ambient shadows (shadow-sm) on cards."
+  },
+  "grids_and_layouts": {
+    "dashboard_grid": "MODE B: High Density Bento Grid (grid-cols-1 md:grid-cols-3 lg:grid-cols-4). Tight gaps (gap-4 or gap-6) for DPPS and recent tests.",
+    "marketing_grid": "MODE A: Tetris Grid. Asymmetry, Visual Tension for landing/login pages.",
+    "spacing": "Generous Spacing Philosophy: Use 2-3x more spacing. Containers with borders MUST have internal padding (p-6 or p-8)."
+  },
+  "motion": {
+    "rules": [
+      "Micro-animations on hover (e.g., -translate-y-1, scale-105).",
+      "Entrance animations staggered for lists (DPP, tests).",
+      "Do NOT apply universal transitions (transition: all). Use specific properties (transition: transform 0.2s ease, opacity 0.2s ease)."
+    ]
+  },
+  "components": {
+    "general": [
+      "Use Shadcn UI for standard interactions (dropdowns, tabs, dialogs).",
+      "Forms: Shadcn Input, Select, Checkbox. Do NOT use native inputs.",
+      "Date Pickers for Test activation: Shadcn Calendar.",
+      "Toast: Sonner (import from /app/frontend/src/components/ui/sonner.jsx)."
+    ],
+    "custom": [
+      "AI Notes Reader: Wide reading layout, prominent concept images, distinct sections.",
+      "MCQ Test Runner: Sticky header with countdown timer, clean un-distracting layout.",
+      "Teacher Upload: Large dropzone area with clear supported formats (PDF/image/docx/text)."
+    ]
+  },
+  "accessibility": [
+    "All interactive elements MUST include data-testid (e.g., data-testid='upload-notes-button').",
+    "Focus states must have HIGHER contrast than default state.",
+    "Use semantic HTML tags."
+  ],
+  "media": {
+    "3d_libraries": "Framer Motion for simple card flips (like flashcards for notes) and page transitions.",
+    "icons": "lucide-react (default) or @phosphor-icons/react (Duotone) for a premium friendly feel.",
+    "image_urls": {
+      "student_studying": {
+        "url": "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwzfHx0ZWVuJTIwc3R1ZGVudCUyMHN0dWR5aW5nJTIwaGFwcHl8ZW58MHx8fHwxNzg2ODg0NzkwfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Teen student concentrating, good for student dashboard or landing page hero."
+      },
+      "teacher": {
+        "url": "https://images.unsplash.com/photo-1758685848226-eedca8f6bce7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHx0ZWFjaGVyJTIwYXQlMjBkZXNrJTIwc21pbGluZ3xlbnwwfHx8fDE3ODY4ODQ3OTB8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Teacher at desk smiling, perfect for teacher dashboard landing."
+      },
+      "abstract_shapes": {
+        "url": "https://images.pexels.com/photos/31622947/pexels-photo-31622947.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Colorful abstract 3D shapes for AI-generated concept notes imagery to make them beautiful and memorable."
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Do NOT use transparent backgrounds for headers or dropdowns. If content scrolls under, use Glassmorphism (backdrop-blur-xl bg-white/70) + 1px border.",
+    "Use pill-shaped or rounded modern buttons (rounded-full).",
+    "Never use AI emoji characters for icons.",
+    "Implement the UI using React, Tailwind CSS, and Shadcn UI (.jsx / .js files ONLY. NO .tsx).",
+    "Don't center everything. Left-align dense content.",
+    "Avoid the generic 'AI slop' look by combining soft pastels with bold, dark text and structural borders.",
+    "DO NOT overuse Shadcn cards for everything; go cardless or use flat borders for variety."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Create depth through layered design elements with z-index hierarchy.",
+    "You MUST NOT apply universal transition. Eg: transition: all.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use sonner for toasts (located in /app/frontend/src/components/ui/sonner.jsx)."
+  ]
+}
