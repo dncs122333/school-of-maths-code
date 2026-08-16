@@ -40,7 +40,7 @@ export default function NotesLibrary() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Library</span>
-          <h1 className="font-head text-3xl font-700 tracking-tight text-white">Beautiful Notes</h1>
+          <h1 className="font-head text-3xl font-700 tracking-tight text-white">Notes</h1>
         </div>
         {isTeacher && (
           <Button data-testid="new-note-btn" asChild className="rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA]">

@@ -26,7 +26,7 @@ export default function Navbar() {
           <div className="h-9 w-9 rounded-xl bg-[#3B82F6] flex items-center justify-center glow-blue">
             <Orbit className="h-5 w-5 text-white" />
           </div>
-          <span className="font-head font-700 text-xl tracking-tight text-white">Vidya<span className="text-[#06B6D4]">Lab</span></span>
+          <span className="font-head font-700 text-xl tracking-tight text-white">School of <span className="text-[#06B6D4]">Maths</span></span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
