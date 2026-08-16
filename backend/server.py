@@ -222,15 +222,18 @@ async def llm_generate_notes(payload: GenerateNoteInput) -> dict:
     1) Extract an exhaustive checklist of every fact/definition/formula/example.
     2) Generate structured beautiful notes that MUST cover every checklist item.
     3) Verify coverage; if anything is missing, generate extra sections to fill the gaps."""
-    ctx = (f"Class: {payload.class_level} | Subject: {payload.subject} | "
+    ctx = ("Board: CBSE — align strictly with the CBSE 2025-26 session (2026 board examination) syllabus "
+           "and the corresponding latest NCERT textbook. Use standard NCERT terminology, definitions, "
+           "SI units and formulas.\n"
+           f"Class: {payload.class_level} | Subject: {payload.subject} | "
            f"Chapter: {payload.chapter} | Topic: {payload.topic or 'General'}")
 
     # ---- Pass 1: exhaustive extraction ----
     checklist = []
     try:
         ex = await _gemini_json(
-            "You are a meticulous CBSE subject expert. You extract EVERY single piece of information "
-            "from source material without missing anything.",
+            "You are a meticulous CBSE subject expert on the 2025-26 (2026 board exam) syllabus and latest NCERT "
+            "textbooks. You extract EVERY single piece of information from source material without missing anything.",
             f"""{ctx}
 
 From the SOURCE below, extract an EXHAUSTIVE checklist of every atomic piece of information a student
@@ -250,7 +253,8 @@ Return ONLY valid JSON: {{"points": ["point 1", "point 2", "..."]}}""")
 
     # ---- Pass 2: generate beautiful notes covering the full checklist ----
     data = await _gemini_json(
-        "You are a beloved CBSE teacher who writes beautiful, accurate, memorable study notes for Class 9-10. "
+        "You are a beloved CBSE teacher who writes beautiful, accurate, memorable study notes for Class 9-10 "
+        "strictly aligned with the CBSE 2025-26 (2026 board exam) syllabus and the latest NCERT textbook. "
         "Accuracy is non-negotiable: never invent facts, never change any formula, value or definition, and "
         "NEVER omit a point from the checklist. Explain in simple language with analogies students remember.",
         f"""{ctx}
@@ -258,6 +262,10 @@ Return ONLY valid JSON: {{"points": ["point 1", "point 2", "..."]}}""")
 Write complete, beautiful study notes. You MUST cover EVERY item in the CHECKLIST below — do not drop any.
 Keep every formula, number and term exactly as given. Group related points into logical sections; use as many
 sections as needed (completeness matters more than brevity). Preserve formulas in the content text.
+Ensure the notes reflect the CBSE 2025-26 (2026 board exam) syllabus for this class, subject and chapter using
+standard NCERT definitions, terminology, SI units and formulas. If the uploaded source omits an essential
+board-syllabus point for this chapter, add it accurately (clearly integrated) so nothing important for the
+2026 exam is missing — but never contradict the source.
 
 CHECKLIST (cover all of these):
 {checklist_block}
