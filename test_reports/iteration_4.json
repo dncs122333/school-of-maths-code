@@ -1,0 +1,24 @@
+{
+  "summary": "Verified the AxiosError fix + new in-app PDF/Image viewer + chapter-folder grouping for Materials. Backend: added /app/backend/tests/test_resources.py (12 tests, 12 passed) covering upload of image+pdf, list scoping by teacher/student/outsider, Bearer + ?auth= download, 401/403 negatives, delete + soft-delete removal. Frontend E2E via Playwright on external REACT_APP_BACKEND_URL: teacher login -> upload PNG under 'Electricity' and PDF with no chapter -> folder-Electricity and folder-General render with data-testids; View for image opens material-viewer modal with <img src='blob:...'>; View for PDF opens modal with <iframe src='blob:...'> (visually confirmed rendering an empty PDF page in white iframe); download saved with original filename; delete works. Student login: sees only Materials Batch items, in-app viewer opens. Regression: brand='School of Maths', /notes /tests /dpp render in dark theme (bg rgb(11,15,25)). ZERO AxiosError and ZERO console errors captured while viewing/downloading.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_resources.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/resources.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Materials.js openView() sets viewable in the success branch but never uses it (dead field); consider removing to reduce state shape confusion.",
+    "Backend GET /api/resources/{id}/file still accepts ?auth=<jwt> query param even though the new frontend no longer uses it. Since the JWT is a long-lived session token, leaving the query-token path enabled keeps tokens in server access logs / browser history. Recommend removing the query auth path or switching to short-lived signed download tokens.",
+    "URL.createObjectURL blob is revoked 4s after click for download; if user cancels the save dialog on slow disks the URL may still leak. Consider revoking on 'a.onclick' completion via requestIdleCallback or after 'downloadstart' event only."
+  ],
+  "updated_files": ["/app/backend/tests/test_resources.py"],
+  "success_rate": {"backend": "100% (12/12 on test_resources.py + prior suite unaffected)", "frontend": "100%"},
+  "seed_data_creation": "During tests, created & then deleted: TEST *.png/pdf via backend suite; TEST QA Image, TEST QA PDF, QA PDF Alpha via Playwright (all cleaned via API DELETE at end).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@vidya.com/admin123, teacher@vidya.com/teacher123, student@vidya.com/student123",
+  "context_for_next_testing_agent": "Login route is /auth (NOT /login). Auth testids: tab-login/tab-register, email-input/password-input/auth-submit. Materials chapter folders render as [data-testid=folder-<chapterName>] and [data-testid=folder-General] for empty chapter. In-app viewer selector: [data-testid=material-viewer]; image -> img.src='blob:...'; PDF/txt -> iframe.src='blob:...'. Use precise [data-testid=view/download/delete-material-<id>] built from GET /api/resources ids -- 'has_text' filters can grab overlapping ancestor divs and cause overlay-intercepts-pointer errors when the viewer dialog is open. Backend GET /api/resources/{id}/file accepts BOTH Authorization: Bearer AND ?auth=<jwt>. Seed 'Chapter Notes' TXT under Electricity in Materials Batch may have been deleted across iterations; upload fresh test files as needed.",
+  "rca_of_the_issue": "Reported AxiosError was due to the previous implementation opening resource URLs in a new tab / hitting the endpoint without Authorization when the browser followed the link. Fix migrates openView() and download() to authenticated axios GET with responseType:'blob' + URL.createObjectURL, wrapped in try/catch with toast.error(formatApiErrorDetail(...)). Verified: no AxiosError/console error in 3 different flows (image view, pdf view, download). Modal iframe/img consume blob URLs so no additional auth round-trip is needed by the browser, eliminating the class of error entirely."
+}

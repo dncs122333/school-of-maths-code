@@ -11,7 +11,6 @@ api.interceptors.request.use((config) => {
 });
 
 export const mediaUrl = (path) => `${API}/media/${path}`;
-export const resourceFileUrl = (id) => `${API}/resources/${id}/file?auth=${localStorage.getItem("vidya_token") || ""}`;
 
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Something went wrong. Please try again.";

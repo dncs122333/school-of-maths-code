@@ -597,8 +597,8 @@ async def delete_resource(res_id: str, user: dict = Depends(require_role("teache
 
 
 @api_router.get("/resources/{res_id}/file")
-async def download_resource(res_id: str, authorization: str = Header(None), auth: str = Query(None)):
-    token = auth or (authorization[7:] if authorization and authorization.startswith("Bearer ") else None)
+async def download_resource(res_id: str, authorization: str = Header(None)):
+    token = authorization[7:] if authorization and authorization.startswith("Bearer ") else None
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user = await user_from_token(token)
