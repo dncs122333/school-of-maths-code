@@ -35,6 +35,8 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY')
+OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
+OPENROUTER_MODEL = os.environ.get('OPENROUTER_MODEL', 'nvidia/nemotron-3-ultra-550b-a55b:free')
 APP_NAME = "vidya"
 
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
@@ -163,6 +165,10 @@ class BatchInput(BaseModel):
 
 class JoinInput(BaseModel):
     code: str
+
+
+class AddStudentInput(BaseModel):
+    identifier: str
 
 
 class GenerateNoteInput(BaseModel):
@@ -330,19 +336,33 @@ Return ONLY valid JSON with extra sections:
     return data
 
 
+def _openrouter_sync(system: str, prompt: str) -> str:
+    resp = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
+        json={"model": OPENROUTER_MODEL,
+              "messages": [{"role": "system", "content": system},
+                           {"role": "user", "content": prompt}],
+              "temperature": 0.2},
+        timeout=110)
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+
+async def openrouter_json(system: str, prompt: str) -> dict:
+    txt = await asyncio.to_thread(_openrouter_sync, system, prompt)
+    return json.loads(_strip_json(txt))
+
+
 async def llm_generate_mcqs(payload: GenerateTestInput) -> list:
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"quiz-{uuid.uuid4()}",
-                   system_message=(
-                       "You are an expert exam setter. You convert raw question sheets into clean, "
-                       "competitive multiple-choice questions for CBSE Class 9-10."
-                   )).with_model("gemini", "gemini-3.1-pro-preview")
-    prompt = f"""Convert the following material into competitive MCQs.
-Class: {payload.class_level} | Subject: {payload.subject} | Chapter: {payload.chapter} | Topic: {payload.topic or 'General'}
+    """Generate MCQs via OpenRouter AND intelligently categorise each question by topic."""
+    prompt = f"""Convert the following material into competitive multiple-choice questions for CBSE Class 9-10.
+Class: {payload.class_level} | Subject: {payload.subject} | Chapter: {payload.chapter} | Overall topic: {payload.topic or 'General'}
 
 MATERIAL:
 {payload.raw_text}
 
+For EACH question, intelligently assign the most specific "topic" it tests within this chapter.
 Return ONLY valid JSON (no markdown fences) as:
 {{
   "questions": [
@@ -350,14 +370,22 @@ Return ONLY valid JSON (no markdown fences) as:
       "question": "string",
       "options": ["opt A", "opt B", "opt C", "opt D"],
       "correct_index": 0,
-      "explanation": "why this is correct"
+      "explanation": "why this is correct",
+      "topic": "the specific sub-topic this question tests"
     }}
   ]
 }}
-Rules: exactly 4 options each, correct_index is 0-3. If the material already has MCQs, preserve them. If it only has topics/questions, create good MCQs. Produce between 5 and 15 questions."""
-    resp = await chat.send_message(UserMessage(text=prompt))
-    data = json.loads(_strip_json(resp))
-    return data.get("questions", [])
+Rules: exactly 4 options each, correct_index is 0-3. If the material already has MCQs, preserve them; if it only has topics, create good MCQs. Produce between 5 and 15 questions. Every question MUST have a concise, specific 'topic'."""
+    data = await openrouter_json(
+        "You are an expert CBSE exam setter and question tagger. You write clean competitive MCQs and "
+        "label each with the precise sub-topic it assesses.", prompt)
+    questions = data.get("questions", [])
+    for q in questions:
+        q["category"] = {"class_level": payload.class_level, "subject": payload.subject,
+                         "chapter": payload.chapter,
+                         "topic": (q.get("topic") or payload.topic or "General").strip()}
+        q.pop("topic", None)
+    return questions
 
 
 async def gen_concept_image(prompt: str) -> Optional[str]:
@@ -469,8 +497,110 @@ async def join_batch(body: JoinInput, user: dict = Depends(require_role("student
     batch = await db.batches.find_one({"code": body.code.upper().strip()}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Invalid batch code")
-    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$addToSet": {"batch_ids": batch["id"]}})
+    if batch["id"] in user.get("batch_ids", []):
+        raise HTTPException(status_code=400, detail="You are already in this batch")
+    existing = await db.batch_requests.find_one({"batch_id": batch["id"], "student_id": user["id"], "status": "pending"})
+    if existing:
+        raise HTTPException(status_code=400, detail="Request already pending for this batch")
+    await db.batch_requests.insert_one({
+        "id": str(uuid.uuid4()), "batch_id": batch["id"], "batch_name": batch["name"],
+        "student_id": user["id"], "student_name": user["name"], "student_email": user["email"],
+        "status": "pending", "created_at": datetime.now(timezone.utc).isoformat()})
+    return {"status": "pending", "batch_name": batch["name"],
+            "message": "Request sent — waiting for teacher approval"}
+
+
+@api_router.get("/me/requests")
+async def my_requests(user: dict = Depends(require_role("student"))):
+    return await db.batch_requests.find({"student_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+
+async def _assert_batch_owner(batch_id: str, user: dict) -> dict:
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch["teacher_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your batch")
     return batch
+
+
+@api_router.get("/batches/{batch_id}/students")
+async def batch_students(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _assert_batch_owner(batch_id, user)
+    users = await db.users.find({"batch_ids": batch_id}, {"password_hash": 0}).to_list(500)
+    return [{"id": str(u["_id"]), "name": u["name"], "email": u["email"]} for u in users]
+
+
+@api_router.post("/batches/{batch_id}/students")
+async def add_student(batch_id: str, body: AddStudentInput, user: dict = Depends(require_role("teacher", "admin"))):
+    await _assert_batch_owner(batch_id, user)
+    ident = body.identifier.strip()
+    matches = await db.users.find({"role": "student", "$or": [
+        {"email": ident.lower()},
+        {"name": {"$regex": f"^{ident}$", "$options": "i"}},
+    ]}).to_list(20)
+    if not matches:
+        raise HTTPException(status_code=404, detail="No student found with that email or name")
+    if len(matches) > 1:
+        raise HTTPException(status_code=400, detail="Multiple students match that name — use their email instead")
+    target = matches[0]
+    if batch_id in target.get("batch_ids", []):
+        raise HTTPException(status_code=400, detail="Student already in this batch")
+    await db.users.update_one({"_id": target["_id"]}, {"$addToSet": {"batch_ids": batch_id}})
+    return {"id": str(target["_id"]), "name": target["name"], "email": target["email"]}
+
+
+@api_router.delete("/batches/{batch_id}/students/{student_id}")
+async def remove_student(batch_id: str, student_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _assert_batch_owner(batch_id, user)
+    await db.users.update_one({"_id": ObjectId(student_id)}, {"$pull": {"batch_ids": batch_id}})
+    return {"ok": True}
+
+
+@api_router.get("/batches/{batch_id}/requests")
+async def batch_requests(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _assert_batch_owner(batch_id, user)
+    return await db.batch_requests.find({"batch_id": batch_id, "status": "pending"}, {"_id": 0}).sort("created_at", 1).to_list(200)
+
+
+@api_router.post("/batches/{batch_id}/requests/{req_id}/{action}")
+async def act_request(batch_id: str, req_id: str, action: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _assert_batch_owner(batch_id, user)
+    if action not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+    req = await db.batch_requests.find_one({"id": req_id, "batch_id": batch_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if action == "approve":
+        await db.users.update_one({"_id": ObjectId(req["student_id"])}, {"$addToSet": {"batch_ids": batch_id}})
+    await db.batch_requests.update_one({"id": req_id}, {"$set": {"status": "approved" if action == "approve" else "rejected"}})
+    return {"ok": True, "status": action}
+
+
+@api_router.get("/batches/{batch_id}/analytics")
+async def batch_analytics(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _assert_batch_owner(batch_id, user)
+    students = await db.users.find({"batch_ids": batch_id}, {"password_hash": 0}).to_list(500)
+    out = []
+    for s in students:
+        sid = str(s["_id"])
+        stats = await db.topic_stats.find({"student_id": sid}, {"_id": 0}).to_list(1000)
+        by_subject = {}
+        weak_topics = []
+        for st in stats:
+            acc = st["correct"] / st["total"] if st["total"] else 0
+            bs = by_subject.setdefault(st["subject"], {"correct": 0, "total": 0})
+            bs["correct"] += st["correct"]; bs["total"] += st["total"]
+            if st["total"] >= 1 and acc < 0.6:
+                weak_topics.append({"subject": st["subject"], "chapter": st["chapter"],
+                                    "topic": st["topic"], "accuracy": round(acc * 100)})
+        weak_subjects = [{"subject": k, "accuracy": round(v["correct"] / v["total"] * 100)}
+                         for k, v in by_subject.items() if v["total"] and v["correct"] / v["total"] < 0.6]
+        taken = await db.submissions.count_documents({"student_id": sid})
+        out.append({"student_id": sid, "name": s["name"], "email": s["email"], "tests_taken": taken,
+                    "weak_subjects": weak_subjects,
+                    "weak_topics": sorted(weak_topics, key=lambda x: x["accuracy"])[:8]})
+    return out
 
 
 # ------------------------- Notes -------------------------
@@ -623,26 +753,35 @@ async def download_resource(res_id: str, authorization: str = Header(None)):
 
 
 # ------------------------- Tests / DPP -------------------------
+async def _process_test(test_id: str, body: GenerateTestInput):
+    try:
+        questions = await llm_generate_mcqs(body)
+        if not questions:
+            raise ValueError("No questions produced")
+        await db.tests.update_one({"id": test_id}, {"$set": {"questions": questions, "status": "ready"}})
+    except Exception as e:
+        logger.error(f"test processing failed: {e}")
+        await db.tests.update_one({"id": test_id}, {"$set": {"status": "failed", "error": str(e)[:200]}})
+
+
 @api_router.post("/tests")
 async def create_test(body: GenerateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
     if not body.raw_text.strip():
         raise HTTPException(status_code=400, detail="Content is empty")
-    questions = await llm_generate_mcqs(body)
-    if not questions:
-        raise HTTPException(status_code=400, detail="Could not build questions from the material")
     now = datetime.now(timezone.utc)
-    valid_from = now if body.activate_now else now
-    doc = {"id": str(uuid.uuid4()), "title": body.title, "kind": body.kind,
+    valid_from = now
+    tid = str(uuid.uuid4())
+    doc = {"id": tid, "title": body.title, "kind": body.kind,
            "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
            "topic": body.topic or "", "batch_id": body.batch_id,
            "duration_minutes": body.duration_minutes, "valid_hours": body.valid_hours,
            "valid_from": valid_from.isoformat(),
            "valid_until": (valid_from + timedelta(hours=body.valid_hours)).isoformat(),
-           "questions": questions, "teacher_id": user["id"], "teacher_name": user["name"],
+           "questions": [], "status": "processing", "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": now.isoformat()}
     await db.tests.insert_one(doc)
-    doc.pop("_id", None)
-    return {"id": doc["id"], "title": doc["title"], "question_count": len(questions)}
+    asyncio.create_task(_process_test(tid, body))
+    return {"id": tid, "status": "processing"}
 
 
 def _strip_answers(test: dict) -> dict:
@@ -663,6 +802,10 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         return tests
     if user["role"] == "student" and kind != "dpp":
         q["batch_id"] = {"$in": user.get("batch_ids", [])}
+    if user["role"] == "student":
+        q["status"] = {"$nin": ["processing", "failed"]}
+        if not kind:
+            q["kind"] = {"$ne": "personal"}
     tests = await db.tests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
     out = []
@@ -685,6 +828,10 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
     if not test:
         raise HTTPException(status_code=404, detail="Not found")
     if user["role"] == "student":
+        if test["kind"] == "personal" and test.get("student_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Not your test")
+        if test.get("status") in ("processing", "failed"):
+            raise HTTPException(status_code=409, detail="This test is still being prepared")
         if test["kind"] == "test":
             now = datetime.now(timezone.utc)
             if not (datetime.fromisoformat(test["valid_from"]) <= now <= datetime.fromisoformat(test["valid_until"])):
@@ -695,11 +842,43 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
     return test
 
 
+async def _record_performance(uid: str, test: dict, questions: list, review: list):
+    per = {}
+    for i, q in enumerate(questions):
+        cat = q.get("category") or {}
+        subj = cat.get("subject") or test.get("subject", "")
+        chap = cat.get("chapter") or test.get("chapter", "")
+        top = cat.get("topic") or test.get("topic") or "General"
+        cls = cat.get("class_level") or test.get("class_level", "")
+        r = review[i]
+        agg = per.setdefault((subj, chap, top), [0, 0])
+        agg[1] += 1
+        if r["is_correct"]:
+            agg[0] += 1
+            await db.wrong_questions.delete_one({"student_id": uid, "question": q["question"]})
+        else:
+            await db.wrong_questions.update_one(
+                {"student_id": uid, "question": q["question"]},
+                {"$set": {"student_id": uid, "question": q["question"], "options": q["options"],
+                          "correct_index": q["correct_index"], "explanation": q.get("explanation", ""),
+                          "subject": subj, "chapter": chap, "topic": top, "class_level": cls,
+                          "source_test_id": test["id"], "created_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True)
+    for (subj, chap, top), (c, tot) in per.items():
+        await db.topic_stats.update_one(
+            {"student_id": uid, "subject": subj, "chapter": chap, "topic": top},
+            {"$inc": {"correct": c, "total": tot}}, upsert=True)
+    return [{"subject": s, "chapter": c, "topic": t, "accuracy": round(cc / tt * 100), "total": tt, "correct": cc}
+            for (s, c, t), (cc, tt) in per.items() if tt and cc / tt < 0.6]
+
+
 @api_router.post("/tests/{test_id}/submit")
 async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(require_role("student"))):
     test = await db.tests.find_one({"id": test_id}, {"_id": 0})
     if not test:
         raise HTTPException(status_code=404, detail="Not found")
+    if test["kind"] == "personal" and test.get("student_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your test")
     if test["kind"] == "test" and await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
         raise HTTPException(status_code=403, detail="Already submitted")
     questions = test["questions"]
@@ -715,12 +894,13 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
                        "is_correct": is_ok})
     total = len(questions)
     score = round(correct / total * 100) if total else 0
-    sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
-           "student_id": user["id"], "student_name": user["name"], "score": score,
-           "correct": correct, "total": total, "created_at": datetime.now(timezone.utc).isoformat()}
     if test["kind"] == "test":
-        await db.submissions.insert_one(dict(sub))
-    return {"score": score, "correct": correct, "total": total, "review": review}
+        await db.submissions.insert_one({
+            "id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
+            "student_id": user["id"], "student_name": user["name"], "score": score,
+            "correct": correct, "total": total, "created_at": datetime.now(timezone.utc).isoformat()})
+    weak_points = await _record_performance(user["id"], test, questions, review)
+    return {"score": score, "correct": correct, "total": total, "review": review, "weak_points": weak_points}
 
 
 @api_router.get("/tests/{test_id}/leaderboard")
@@ -728,6 +908,76 @@ async def leaderboard(test_id: str, user: dict = Depends(get_current_user)):
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0}).sort("score", -1).to_list(200)
     return [{"student_name": s["student_name"], "score": s["score"], "correct": s["correct"],
              "total": s["total"]} for s in subs]
+
+
+# ------------------------- Adaptive (personalised weak-topic tests) -------------------------
+async def _build_personal_test(uid: str, uname: str, cls: str, subject: str, chapter: str, weak_topics: list):
+    weak_set = set(weak_topics)
+    # 1) wrong questions from this chapter (must re-ask), 2) reuse existing questions tagged to weak topics
+    picked, seen = [], set()
+    wrongs = await db.wrong_questions.find(
+        {"student_id": uid, "subject": subject, "chapter": chapter}, {"_id": 0}).to_list(200)
+    for w in wrongs:
+        if w["question"] in seen:
+            continue
+        seen.add(w["question"])
+        picked.append({"question": w["question"], "options": w["options"], "correct_index": w["correct_index"],
+                       "explanation": w.get("explanation", ""),
+                       "category": {"class_level": cls, "subject": subject, "chapter": chapter, "topic": w.get("topic", "")}})
+    bank = await db.tests.find({"kind": {"$in": ["test", "dpp"]}, "subject": subject, "chapter": chapter},
+                               {"_id": 0, "questions": 1}).to_list(500)
+    for t in bank:
+        for q in t.get("questions", []):
+            top = (q.get("category") or {}).get("topic", "")
+            if top in weak_set and q["question"] not in seen:
+                seen.add(q["question"])
+                picked.append({"question": q["question"], "options": q["options"], "correct_index": q["correct_index"],
+                               "explanation": q.get("explanation", ""),
+                               "category": {"class_level": cls, "subject": subject, "chapter": chapter, "topic": top}})
+            if len(picked) >= 15:
+                break
+        if len(picked) >= 15:
+            break
+    if not picked:
+        return None
+    doc = {"id": str(uuid.uuid4()), "kind": "personal", "student_id": uid,
+           "title": f"Weak-topic booster — {chapter}", "class_level": cls, "subject": subject,
+           "chapter": chapter, "topic": ", ".join(weak_topics)[:120], "batch_id": None,
+           "duration_minutes": 0, "weak_topics": weak_topics, "questions": picked[:15],
+           "teacher_name": "Adaptive Engine", "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.tests.insert_one(doc)
+    return doc
+
+
+@api_router.get("/adaptive")
+async def adaptive(user: dict = Depends(require_role("student"))):
+    uid = user["id"]
+    batch_ids = user.get("batch_ids", [])
+    tests = await db.tests.find({"kind": "test", "batch_id": {"$in": batch_ids}, "status": {"$nin": ["processing", "failed"]}},
+                                {"_id": 0, "id": 1, "class_level": 1, "subject": 1, "chapter": 1}).to_list(1000)
+    # group by chapter
+    chapters = {}
+    for t in tests:
+        key = (t["class_level"], t["subject"], t["chapter"])
+        chapters.setdefault(key, []).append(t["id"])
+    stats = await db.topic_stats.find({"student_id": uid}, {"_id": 0}).to_list(2000)
+    out = []
+    for (cls, subject, chapter), tids in chapters.items():
+        done = await db.submissions.count_documents({"student_id": uid, "test_id": {"$in": tids}})
+        is_complete = done >= len(tids) and len(tids) > 0
+        weak = sorted({st["topic"] for st in stats
+                       if st["subject"] == subject and st["chapter"] == chapter
+                       and st["total"] and st["correct"] / st["total"] < 0.6})
+        personal = await db.tests.find_one(
+            {"kind": "personal", "student_id": uid, "subject": subject, "chapter": chapter}, {"_id": 0})
+        if is_complete and weak and not personal:
+            personal = await _build_personal_test(uid, user["name"], cls, subject, chapter, weak)
+        out.append({"class_level": cls, "subject": subject, "chapter": chapter,
+                    "total_tests": len(tids), "completed": done, "is_complete": is_complete,
+                    "weak_topics": weak,
+                    "personal_test_id": personal["id"] if personal else None,
+                    "personal_question_count": len(personal["questions"]) if personal else 0})
+    return sorted(out, key=lambda x: (x["subject"], x["chapter"]))
 
 
 # ------------------------- Media -------------------------
