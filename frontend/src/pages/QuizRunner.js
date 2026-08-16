@@ -49,34 +49,35 @@ export default function QuizRunner() {
     return () => clearTimeout(t);
   }, [secs, result, doSubmit]);
 
-  if (!quiz) return <div className="py-20 text-center text-brand-ink/50">Loading…</div>;
+  if (!quiz) return <div className="py-20 text-center text-[#94A3B8]">Loading…</div>;
 
   // ---------- Result view ----------
   if (result) {
     return (
       <div className="max-w-2xl mx-auto">
-        <div className="rounded-3xl bg-brand-ink text-white p-8 text-center relative overflow-hidden">
-          <Trophy className="h-12 w-12 mx-auto text-brand-yellow" />
-          <div className="font-head text-5xl font-700 mt-3">{result.score}%</div>
-          <p className="text-white/70 mt-1">{result.correct} / {result.total} correct</p>
+        <div className="rounded-3xl bg-[#111827] border border-[#1E293B] p-8 text-center relative overflow-hidden">
+          <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full border border-dashed border-white/10 animate-spin-slow" />
+          <Trophy className="h-12 w-12 mx-auto text-[#FBBF24] relative" />
+          <div className="font-head text-5xl font-700 mt-3 text-white relative">{result.score}%</div>
+          <p className="text-[#94A3B8] mt-1 relative font-mono">{result.correct} / {result.total} correct</p>
         </div>
         <div className="mt-6 space-y-4">
           {result.review.map((q, i) => (
-            <div key={i} className="rounded-2xl bg-white border-2 border-brand-ink p-5">
+            <div key={i} className="rounded-2xl bg-[#111827] border border-[#1E293B] p-5">
               <div className="flex items-start gap-2">
-                {q.is_correct ? <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0 mt-0.5" /> : <XCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />}
-                <p className="font-600">{i + 1}. {q.question}</p>
+                {q.is_correct ? <CheckCircle2 className="h-5 w-5 text-[#34D399] shrink-0 mt-0.5" /> : <XCircle className="h-5 w-5 text-[#F87171] shrink-0 mt-0.5" />}
+                <p className="font-600 text-white">{i + 1}. {q.question}</p>
               </div>
               <div className="mt-3 space-y-1.5 pl-7">
                 {q.options.map((o, j) => (
-                  <div key={j} className={`text-sm px-3 py-2 rounded-xl border-2 ${j === q.correct_index ? "border-green-500 bg-green-50" : j === q.chosen ? "border-red-400 bg-red-50" : "border-transparent bg-muted"}`}>{o}</div>
+                  <div key={j} className={`text-sm px-3 py-2 rounded-xl border ${j === q.correct_index ? "border-[#34D399]/50 bg-[#34D399]/10 text-[#D1FAE5]" : j === q.chosen ? "border-[#F87171]/50 bg-[#F87171]/10 text-[#FECACA]" : "border-[#1E293B] bg-[#0B0F19] text-[#94A3B8]"}`}>{o}</div>
                 ))}
-                {q.explanation && <p className="text-sm text-brand-ink/60 mt-2">💡 {q.explanation}</p>}
+                {q.explanation && <p className="text-sm text-[#94A3B8] mt-2">✦ {q.explanation}</p>}
               </div>
             </div>
           ))}
         </div>
-        <Button data-testid="result-done-btn" onClick={() => nav(quiz.kind === "dpp" ? "/dpp" : "/tests")} className="w-full mt-6 rounded-full bg-brand-ink text-white font-700 h-11">Done</Button>
+        <Button data-testid="result-done-btn" onClick={() => nav(quiz.kind === "dpp" ? "/dpp" : "/tests")} className="w-full mt-6 rounded-full bg-[#3B82F6] text-white font-700 h-11 hover:bg-[#60A5FA]">Done</Button>
       </div>
     );
   }
@@ -85,18 +86,18 @@ export default function QuizRunner() {
   if (isTeacher) {
     return (
       <div className="max-w-2xl mx-auto">
-        <Button asChild variant="ghost" className="rounded-full mb-4 -ml-2"><Link to={quiz.kind === "dpp" ? "/dpp" : "/tests"}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Link></Button>
-        <h1 className="font-head text-2xl font-700">{quiz.title} <span className="text-sm font-500 text-brand-ink/50">(answer key)</span></h1>
+        <Button asChild variant="ghost" className="rounded-full mb-4 -ml-2 text-[#94A3B8] hover:text-white hover:bg-white/5"><Link to={quiz.kind === "dpp" ? "/dpp" : "/tests"}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Link></Button>
+        <h1 className="font-head text-2xl font-700 text-white">{quiz.title} <span className="text-sm font-500 text-[#94A3B8]">(answer key)</span></h1>
         <div className="mt-6 space-y-4">
           {quiz.questions.map((q, i) => (
-            <div key={i} className="rounded-2xl bg-white border-2 border-brand-ink p-5">
-              <p className="font-600">{i + 1}. {q.question}</p>
+            <div key={i} className="rounded-2xl bg-[#111827] border border-[#1E293B] p-5">
+              <p className="font-600 text-white">{i + 1}. {q.question}</p>
               <div className="mt-3 space-y-1.5">
                 {q.options.map((o, j) => (
-                  <div key={j} className={`text-sm px-3 py-2 rounded-xl border-2 ${j === q.correct_index ? "border-green-500 bg-green-50 font-600" : "border-transparent bg-muted"}`}>{o}</div>
+                  <div key={j} className={`text-sm px-3 py-2 rounded-xl border ${j === q.correct_index ? "border-[#34D399]/50 bg-[#34D399]/10 text-[#D1FAE5] font-600" : "border-[#1E293B] bg-[#0B0F19] text-[#94A3B8]"}`}>{o}</div>
                 ))}
               </div>
-              {q.explanation && <p className="text-sm text-brand-ink/60 mt-2">💡 {q.explanation}</p>}
+              {q.explanation && <p className="text-sm text-[#94A3B8] mt-2">✦ {q.explanation}</p>}
             </div>
           ))}
         </div>
@@ -116,26 +117,26 @@ export default function QuizRunner() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="sticky top-16 z-30 bg-white/85 backdrop-blur-xl border-2 border-brand-ink rounded-2xl p-4 mb-6 flex items-center justify-between gap-4">
+      <div className="sticky top-16 z-30 bg-[#0B0F19]/85 backdrop-blur-xl border border-[#1E293B] rounded-2xl p-4 mb-6 flex items-center justify-between gap-4">
         <div className="flex-1">
-          <div className="text-sm font-600 truncate">{quiz.title}</div>
-          <Progress value={(answered / quiz.questions.length) * 100} className="h-2 mt-1" />
+          <div className="text-sm font-600 truncate text-white">{quiz.title}</div>
+          <Progress value={(answered / quiz.questions.length) * 100} className="h-2 mt-1 bg-[#1E293B]" />
         </div>
         {!isDpp && secs !== null && (
-          <div data-testid="timer" className={`flex items-center gap-1.5 font-head font-700 text-lg px-3 py-1.5 rounded-xl border-2 border-brand-ink ${low ? "bg-red-100 text-red-600 animate-pulse" : "bg-brand-yellow"}`}>
+          <div data-testid="timer" className={`flex items-center gap-1.5 font-mono font-700 text-lg px-3 py-1.5 rounded-xl border ${low ? "bg-[#F87171]/15 border-[#F87171]/40 text-[#F87171] animate-pulse" : "bg-[#3B82F6]/10 border-[#3B82F6]/40 text-[#3B82F6]"}`}>
             <Clock className="h-4 w-4" /> {mm}:{ss}
           </div>
         )}
       </div>
 
-      <div className="rounded-3xl bg-white border-2 border-brand-ink p-6 sm:p-8">
-        <div className="text-xs uppercase tracking-widest text-brand-purple font-700 mb-2">Question {idx + 1} of {quiz.questions.length}</div>
-        <p className="font-head text-xl font-600 leading-snug">{q.question}</p>
+      <div className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
+        <div className="text-xs uppercase tracking-widest text-[#06B6D4] font-600 mb-2 font-mono">Question {idx + 1} of {quiz.questions.length}</div>
+        <p className="font-head text-xl font-600 leading-snug text-white">{q.question}</p>
         <div className="mt-6 space-y-3">
           {q.options.map((o, j) => (
             <button key={j} data-testid={`option-${j}`} onClick={() => pick(j)}
-              className={`w-full text-left px-4 py-3.5 rounded-2xl border-2 font-500 transition-colors flex items-center gap-3 ${answers[idx] === j ? "border-brand-ink bg-brand-blue/20" : "border-border hover:border-brand-ink/40"}`}>
-              <span className={`h-7 w-7 shrink-0 rounded-lg border-2 flex items-center justify-center text-sm font-700 ${answers[idx] === j ? "border-brand-ink bg-brand-ink text-white" : "border-brand-ink/20"}`}>{String.fromCharCode(65 + j)}</span>
+              className={`w-full text-left px-4 py-3.5 rounded-2xl border font-500 transition-colors flex items-center gap-3 ${answers[idx] === j ? "border-[#3B82F6] ring-2 ring-[#3B82F6] bg-[#3B82F6]/10 text-white" : "border-[#1E293B] bg-[#0B0F19] text-[#D1D5DB] hover:border-[#3B82F6]/40"}`}>
+              <span className={`h-7 w-7 shrink-0 rounded-lg border flex items-center justify-center text-sm font-700 font-mono ${answers[idx] === j ? "border-[#3B82F6] bg-[#3B82F6] text-white" : "border-[#1E293B] text-[#94A3B8]"}`}>{String.fromCharCode(65 + j)}</span>
               {o}
             </button>
           ))}
@@ -143,11 +144,11 @@ export default function QuizRunner() {
       </div>
 
       <div className="flex items-center justify-between mt-6 gap-3">
-        <Button data-testid="prev-btn" variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)} className="rounded-full border-2 border-brand-ink/15 font-600"><ChevronLeft className="h-4 w-4 mr-1" /> Prev</Button>
+        <Button data-testid="prev-btn" variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)} className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600"><ChevronLeft className="h-4 w-4 mr-1" /> Prev</Button>
         {idx < quiz.questions.length - 1 ? (
-          <Button data-testid="next-btn" onClick={() => setIdx((i) => i + 1)} className="rounded-full bg-brand-ink text-white font-600">Next <ChevronRight className="h-4 w-4 ml-1" /></Button>
+          <Button data-testid="next-btn" onClick={() => setIdx((i) => i + 1)} className="rounded-full bg-[#3B82F6] text-white font-600 hover:bg-[#60A5FA]">Next <ChevronRight className="h-4 w-4 ml-1" /></Button>
         ) : (
-          <Button data-testid="submit-quiz-btn" onClick={doSubmit} disabled={submitting} className="rounded-full bg-brand-blue text-brand-ink border-2 border-brand-ink font-700">{submitting ? "Submitting…" : "Submit"}</Button>
+          <Button data-testid="submit-quiz-btn" onClick={doSubmit} disabled={submitting} className="rounded-full bg-[#34D399] text-[#0B0F19] font-700 hover:bg-[#6EE7B7]">{submitting ? "Submitting…" : "Submit"}</Button>
         )}
       </div>
     </div>

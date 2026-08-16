@@ -30,20 +30,20 @@ export default function QuizList({ kind }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <span className="text-xs uppercase tracking-widest text-brand-purple font-700">{isDpp ? "Daily Practice" : "Assessments"}</span>
-          <h1 className="font-head text-3xl font-700 tracking-tight">{isDpp ? "Practice Problems" : "Timed Tests"}</h1>
+          <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">{isDpp ? "Daily Practice" : "Assessments"}</span>
+          <h1 className="font-head text-3xl font-700 tracking-tight text-white">{isDpp ? "Practice Problems" : "Timed Tests"}</h1>
         </div>
         {isTeacher && (
-          <Button data-testid="new-quiz-btn" asChild className="rounded-full bg-brand-blue text-brand-ink border-2 border-brand-ink font-700">
+          <Button data-testid="new-quiz-btn" asChild className="rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA]">
             <Link to={isDpp ? "/dpp/new" : "/tests/new"}><Plus className="h-4 w-4 mr-1" /> New {isDpp ? "DPP" : "test"}</Link>
           </Button>
         )}
       </div>
 
-      {loading ? <p className="text-brand-ink/50">Loading…</p> : items.length === 0 ? (
-        <div className="rounded-3xl border-2 border-dashed border-brand-ink/20 p-16 text-center">
-          {isDpp ? <Sparkles className="h-10 w-10 mx-auto text-brand-ink/30" /> : <FileQuestion className="h-10 w-10 mx-auto text-brand-ink/30" />}
-          <p className="mt-3 text-brand-ink/50">Nothing here yet{!isTeacher && ". Join a batch to get tests from your teacher."}</p>
+      {loading ? <p className="text-[#94A3B8]">Loading…</p> : items.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-[#1E293B] p-16 text-center">
+          {isDpp ? <Sparkles className="h-10 w-10 mx-auto text-[#94A3B8]/40" /> : <FileQuestion className="h-10 w-10 mx-auto text-[#94A3B8]/40" />}
+          <p className="mt-3 text-[#94A3B8]">Nothing here yet{!isTeacher && ". Join a batch to get tests from your teacher."}</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -52,36 +52,36 @@ export default function QuizList({ kind }) {
             const done = t.submitted;
             return (
               <motion.div key={t.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                className="rounded-3xl bg-white border-2 border-brand-ink p-6 flex flex-col">
+                className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[11px] font-700 uppercase tracking-wide px-2.5 py-1 rounded-full border-2 border-brand-ink bg-brand-yellow">{t.subject}</span>
+                  <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#06B6D4]/40 bg-[#06B6D4]/10 text-[#06B6D4]">{t.subject}</span>
                   {!isTeacher && (done
-                    ? <span className="flex items-center gap-1 text-xs font-700 text-green-600"><CheckCircle2 className="h-4 w-4" /> {t.score}%</span>
-                    : active ? <span className="flex items-center gap-1 text-xs font-700 text-brand-purple"><PlayCircle className="h-4 w-4" /> Live</span>
-                    : <span className="flex items-center gap-1 text-xs font-600 text-brand-ink/40"><Lock className="h-3.5 w-3.5" /> Closed</span>)}
+                    ? <span className="flex items-center gap-1 text-xs font-700 text-[#34D399]"><CheckCircle2 className="h-4 w-4" /> {t.score}%</span>
+                    : active ? <span className="flex items-center gap-1 text-xs font-700 text-[#3B82F6]"><PlayCircle className="h-4 w-4" /> Live</span>
+                    : <span className="flex items-center gap-1 text-xs font-600 text-[#94A3B8]/60"><Lock className="h-3.5 w-3.5" /> Closed</span>)}
                 </div>
-                <h3 className="font-head text-lg font-600 leading-snug">{t.title}</h3>
-                <div className="text-xs text-brand-ink/50 mt-1 font-500">Class {t.class_level} • {t.chapter}{t.topic ? ` • ${t.topic}` : ""}</div>
-                <div className="mt-4 flex items-center gap-3 text-xs text-brand-ink/60 font-500">
+                <h3 className="font-head text-lg font-600 leading-snug text-white">{t.title}</h3>
+                <div className="text-xs text-[#94A3B8] mt-1 font-500">Class {t.class_level} • {t.chapter}{t.topic ? ` • ${t.topic}` : ""}</div>
+                <div className="mt-4 flex items-center gap-3 text-xs text-[#94A3B8] font-500 font-mono">
                   <span className="flex items-center gap-1"><FileQuestion className="h-3.5 w-3.5" /> {t.question_count} Qs</span>
                   {!isDpp && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {t.duration_minutes} min</span>}
                 </div>
                 {!isTeacher && !isDpp && active && !done && (
-                  <div className="text-xs text-brand-purple font-600 mt-2">{timeLeft(t.valid_until)}</div>
+                  <div className="text-xs text-[#3B82F6] font-600 mt-2 font-mono">{timeLeft(t.valid_until)}</div>
                 )}
                 <div className="mt-5">
                   {isTeacher ? (
-                    <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="w-full rounded-full border-2 border-brand-ink/15 font-600">
+                    <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="w-full rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
                       <Link to={`/quiz/${t.id}`}>Preview</Link>
                     </Button>
                   ) : done ? (
-                    <Button disabled className="w-full rounded-full font-600" variant="secondary">Completed</Button>
+                    <Button disabled className="w-full rounded-full font-600 bg-[#1E293B] text-[#94A3B8]">Completed</Button>
                   ) : active ? (
-                    <Button data-testid={`start-quiz-${t.id}`} asChild className="w-full rounded-full bg-brand-ink text-white font-700">
+                    <Button data-testid={`start-quiz-${t.id}`} asChild className="w-full rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA]">
                       <Link to={`/quiz/${t.id}`}>{isDpp ? "Practice" : "Start test"}</Link>
                     </Button>
                   ) : (
-                    <Button disabled className="w-full rounded-full font-600" variant="secondary">Not active</Button>
+                    <Button disabled className="w-full rounded-full font-600 bg-[#1E293B] text-[#94A3B8]">Not active</Button>
                   )}
                 </div>
               </motion.div>

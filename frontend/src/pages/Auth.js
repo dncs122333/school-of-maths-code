@@ -5,7 +5,7 @@ import { formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { GraduationCap, BookOpen, Presentation } from "lucide-react";
+import { Orbit, BookOpen, Presentation } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Auth() {
@@ -33,20 +33,21 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen grain-bg flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-2 mb-8 cursor-pointer" onClick={() => nav("/")}>
-          <div className="h-10 w-10 rounded-xl bg-brand-blue flex items-center justify-center border-2 border-brand-ink">
-            <GraduationCap className="h-6 w-6 text-brand-ink" />
+    <div className="min-h-screen cosmic-bg flex items-center justify-center p-4">
+      <div className="w-full max-w-md relative">
+        <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-48 w-48 rounded-full border border-dashed border-white/10 animate-spin-slow" />
+        <div className="flex items-center justify-center gap-2.5 mb-8 cursor-pointer relative z-10" onClick={() => nav("/")}>
+          <div className="h-10 w-10 rounded-xl bg-[#3B82F6] flex items-center justify-center glow-blue">
+            <Orbit className="h-6 w-6 text-white" />
           </div>
-          <span className="font-head font-700 text-2xl tracking-tight">Vidya<span className="text-brand-purple">Lab</span></span>
+          <span className="font-head font-700 text-2xl tracking-tight text-white">Vidya<span className="text-[#06B6D4]">Lab</span></span>
         </div>
 
-        <div className="bg-white rounded-3xl border-2 border-brand-ink p-8">
-          <div className="flex gap-2 p-1 bg-muted rounded-full mb-6">
+        <div className="bg-[#111827] rounded-3xl border border-[#1E293B] p-8 relative z-10">
+          <div className="flex gap-2 p-1 bg-[#0B0F19] border border-[#1E293B] rounded-full mb-6">
             {["login", "register"].map((m) => (
               <button key={m} data-testid={`tab-${m}`} onClick={() => setMode(m)}
-                className={`flex-1 py-2 rounded-full text-sm font-600 capitalize transition-colors ${mode === m ? "bg-brand-ink text-white" : "text-brand-ink/60"}`}>
+                className={`flex-1 py-2 rounded-full text-sm font-600 capitalize transition-colors ${mode === m ? "bg-[#3B82F6] text-white" : "text-[#94A3B8]"}`}>
                 {m === "login" ? "Log in" : "Sign up"}
               </button>
             ))}
@@ -56,40 +57,40 @@ export default function Auth() {
             {mode === "register" && (
               <>
                 <div>
-                  <Label className="text-sm font-600">I am a</Label>
+                  <Label className="text-sm font-600 text-[#94A3B8]">I am a</Label>
                   <div className="grid grid-cols-2 gap-2 mt-1.5">
                     {[{ v: "student", icon: BookOpen, l: "Student" }, { v: "teacher", icon: Presentation, l: "Teacher" }].map((r) => (
                       <button type="button" key={r.v} data-testid={`role-${r.v}`} onClick={() => setRole(r.v)}
-                        className={`flex items-center justify-center gap-2 py-3 rounded-2xl border-2 font-600 transition-colors ${role === r.v ? "border-brand-ink bg-brand-blue/20" : "border-border text-brand-ink/60"}`}>
+                        className={`flex items-center justify-center gap-2 py-3 rounded-2xl border font-600 transition-colors ${role === r.v ? "border-[#3B82F6] bg-[#3B82F6]/10 text-white" : "border-[#1E293B] text-[#94A3B8]"}`}>
                         <r.icon className="h-4 w-4" /> {r.l}
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="name" className="text-sm font-600">Full name</Label>
-                  <Input id="name" data-testid="name-input" required className="rounded-xl mt-1.5" value={form.name}
+                  <Label htmlFor="name" className="text-sm font-600 text-[#94A3B8]">Full name</Label>
+                  <Input id="name" data-testid="name-input" required className="rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]" value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Aarav Sharma" />
                 </div>
               </>
             )}
             <div>
-              <Label htmlFor="email" className="text-sm font-600">Email</Label>
-              <Input id="email" data-testid="email-input" type="email" required className="rounded-xl mt-1.5" value={form.email}
+              <Label htmlFor="email" className="text-sm font-600 text-[#94A3B8]">Email</Label>
+              <Input id="email" data-testid="email-input" type="email" required className="rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]" value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
             </div>
             <div>
-              <Label htmlFor="password" className="text-sm font-600">Password</Label>
-              <Input id="password" data-testid="password-input" type="password" required className="rounded-xl mt-1.5" value={form.password}
+              <Label htmlFor="password" className="text-sm font-600 text-[#94A3B8]">Password</Label>
+              <Input id="password" data-testid="password-input" type="password" required className="rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]" value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
             </div>
             <Button data-testid="auth-submit" type="submit" disabled={busy}
-              className="w-full rounded-full bg-brand-blue text-brand-ink border-2 border-brand-ink font-700 hover:bg-brand-blue/80 h-11">
+              className="w-full rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA] h-11 glow-blue">
               {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
             </Button>
           </form>
           {mode === "login" && (
-            <p className="text-xs text-brand-ink/50 text-center mt-4">Admin demo: admin@vidya.com / admin123</p>
+            <p className="text-xs text-[#94A3B8]/70 text-center mt-4 font-mono">admin@vidya.com / admin123</p>
           )}
         </div>
       </div>

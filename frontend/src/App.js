@@ -18,7 +18,7 @@ import Batches from "./pages/Batches";
 
 function Shell({ children }) {
   return (
-    <div className="min-h-screen grain-bg">
+    <div className="min-h-screen cosmic-bg">
       <Navbar />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
     </div>
@@ -45,7 +45,7 @@ function App() {
             <Route path="/batches" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Batches /></Shell></ProtectedRoute>} />
           </Routes>
         </BrowserRouter>
-        <Toaster position="bottom-right" richColors />
+        <Toaster position="bottom-right" theme="dark" richColors />
       </AuthProvider>
     </div>
   );

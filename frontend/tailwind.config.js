@@ -13,18 +13,21 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)'
       },
       fontFamily: {
-        head: ['Fredoka', 'sans-serif'],
-        sans: ['Figtree', 'sans-serif'],
+        head: ['Outfit', 'sans-serif'],
+        sans: ['IBM Plex Sans', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
-        brand: {
-          blue: '#74B9FF',
-          yellow: '#FFEAA7',
-          purple: '#A29BFE',
-          ink: '#2D3436',
-          cream: '#FFF8E7',
-          mint: '#55EFC4',
-          pink: '#FF9FF3',
+        cosmic: {
+          bg: '#0B0F19',
+          card: '#111827',
+          reader: '#172033',
+          border: '#1E293B',
+          blue: '#3B82F6',
+          cyan: '#06B6D4',
+          amber: '#FBBF24',
+          text: '#F8FAFC',
+          sub: '#94A3B8',
         },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',

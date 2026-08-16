@@ -11,6 +11,7 @@ import json
 import base64
 import io
 import secrets
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -194,38 +195,116 @@ def _strip_json(text: str) -> str:
     return t
 
 
-async def llm_generate_notes(payload: GenerateNoteInput) -> dict:
+async def _gemini_json(system: str, prompt: str) -> dict:
     from emergentintegrations.llm.chat import LlmChat, UserMessage
-    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"notes-{uuid.uuid4()}",
-                   system_message=(
-                       "You are an expert CBSE teacher who turns rough notes into beautiful, "
-                       "memorable study notes for Class 9-10 students. Never drop any concept from the source. "
-                       "Make notes easy to remember with clear structure, analogies and mnemonics."
-                   )).with_model("gemini", "gemini-3.1-pro-preview")
-    prompt = f"""Convert the following rough notes into structured, beautiful study notes.
-Class: {payload.class_level} | Subject: {payload.subject} | Chapter: {payload.chapter} | Topic: {payload.topic or 'General'}
+    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"g-{uuid.uuid4()}",
+                   system_message=system).with_model("gemini", "gemini-3.1-pro-preview")
+    resp = await chat.send_message(UserMessage(text=prompt))
+    return json.loads(_strip_json(resp))
 
-RAW NOTES:
+
+async def llm_generate_notes(payload: GenerateNoteInput) -> dict:
+    """Multi-pass pipeline for maximum accuracy & completeness (time is not a constraint):
+    1) Extract an exhaustive checklist of every fact/definition/formula/example.
+    2) Generate structured beautiful notes that MUST cover every checklist item.
+    3) Verify coverage; if anything is missing, generate extra sections to fill the gaps."""
+    ctx = (f"Class: {payload.class_level} | Subject: {payload.subject} | "
+           f"Chapter: {payload.chapter} | Topic: {payload.topic or 'General'}")
+
+    # ---- Pass 1: exhaustive extraction ----
+    checklist = []
+    try:
+        ex = await _gemini_json(
+            "You are a meticulous CBSE subject expert. You extract EVERY single piece of information "
+            "from source material without missing anything.",
+            f"""{ctx}
+
+From the SOURCE below, extract an EXHAUSTIVE checklist of every atomic piece of information a student
+must learn: every definition, fact, law, formula (with exact symbols), unit, value/constant, classification,
+example, cause-effect, diagram idea and exception. Do not summarise or merge — list each point separately.
+Preserve all numbers, formulas and technical terms EXACTLY.
+
+SOURCE:
+{payload.raw_text}
+
+Return ONLY valid JSON: {{"points": ["point 1", "point 2", "..."]}}""")
+        checklist = [p for p in ex.get("points", []) if isinstance(p, str) and p.strip()]
+    except Exception as e:
+        logger.error(f"notes extraction pass failed: {e}")
+
+    checklist_block = "\n".join(f"- {p}" for p in checklist) if checklist else payload.raw_text
+
+    # ---- Pass 2: generate beautiful notes covering the full checklist ----
+    data = await _gemini_json(
+        "You are a beloved CBSE teacher who writes beautiful, accurate, memorable study notes for Class 9-10. "
+        "Accuracy is non-negotiable: never invent facts, never change any formula, value or definition, and "
+        "NEVER omit a point from the checklist. Explain in simple language with analogies students remember.",
+        f"""{ctx}
+
+Write complete, beautiful study notes. You MUST cover EVERY item in the CHECKLIST below — do not drop any.
+Keep every formula, number and term exactly as given. Group related points into logical sections; use as many
+sections as needed (completeness matters more than brevity). Preserve formulas in the content text.
+
+CHECKLIST (cover all of these):
+{checklist_block}
+
+ORIGINAL SOURCE (for extra context):
 {payload.raw_text}
 
 Return ONLY valid JSON (no markdown fences) with this exact schema:
 {{
   "title": "string",
-  "intro": "1-2 sentence friendly overview",
+  "intro": "2-3 sentence friendly overview",
   "sections": [
     {{
       "heading": "string",
-      "content": "clear explanation in simple language, may use \\n for line breaks",
-      "key_points": ["short bullet", "..."],
-      "image_prompt": "a short vivid description of a simple educational diagram/illustration for this concept, or empty string if not needed"
+      "content": "clear, accurate explanation in simple language; keep formulas exact; may use \\n for line breaks",
+      "key_points": ["short precise bullet", "..."],
+      "formulas": ["exact formula if any, else omit"],
+      "image_prompt": "short vivid description of a simple educational diagram for this concept, or empty string"
     }}
   ],
-  "mnemonics": ["memory trick 1", "..."],
-  "quick_revision": ["one-line takeaway", "..."]
-}}
-Keep 3-6 sections. Do not omit any concept present in the raw notes."""
-    resp = await chat.send_message(UserMessage(text=prompt))
-    data = json.loads(_strip_json(resp))
+  "mnemonics": ["memory trick", "..."],
+  "quick_revision": ["one-line takeaway per key idea", "..."]
+}}""")
+
+    # ---- Pass 3: coverage verification + gap fill ----
+    if checklist:
+        try:
+            covered_text = json.dumps({"sections": [{"heading": s.get("heading", ""),
+                                                      "content": s.get("content", ""),
+                                                      "key_points": s.get("key_points", [])}
+                                                     for s in data.get("sections", [])]})
+            verify = await _gemini_json(
+                "You are a strict QA reviewer ensuring no concept was missed in study notes.",
+                f"""Compare the CHECKLIST against the NOTES. List only checklist points that are NOT
+adequately covered in the notes (missing facts, formulas, values or definitions).
+
+CHECKLIST:
+{checklist_block}
+
+NOTES:
+{covered_text}
+
+Return ONLY valid JSON: {{"missing": ["missing point", "..."]}}""")
+            missing = [m for m in verify.get("missing", []) if isinstance(m, str) and m.strip()]
+            if missing:
+                fill = await _gemini_json(
+                    "You are a CBSE teacher adding the remaining points to study notes, accurately and clearly.",
+                    f"""{ctx}
+
+Add clear, accurate notes covering ONLY these previously-missed points. Keep formulas/values exact.
+
+MISSED POINTS:
+{chr(10).join('- ' + m for m in missing)}
+
+Return ONLY valid JSON with extra sections:
+{{"sections": [{{"heading": "string", "content": "string", "key_points": ["..."], "image_prompt": ""}}]}}""")
+                data.setdefault("sections", []).extend(fill.get("sections", []))
+        except Exception as e:
+            logger.error(f"notes verification pass failed: {e}")
+
+    data["_coverage"] = {"total_points": len(checklist)}
     return data
 
 
@@ -380,30 +459,43 @@ async def extract(file: UploadFile = File(...), user: dict = Depends(require_rol
     return {"text": text, "filename": file.filename}
 
 
+async def _process_note(note_id: str, body: GenerateNoteInput):
+    try:
+        data = await llm_generate_notes(body)
+        sections = data.get("sections", [])
+        img_done = 0
+        for s in sections:
+            p = (s.get("image_prompt") or "").strip()
+            if p and img_done < 4:
+                path = await gen_concept_image(p)
+                if path:
+                    s["image_path"] = path
+                    img_done += 1
+            s.pop("image_prompt", None)
+        await db.notes.update_one({"id": note_id}, {"$set": {
+            "title": body.title or data.get("title", "Untitled"),
+            "intro": data.get("intro", ""), "sections": sections,
+            "mnemonics": data.get("mnemonics", []), "quick_revision": data.get("quick_revision", []),
+            "coverage": data.get("_coverage", {}), "status": "ready"}})
+    except Exception as e:
+        logger.error(f"note processing failed: {e}")
+        await db.notes.update_one({"id": note_id}, {"$set": {"status": "failed", "error": str(e)[:200]}})
+
+
 @api_router.post("/notes")
 async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
     if not body.raw_text.strip():
         raise HTTPException(status_code=400, detail="Notes content is empty")
-    data = await llm_generate_notes(body)
-    sections = data.get("sections", [])
-    img_done = 0
-    for s in sections:
-        p = (s.get("image_prompt") or "").strip()
-        if p and img_done < 3:
-            path = await gen_concept_image(p)
-            if path:
-                s["image_path"] = path
-                img_done += 1
-        s.pop("image_prompt", None)
-    doc = {"id": str(uuid.uuid4()), "title": body.title or data.get("title", "Untitled"),
+    note_id = str(uuid.uuid4())
+    doc = {"id": note_id, "title": body.title or "Untitled",
            "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
-           "topic": body.topic or "", "intro": data.get("intro", ""), "sections": sections,
-           "mnemonics": data.get("mnemonics", []), "quick_revision": data.get("quick_revision", []),
+           "topic": body.topic or "", "intro": "", "sections": [], "mnemonics": [], "quick_revision": [],
+           "coverage": {}, "status": "processing",
            "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": datetime.now(timezone.utc).isoformat()}
     await db.notes.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    asyncio.create_task(_process_note(note_id, body))
+    return {"id": note_id, "status": "processing"}
 
 
 @api_router.get("/notes")
@@ -609,6 +701,13 @@ async def startup():
                                    "batch_ids": [], "created_at": datetime.now(timezone.utc).isoformat()})
     elif not verify_password(admin_pw, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_pw)}})
+    # Recover any notes left mid-generation if the worker restarted
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+        await db.notes.update_many({"status": "processing", "created_at": {"$lt": cutoff}},
+                                   {"$set": {"status": "failed", "error": "generation interrupted"}})
+    except Exception as e:
+        logger.error(f"note sweep failed: {e}")
     try:
         init_storage()
         logger.info("Storage initialized")

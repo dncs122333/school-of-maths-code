@@ -1,103 +1,71 @@
 {
-  "theme": "light",
-  "archetype": "VIBRANT PLAY + PASTEL & SOFT (Youth Coaching & Approachability)",
+  "theme": "Cosmic Observatory (High-Legibility Dark Theme)",
   "typography": {
-    "headings_font": "Fredoka or Nunito (Playful, welcoming for teens)",
-    "body_font": "Figtree or Fira Sans (Clean, readable for dense test content)",
-    "rules": [
-      "NO Inter, Roboto, or Open Sans for headings.",
-      "Headlines (Size > 32px) MUST use tight letter spacing (tracking-tight).",
-      "Overlines / Labels MUST be Uppercase + Tiny + Wide Spacing.",
-      "Hierarchy gap rule: Jump between heading and subheading must not exceed 2 Tailwind steps.",
-      "Use large line-height (leading-relaxed or leading-loose) for AI-generated notes to improve readability."
-    ]
+    "heading": "Outfit - Geometric and futuristic for stat numbers, test headers, and hero sections. Do not exceed text-6xl. Use tracking-tight.",
+    "body": "IBM Plex Sans - Highly legible for dense study material, long-form AI notes, and MCQ questions.",
+    "mono": "JetBrains Mono - For math formulas, DPP variables, code snippets, and the sticky countdown timer.",
+    "guidelines": "Avoid generic sans like Inter for headings. Keep reading content left-aligned with leading-relaxed."
   },
   "colors": {
-    "primary": "#74B9FF",
-    "secondary": "#FFEAA7",
-    "accent": "#A29BFE",
-    "background": "#FDFDFD",
-    "text": "#2D3436",
-    "borders": "#E2E8F0",
-    "rules": [
-      "Strictly Light Theme (easy on the eyes).",
-      "The 'Tinted Grey' Rule: Never use pure #000000 or #808080. Always tint neutral greys.",
-      "Contrast Check: Normal text minimum 4.5:1 ratio. Dark slate text (#2D3436) on light pastels.",
-      "Hover state color must be a lighter hue of ACTIVE state color.",
-      "Use 'Neo-Brutalist' contrast: Pair soft pastels with solid/dark borders to avoid looking childish."
-    ]
+    "background_app": "#0B0F19",
+    "surface_card": "#111827",
+    "surface_reader": "#172033",
+    "primary": "#3B82F6",
+    "accent_cyan": "#06B6D4",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "border_subtle": "#1E293B",
+    "guidelines": "Use 'Deep Space' dark theme. Avoid AI-slop purple-on-white gradients entirely. Use Cosmic Cyan (#06B6D4) for subtle glowing accents or interactive hover states."
   },
   "visual_enhancers": {
-    "surfaces": "Neumorphism (The 'Tactile' Variant) - mix soft shadows with sharp 1px borders.",
-    "borders": "Rounded corners (rounded-2xl to rounded-3xl) for friendly feel, paired with bold borders on interactive elements.",
-    "effects": "Subtle grain textures in the background to kill digital flatness. Soft ambient shadows (shadow-sm) on cards."
-  },
-  "grids_and_layouts": {
-    "dashboard_grid": "MODE B: High Density Bento Grid (grid-cols-1 md:grid-cols-3 lg:grid-cols-4). Tight gaps (gap-4 or gap-6) for DPPS and recent tests.",
-    "marketing_grid": "MODE A: Tetris Grid. Asymmetry, Visual Tension for landing/login pages.",
-    "spacing": "Generous Spacing Philosophy: Use 2-3x more spacing. Containers with borders MUST have internal padding (p-6 or p-8)."
-  },
-  "motion": {
-    "rules": [
-      "Micro-animations on hover (e.g., -translate-y-1, scale-105).",
-      "Entrance animations staggered for lists (DPP, tests).",
-      "Do NOT apply universal transitions (transition: all). Use specific properties (transition: transform 0.2s ease, opacity 0.2s ease)."
-    ]
+    "background_treatment": "Faint CSS-based constellation nodes or radial gradients (from #111827 to #0B0F19) to mimic deep space without distracting from reading.",
+    "surfaces": "Grid Borders style. 1px border-[#1E293B]. No heavy drop-shadows on dark mode, rely on sharp 1px borders.",
+    "orbital_accents": "Use 1px circular dashed borders (border-dashed border-white/10) placed behind stat tiles to resemble planetary orbits."
   },
   "components": {
-    "general": [
-      "Use Shadcn UI for standard interactions (dropdowns, tabs, dialogs).",
-      "Forms: Shadcn Input, Select, Checkbox. Do NOT use native inputs.",
-      "Date Pickers for Test activation: Shadcn Calendar.",
-      "Toast: Sonner (import from /app/frontend/src/components/ui/sonner.jsx)."
-    ],
-    "custom": [
-      "AI Notes Reader: Wide reading layout, prominent concept images, distinct sections.",
-      "MCQ Test Runner: Sticky header with countdown timer, clean un-distracting layout.",
-      "Teacher Upload: Large dropzone area with clear supported formats (PDF/image/docx/text)."
-    ]
+    "navigation": "Crystal Glass style: bg-[#0B0F19]/80 with backdrop-blur-xl and border-b border-[#1E293B].",
+    "buttons": "Pill-shaped for primary actions. Primary uses bg-[#3B82F6] with text-[#FFFFFF]. Hover must have lighter hue.",
+    "stat_tiles": "Flat surfaces with 1px borders. Integrate an orbital ring graphic behind the number.",
+    "mcq_runner": "Sticky glassmorphism header for the timer. Clear ring-2 ring-[#3B82F6] and bg-[#3B82F6]/10 for selected options to ensure accessibility.",
+    "ai_note_reader": "Max-w-3xl for optimal line length. Padding p-8 to p-12. Left-aligned paragraphs. Soft text contrast (#D1D5DB on #172033) for eye comfort."
   },
-  "accessibility": [
-    "All interactive elements MUST include data-testid (e.g., data-testid='upload-notes-button').",
-    "Focus states must have HIGHER contrast than default state.",
-    "Use semantic HTML tags."
-  ],
-  "media": {
-    "3d_libraries": "Framer Motion for simple card flips (like flashcards for notes) and page transitions.",
-    "icons": "lucide-react (default) or @phosphor-icons/react (Duotone) for a premium friendly feel.",
-    "image_urls": {
-      "student_studying": {
-        "url": "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwzfHx0ZWVuJTIwc3R1ZGVudCUyMHN0dWR5aW5nJTIwaGFwcHl8ZW58MHx8fHwxNzg2ODg0NzkwfDA&ixlib=rb-4.1.0&q=85",
-        "description": "Teen student concentrating, good for student dashboard or landing page hero."
-      },
-      "teacher": {
-        "url": "https://images.unsplash.com/photo-1758685848226-eedca8f6bce7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwyfHx0ZWFjaGVyJTIwYXQlMjBkZXNrJTIwc21pbGluZ3xlbnwwfHx8fDE3ODY4ODQ3OTB8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Teacher at desk smiling, perfect for teacher dashboard landing."
-      },
-      "abstract_shapes": {
-        "url": "https://images.pexels.com/photos/31622947/pexels-photo-31622947.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Colorful abstract 3D shapes for AI-generated concept notes imagery to make them beautiful and memorable."
-      }
+  "grids": "Use Mode B: High Density Grid (grid-cols-1 md:grid-cols-4) for dashboards. Use strict hierarchy. Every pixel utilized.",
+  "layouts": "Responsive grids. Center the AI Note Reader container but left-align its text. Keep Test Runner in immersive full-screen layout with sticky header.",
+  "motion": "Use 'Tracing Beam' linear progress for the countdown timer. Entrance animations should use subtle translate-y-2 to 0 and opacity fade-in.",
+  "accessibility": "Ensure contrast ratio of 4.5:1 for normal text. Active selection in MCQs must have background tint and bold border ring. Text over images must use bg-black/50 overlay.",
+  "media": "Use provided Unsplash images. Ensure images on mobile do not exceed max-h-[80vh].",
+  "3d_libraries": "Use 'ts-particles' for ultra-lightweight, slow-moving floating stardust in the background of the landing page ONLY (disable in reading/test areas to save battery and focus).",
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1555582874-cb3064e5be06?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHwyfHxzcGFjZSUyMG9ic2VydmF0b3J5JTIwbWlsa3klMjB3YXl8ZW58MHx8fHwxNzg2ODkzNDQ5fDA&ixlib=rb-4.1.0&q=85",
+      "category": "Hero / Landing Page",
+      "description": "Star formation over a dark observatory landscape. Represents discovery and the universe of knowledge."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1780414499597-b481f6d3e531?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwzfHxnZW9tZXRyeSUyMG1hdGglMjBhYnN0cmFjdHxlbnwwfHx8fDE3ODY4OTM0NDl8MA&ixlib=rb-4.1.0&q=85",
+      "category": "Math/Science Concept Decor",
+      "description": "Futuristic digital grid with floating geometric cubes. Use as a subtle visual for physics or maths note covers."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1758520145147-c30bc656f314?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHwyfHxzdHVkZW50JTIwc3R1ZHlpbmclMjBsYXRlJTIwbmlnaHR8ZW58MHx8fHwxNzg2ODkzNDQ5fDA&ixlib=rb-4.1.0&q=85",
+      "category": "Student Dashboard",
+      "description": "Student working late at a dimly lit desk. Represents dedication and fits the dark mode aesthetic."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1483401757487-2ced3fa77952?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwxfHxjb25zdGVsbGF0aW9uJTIwc3RhcnMlMjBkYXJrfGVufDB8fHx8MTc4Njg5MzQ0OXww&ixlib=rb-4.1.0&q=85",
+      "category": "Test Runner Background",
+      "description": "Deep dark starry night. Masked and used as a faint background texture behind the MCQ runner."
     }
-  },
-  "instructions_to_main_agent": [
-    "Do NOT use transparent backgrounds for headers or dropdowns. If content scrolls under, use Glassmorphism (backdrop-blur-xl bg-white/70) + 1px border.",
-    "Use pill-shaped or rounded modern buttons (rounded-full).",
-    "Never use AI emoji characters for icons.",
-    "Implement the UI using React, Tailwind CSS, and Shadcn UI (.jsx / .js files ONLY. NO .tsx).",
-    "Don't center everything. Left-align dense content.",
-    "Avoid the generic 'AI slop' look by combining soft pastels with bold, dark text and structural borders.",
-    "DO NOT overuse Shadcn cards for everything; go cardless or use flat borders for variety."
   ],
-  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
-    "Create depth through layered design elements with z-index hierarchy.",
-    "You MUST NOT apply universal transition. Eg: transition: all.",
-    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
-    "Always use modern button styles like pill-shaped, or sharp button with interaction animations.",
-    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
-    "Every interaction needs micro-animations - hover states, transitions.",
-    "Use 2-3x more spacing than feels comfortable.",
-    "Prioritize using pre-existing components from src/components/ui when applicable.",
-    "Use sonner for toasts (located in /app/frontend/src/components/ui/sonner.jsx)."
+  "instructions_to_main_agent": "Implement a space + science + maths aesthetic using a deep cosmic dark theme. Focus on extreme legibility for long study sessions by utilizing IBM Plex Sans for body text and soft text colors (Starlight White). Avoid generic purple gradients. Use ts-particles for the landing page hero. All dashboard grids must be tight and functional.",
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='start-test-button').",
+    "Do NOT use complete transparent backgrounds in header, overlays, or any surface that has content under it.",
+    "Do NOT apply 'transition: all'. Apply specific transitions like 'transition-colors' or 'transition-transform'.",
+    "Do NOT center-align the main App container (.App { text-align: center; } is FORBIDDEN). Left-align reading text.",
+    "Never use generic AI-slop purple-on-white gradients.",
+    "Do not use AI assistant Emoji characters (🤖🧠💭) for icons. Use lucide-react icons instead.",
+    "Use 2-3x more spacing (e.g., p-8, p-12) to ensure the interface doesn't feel cramped.",
+    "Use sonner for toasts. Do not use standard HTML selects or date inputs; use Shadcn equivalents."
   ]
 }
