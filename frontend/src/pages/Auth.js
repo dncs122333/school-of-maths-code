@@ -25,7 +25,7 @@ export default function Auth() {
     try {
       if (mode === "login") await login(form.email, form.password);
       else await register({ ...form, role });
-      toast.success("Welcome to VidyaLab!");
+      toast.success("Welcome to School of Maths!");
       nav("/dashboard");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -40,7 +40,7 @@ export default function Auth() {
           <div className="h-10 w-10 rounded-xl bg-[#3B82F6] flex items-center justify-center glow-blue">
             <Orbit className="h-6 w-6 text-white" />
           </div>
-          <span className="font-head font-700 text-2xl tracking-tight text-white">Vidya<span className="text-[#06B6D4]">Lab</span></span>
+          <span className="font-head font-700 text-2xl tracking-tight text-white"><span className="text-[#3B82F6]">School</span> <span className="text-[#F87171]">of</span> <span className="text-[#3B82F6]">Maths</span></span>
         </div>
 
         <div className="bg-[#111827] rounded-3xl border border-[#1E293B] p-8 relative z-10">
