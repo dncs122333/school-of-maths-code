@@ -78,7 +78,7 @@ export default function Landing() {
           clipMobile: '/assets/vid/smart_practice_mobile.mp4',
           accent: '#A78BFA',
           scroll: 1.6, linger: 0.45,
-          eyebrow: 'Personalized AI trained on your Weak Concepts',
+          eyebrow: 'Personalized Practice Engine',
           title: 'Smart Practice',
           body: 'Turn your Weak spots into your strongest topics with\nSmart Tests tailored just for you.',
           cta: {
