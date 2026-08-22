@@ -69,6 +69,18 @@ export default function Landing() {
           eyebrow: 'Personalized AI Power-up',
           title: 'Smart Analytics',
           body: 'No more Guessing!\nUncover your Weak Concepts, Fix them fast and Level Up.',
+        },
+        {
+          id: 'smart-practice', label: 'Smart Practice',
+          still: '/assets/smart_practice.webp',
+          stillMobile: '/assets/smart_practice_mobile.webp',
+          clip: '/assets/vid/smart_practice.mp4',
+          clipMobile: '/assets/vid/smart_practice_mobile.mp4',
+          accent: '#A78BFA',
+          scroll: 1.6, linger: 0.45,
+          eyebrow: 'Tailored for your Next Level',
+          title: 'Smart Practice',
+          body: 'Turn your Weak spots into your strongest topics with\nSmart Tests tailored just for you.',
           cta: {
             primary: { label: 'Start learning free', href: '/auth?mode=register' },
             secondary: { label: "I'm a teacher", href: '/auth?mode=register&role=teacher' }
