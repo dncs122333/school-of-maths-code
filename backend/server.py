@@ -12,6 +12,9 @@ import base64
 import io
 import secrets
 import asyncio
+import csv
+import hashlib
+import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -19,6 +22,7 @@ import bcrypt
 import jwt
 import requests
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, Query, Header
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
@@ -758,6 +762,155 @@ async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
     return subs
 
 
+# ------------------------- Question bank -------------------------
+DIFFICULTIES = ("easy", "medium", "hard")
+_VALID_STATUSES = ("active", "pending_review", "inactive")
+
+
+def _normalize_class(value: str) -> str:
+    """'Class 9' / 'Class 10' -> '9' / '10'. Falls back to any digits found."""
+    v = (value or "").strip()
+    m = re.search(r"(\d{1,2})", v)
+    return m.group(1) if m else v
+
+
+def _normalize_correct_option(value: str) -> Optional[int]:
+    """'Option B' / 'B' -> 1; also accepts numeric '1'-'4' -> 0-3."""
+    v = (value or "").strip().upper()
+    m = re.search(r"([A-D])", v)
+    if m:
+        return ord(m.group(1)) - ord("A")
+    m = re.search(r"([1-4])", v)
+    if m:
+        return int(m.group(1)) - 1
+    return None
+
+
+def _normalize_difficulty(value: str) -> str:
+    v = (value or "").strip().lower()
+    return v if v in DIFFICULTIES else "medium"
+
+
+def _dedup_key(question: str) -> str:
+    return hashlib.sha256(question.strip().lower().encode("utf-8")).hexdigest()
+
+
+def _flag_explanation_mismatch(explanation: str, correct_index: int) -> bool:
+    """Heuristic sanity check: if the explanation mentions exactly one distinct
+    'Option X' that differs from the answer key, flag the row for review.
+    (Catches Q9-style 'key says A but text says B' inconsistencies.)"""
+    if not explanation:
+        return False
+    letters = {m.group(1).upper() for m in re.finditer(r"option\s*([a-d])", explanation, re.IGNORECASE)}
+    if len(letters) == 1:
+        return (ord(next(iter(letters))) - ord("A")) != correct_index
+    return False
+
+
+@api_router.post("/questions/import")
+async def import_questions(
+    file: UploadFile = File(...),
+    status: str = Form("active"),
+    user: dict = Depends(require_role("teacher", "admin")),
+):
+    if status not in _VALID_STATUSES:
+        status = "active"
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File is not valid UTF-8 text")
+    try:
+        rows = list(csv.DictReader(io.StringIO(text)))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"CSV parse error: {e}")
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV contains no data rows")
+
+    imported = duplicates = flagged = 0
+    errors = []
+    now = datetime.now(timezone.utc).isoformat()
+    for i, row in enumerate(rows):
+        src_id = (row.get("ID") or "").strip() or str(i + 1)
+        question = (row.get("Question") or "").strip()
+        options = [(row.get("Option A") or "").strip(),
+                   (row.get("Option B") or "").strip(),
+                   (row.get("Option C") or "").strip(),
+                   (row.get("Option D") or "").strip()]
+        correct_index = _normalize_correct_option(row.get("Correct Option") or "")
+        class_level = _normalize_class(row.get("Class") or "")
+        subject = (row.get("Subject") or "").strip()
+        chapter = (row.get("Chapter") or "").strip()
+        topic = (row.get("Topic") or "").strip()
+        explanation = (row.get("Explanation") or "").strip()
+        difficulty = _normalize_difficulty(row.get("Difficulty") or "")
+
+        problems = []
+        if not question:
+            problems.append("empty question")
+        if any(not o for o in options):
+            problems.append("missing option text")
+        if correct_index is None:
+            problems.append("invalid 'Correct Option'")
+        if not class_level:
+            problems.append("missing class")
+        if not subject:
+            problems.append("missing subject")
+        if not chapter:
+            problems.append("missing chapter")
+        if problems:
+            errors.append({"row": i + 2, "source_id": src_id, "problems": problems})
+            continue
+
+        doc = {"id": str(uuid.uuid4()), "class_level": class_level, "subject": subject,
+               "chapter": chapter, "topic": topic, "question": question, "options": options,
+               "correct_index": correct_index, "explanation": explanation, "difficulty": difficulty,
+               "status": status, "source": "import", "source_id": src_id,
+               "dedup_key": _dedup_key(question), "created_by": user["id"], "created_at": now}
+        if _flag_explanation_mismatch(explanation, correct_index):
+            doc["status"] = "pending_review"
+            doc["flags"] = ["explanation_option_mismatch"]
+            flagged += 1
+        try:
+            await db.question_bank.insert_one(doc)
+            imported += 1
+        except DuplicateKeyError:
+            duplicates += 1
+
+    return {"imported": imported, "duplicates": duplicates, "flagged": flagged,
+            "errors": errors, "total_rows": len(rows)}
+
+
+@api_router.get("/questions")
+async def list_questions(class_level: Optional[str] = None, subject: Optional[str] = None,
+                         chapter: Optional[str] = None, topic: Optional[str] = None,
+                         difficulty: Optional[str] = None, status: Optional[str] = None,
+                         user: dict = Depends(require_role("teacher", "admin"))):
+    q = {}
+    if class_level:
+        q["class_level"] = class_level
+    if subject:
+        q["subject"] = subject
+    if chapter:
+        q["chapter"] = chapter
+    if topic:
+        q["topic"] = topic
+    if difficulty:
+        q["difficulty"] = difficulty
+    if status:
+        q["status"] = status
+    items = await db.question_bank.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return items
+
+
+@api_router.delete("/questions/{question_id}")
+async def delete_question(question_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    res = await db.question_bank.delete_one({"id": question_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
 # ------------------------- Media -------------------------
 @api_router.get("/media/{path:path}")
 async def media(path: str):
@@ -824,6 +977,14 @@ async def startup():
         await db.submissions.create_index([("test_id", 1), ("student_id", 1)])
     except Exception as e:
         logger.error(f"submissions index: {e}")
+    try:
+        await db.question_bank.create_index("dedup_key", unique=True)
+    except Exception as e:
+        logger.error(f"question_bank dedup index: {e}")
+    try:
+        await db.question_bank.create_index([("class_level", 1), ("subject", 1), ("chapter", 1)])
+    except Exception as e:
+        logger.error(f"question_bank filter index: {e}")
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@vidya.com").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})
