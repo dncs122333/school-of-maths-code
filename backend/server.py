@@ -190,6 +190,8 @@ class GenerateTestInput(BaseModel):
 
 class SubmitInput(BaseModel):
     answers: List[int]
+    times: Optional[List[float]] = None
+    tab_switches: Optional[int] = 0
 
 
 # ------------------------- LLM helpers -------------------------
@@ -669,7 +671,9 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
     for t in tests:
         vu = datetime.fromisoformat(t["valid_until"])
         vf = datetime.fromisoformat(t["valid_from"])
-        sub = await db.submissions.find_one({"test_id": t["id"], "student_id": user["id"]}, {"_id": 0})
+        subs = await db.submissions.find({"test_id": t["id"], "student_id": user["id"]}, {"_id": 0}) \
+            .sort("created_at", -1).to_list(1)
+        sub = subs[0] if subs else None
         out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
                     "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
                     "duration_minutes": t["duration_minutes"], "question_count": len(t.get("questions", [])),
@@ -703,24 +707,39 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
     if test["kind"] == "test" and await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
         raise HTTPException(status_code=403, detail="Already submitted")
     questions = test["questions"]
+    total = len(questions)
+
+    # Normalize answers to length == total (backward compatible with short/empty lists)
+    answers = list(body.answers)
+    answers = (answers + [-1] * total)[:total]
+
+    # Normalize per-question times (seconds); default 0.0 for missing entries
+    times = [round(float(t), 2) for t in (body.times or [])]
+    times = (times + [0.0] * total)[:total]
+
+    tab_switches = max(0, int(body.tab_switches or 0))
+
     correct = 0
     review = []
     for i, q in enumerate(questions):
-        chosen = body.answers[i] if i < len(body.answers) else -1
+        chosen = answers[i]
         is_ok = chosen == q["correct_index"]
         if is_ok:
             correct += 1
         review.append({"question": q["question"], "options": q["options"], "chosen": chosen,
                        "correct_index": q["correct_index"], "explanation": q.get("explanation", ""),
-                       "is_correct": is_ok})
-    total = len(questions)
+                       "is_correct": is_ok, "time_s": times[i]})
+
     score = round(correct / total * 100) if total else 0
+    status = "flagged" if tab_switches >= 3 else "submitted"
     sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
-           "student_id": user["id"], "student_name": user["name"], "score": score,
-           "correct": correct, "total": total, "created_at": datetime.now(timezone.utc).isoformat()}
-    if test["kind"] == "test":
-        await db.submissions.insert_one(dict(sub))
-    return {"score": score, "correct": correct, "total": total, "review": review}
+           "student_id": user["id"], "student_name": user["name"],
+           "answers": answers, "times": times, "tab_switches": tab_switches,
+           "score": score, "correct": correct, "total": total, "status": status,
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    # Tests store a single attempt; DPPs store every attempt for repeat history.
+    await db.submissions.insert_one(dict(sub))
+    return {"score": score, "correct": correct, "total": total, "review": review, "status": status}
 
 
 @api_router.get("/tests/{test_id}/leaderboard")
@@ -728,6 +747,15 @@ async def leaderboard(test_id: str, user: dict = Depends(get_current_user)):
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0}).sort("score", -1).to_list(200)
     return [{"student_name": s["student_name"], "score": s["score"], "correct": s["correct"],
              "total": s["total"]} for s in subs]
+
+
+@api_router.get("/tests/{test_id}/submissions")
+async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
+    q = {"test_id": test_id}
+    if user["role"] == "student":
+        q["student_id"] = user["id"]
+    subs = await db.submissions.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return subs
 
 
 # ------------------------- Media -------------------------
@@ -744,7 +772,7 @@ async def media(path: str):
 @api_router.get("/stats")
 async def stats(user: dict = Depends(get_current_user)):
     if user["role"] == "student":
-        subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).to_list(500)
+        subs = await db.submissions.find({"student_id": user["id"], "kind": "test"}, {"_id": 0}).to_list(500)
         avg = round(sum(s["score"] for s in subs) / len(subs)) if subs else 0
         return {"tests_taken": len(subs), "avg_score": avg,
                 "batches": await db.batches.count_documents({"id": {"$in": user.get("batch_ids", [])}}),
@@ -792,6 +820,10 @@ async def startup():
         await db.users.create_index("email", unique=True)
     except Exception as e:
         logger.error(f"index: {e}")
+    try:
+        await db.submissions.create_index([("test_id", 1), ("student_id", 1)])
+    except Exception as e:
+        logger.error(f"submissions index: {e}")
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@vidya.com").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

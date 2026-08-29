@@ -19,28 +19,59 @@ export default function QuizRunner() {
   const [secs, setSecs] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const submitted = useRef(false);
+  const timesRef = useRef([]);
+  const questionStartRef = useRef(Date.now());
+  const tabSwitchesRef = useRef(0);
+  const idxRef = useRef(0);
 
   useEffect(() => {
     api.get(`/tests/${id}`)
       .then((r) => {
         setQuiz(r.data);
         setAnswers(new Array(r.data.questions.length).fill(-1));
+        timesRef.current = new Array(r.data.questions.length).fill(0);
+        questionStartRef.current = Date.now();
         if (!isTeacher && r.data.kind === "test") setSecs(r.data.duration_minutes * 60);
       })
       .catch((e) => { toast.error(formatApiErrorDetail(e.response?.data?.detail)); nav(-1); });
   }, [id]);
 
+  useEffect(() => { idxRef.current = idx; }, [idx]);
+
+  const recordTime = useCallback(() => {
+    const now = Date.now();
+    const elapsed = (now - questionStartRef.current) / 1000;
+    timesRef.current[idxRef.current] = (timesRef.current[idxRef.current] || 0) + elapsed;
+    questionStartRef.current = now;
+  }, []);
+
+  // Track tab/window switches as an anti-cheat signal (flag >= 3 server-side).
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === "hidden") tabSwitchesRef.current += 1;
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, []);
+
+  const goTo = useCallback((i) => { recordTime(); setIdx(i); }, [recordTime]);
+
   const doSubmit = useCallback(async () => {
     if (submitted.current) return;
     submitted.current = true;
     setSubmitting(true);
+    recordTime();
     try {
-      const r = await api.post(`/tests/${id}/submit`, { answers });
+      const r = await api.post(`/tests/${id}/submit`, {
+        answers,
+        times: timesRef.current,
+        tab_switches: tabSwitchesRef.current,
+      });
       setResult(r.data);
       window.scrollTo(0, 0);
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); submitted.current = false; }
     finally { setSubmitting(false); }
-  }, [answers, id]);
+  }, [answers, id, recordTime]);
 
   useEffect(() => {
     if (secs === null || result) return;
@@ -144,9 +175,9 @@ export default function QuizRunner() {
       </div>
 
       <div className="flex items-center justify-between mt-6 gap-3">
-        <Button data-testid="prev-btn" variant="outline" disabled={idx === 0} onClick={() => setIdx((i) => i - 1)} className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600"><ChevronLeft className="h-4 w-4 mr-1" /> Prev</Button>
+        <Button data-testid="prev-btn" variant="outline" disabled={idx === 0} onClick={() => goTo(idx - 1)} className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600"><ChevronLeft className="h-4 w-4 mr-1" /> Prev</Button>
         {idx < quiz.questions.length - 1 ? (
-          <Button data-testid="next-btn" onClick={() => setIdx((i) => i + 1)} className="rounded-full bg-[#3B82F6] text-white font-600 hover:bg-[#60A5FA]">Next <ChevronRight className="h-4 w-4 ml-1" /></Button>
+          <Button data-testid="next-btn" onClick={() => goTo(idx + 1)} className="rounded-full bg-[#3B82F6] text-white font-600 hover:bg-[#60A5FA]">Next <ChevronRight className="h-4 w-4 ml-1" /></Button>
         ) : (
           <Button data-testid="submit-quiz-btn" onClick={doSubmit} disabled={submitting} className="rounded-full bg-[#34D399] text-[#0B0F19] font-700 hover:bg-[#6EE7B7]">{submitting ? "Submitting…" : "Submit"}</Button>
         )}
