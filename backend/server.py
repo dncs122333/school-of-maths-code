@@ -1,14 +1,7 @@
-from dotenv import load_dotenv
-from pathlib import Path
+"""VidyaLab API entrypoint (FastAPI). Routes + startup; core logic lives in modules."""
 import os
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-import logging
 import uuid
 import json
-import base64
 import io
 import secrets
 import asyncio
@@ -19,395 +12,22 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-import bcrypt
-import jwt
-import requests
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
-from lib.mastery import compute_topic_mastery
-from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, Query, Header
+from pydantic import BaseModel
+
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Header
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("vidya")
-
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
-JWT_SECRET = os.environ['JWT_SECRET']
-JWT_ALGORITHM = "HS256"
-EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY')
-APP_NAME = "vidya"
-
-STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
-STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
-storage_key = None
+from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES
+from db import db, api_router
+from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput
+from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
+from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
+from lib.mastery import compute_topic_mastery
 
 app = FastAPI()
-api_router = APIRouter(prefix="/api")
-
-
-# ------------------------- Storage helpers -------------------------
-def init_storage(force: bool = False):
-    global storage_key
-    if storage_key and not force:
-        return storage_key
-    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
-    resp.raise_for_status()
-    storage_key = resp.json()["storage_key"]
-    return storage_key
-
-
-def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
-    resp = requests.put(f"{STORAGE_URL}/objects/{path}",
-                        headers={"X-Storage-Key": key, "Content-Type": content_type},
-                        data=data, timeout=120)
-    if resp.status_code == 404:
-        key = init_storage(force=True)
-        resp = requests.put(f"{STORAGE_URL}/objects/{path}",
-                            headers={"X-Storage-Key": key, "Content-Type": content_type},
-                            data=data, timeout=120)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def get_object(path: str):
-    key = init_storage()
-    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    if resp.status_code == 404:
-        key = init_storage(force=True)
-        resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
-
-
-# ------------------------- Auth helpers -------------------------
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-    except Exception:
-        return False
-
-
-def create_access_token(user_id: str, email: str, role: str) -> str:
-    payload = {"sub": user_id, "email": email, "role": role,
-               "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-
-async def get_current_user(request: Request) -> dict:
-    token = request.cookies.get("access_token")
-    if not token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        user["id"] = str(user["_id"])
-        user.pop("_id", None)
-        user.pop("password_hash", None)
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
-def require_role(*roles):
-    async def checker(user: dict = Depends(get_current_user)):
-        if user["role"] not in roles:
-            raise HTTPException(status_code=403, detail="Not allowed for your role")
-        return user
-    return checker
-
-
-async def user_from_token(token: str) -> dict:
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        user["id"] = str(user["_id"])
-        user.pop("_id", None)
-        user.pop("password_hash", None)
-        return user
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
-# ------------------------- Models -------------------------
-class RegisterInput(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-    role: str = "student"
-
-
-class LoginInput(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class BatchInput(BaseModel):
-    name: str
-    class_level: str
-
-
-class JoinInput(BaseModel):
-    code: str
-
-
-class GenerateNoteInput(BaseModel):
-    title: str
-    class_level: str
-    subject: str
-    chapter: str
-    topic: Optional[str] = ""
-    raw_text: str
-
-
-class GenerateTestInput(BaseModel):
-    title: str
-    kind: str = "test"
-    class_level: str
-    subject: str
-    chapter: str
-    topic: Optional[str] = ""
-    batch_id: Optional[str] = None
-    question_count: int = 10
-    duration_minutes: int = 20
-    valid_hours: int = 24
-    activate_now: bool = True
-
-
-class SubmitInput(BaseModel):
-    answers: List[int]
-    times: Optional[List[float]] = None
-    tab_switches: Optional[int] = 0
-
-
-# ------------------------- LLM helpers -------------------------
-def _strip_json(text: str) -> str:
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.split("```", 2)[1] if "```" in t else t
-        if t.startswith("json"):
-            t = t[4:]
-    t = t.strip().strip("`").strip()
-    start = t.find("{")
-    if start > 0:
-        t = t[start:]
-    end = t.rfind("}")
-    if end != -1:
-        t = t[:end + 1]
-    return t
-
-
-async def _gemini_json(system: str, prompt: str) -> dict:
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"g-{uuid.uuid4()}",
-                   system_message=system).with_model("gemini", "gemini-3.1-pro-preview")
-    resp = await chat.send_message(UserMessage(text=prompt))
-    return json.loads(_strip_json(resp))
-
-
-async def llm_generate_notes(payload: GenerateNoteInput) -> dict:
-    """Multi-pass pipeline for maximum accuracy & completeness (time is not a constraint):
-    1) Extract an exhaustive checklist of every fact/definition/formula/example.
-    2) Generate structured beautiful notes that MUST cover every checklist item.
-    3) Verify coverage; if anything is missing, generate extra sections to fill the gaps."""
-    ctx = ("Board: CBSE — align strictly with the CBSE 2025-26 session (2026 board examination) syllabus "
-           "and the corresponding latest NCERT textbook. Use standard NCERT terminology, definitions, "
-           "SI units and formulas.\n"
-           f"Class: {payload.class_level} | Subject: {payload.subject} | "
-           f"Chapter: {payload.chapter} | Topic: {payload.topic or 'General'}")
-
-    # ---- Pass 1: exhaustive extraction ----
-    checklist = []
-    try:
-        ex = await _gemini_json(
-            "You are a meticulous CBSE subject expert on the 2025-26 (2026 board exam) syllabus and latest NCERT "
-            "textbooks. You extract EVERY single piece of information from source material without missing anything.",
-            f"""{ctx}
-
-From the SOURCE below, extract an EXHAUSTIVE checklist of every atomic piece of information a student
-must learn: every definition, fact, law, formula (with exact symbols), unit, value/constant, classification,
-example, cause-effect, diagram idea and exception. Do not summarise or merge — list each point separately.
-Preserve all numbers, formulas and technical terms EXACTLY.
-
-SOURCE:
-{payload.raw_text}
-
-Return ONLY valid JSON: {{"points": ["point 1", "point 2", "..."]}}""")
-        checklist = [p for p in ex.get("points", []) if isinstance(p, str) and p.strip()]
-    except Exception as e:
-        logger.error(f"notes extraction pass failed: {e}")
-
-    checklist_block = "\n".join(f"- {p}" for p in checklist) if checklist else payload.raw_text
-
-    # ---- Pass 2: generate beautiful notes covering the full checklist ----
-    data = await _gemini_json(
-        "You are a beloved CBSE teacher who writes beautiful, accurate, memorable study notes for Class 9-10 "
-        "strictly aligned with the CBSE 2025-26 (2026 board exam) syllabus and the latest NCERT textbook. "
-        "Accuracy is non-negotiable: never invent facts, never change any formula, value or definition, and "
-        "NEVER omit a point from the checklist. Explain in simple language with analogies students remember.",
-        f"""{ctx}
-
-Write complete, beautiful study notes. You MUST cover EVERY item in the CHECKLIST below — do not drop any.
-Keep every formula, number and term exactly as given. Group related points into logical sections; use as many
-sections as needed (completeness matters more than brevity). Preserve formulas in the content text.
-Ensure the notes reflect the CBSE 2025-26 (2026 board exam) syllabus for this class, subject and chapter using
-standard NCERT definitions, terminology, SI units and formulas. If the uploaded source omits an essential
-board-syllabus point for this chapter, add it accurately (clearly integrated) so nothing important for the
-2026 exam is missing — but never contradict the source.
-
-CHECKLIST (cover all of these):
-{checklist_block}
-
-ORIGINAL SOURCE (for extra context):
-{payload.raw_text}
-
-Return ONLY valid JSON (no markdown fences) with this exact schema:
-{{
-  "title": "string",
-  "intro": "2-3 sentence friendly overview",
-  "sections": [
-    {{
-      "heading": "string",
-      "content": "clear, accurate explanation in simple language; keep formulas exact; may use \\n for line breaks",
-      "key_points": ["short precise bullet", "..."],
-      "formulas": ["exact formula if any, else omit"],
-      "image_prompt": "short vivid description of a simple educational diagram for this concept, or empty string"
-    }}
-  ],
-  "mnemonics": ["memory trick", "..."],
-  "quick_revision": ["one-line takeaway per key idea", "..."]
-}}""")
-
-    # ---- Pass 3: coverage verification + gap fill ----
-    if checklist:
-        try:
-            covered_text = json.dumps({"sections": [{"heading": s.get("heading", ""),
-                                                      "content": s.get("content", ""),
-                                                      "key_points": s.get("key_points", [])}
-                                                     for s in data.get("sections", [])]})
-            verify = await _gemini_json(
-                "You are a strict QA reviewer ensuring no concept was missed in study notes.",
-                f"""Compare the CHECKLIST against the NOTES. List only checklist points that are NOT
-adequately covered in the notes (missing facts, formulas, values or definitions).
-
-CHECKLIST:
-{checklist_block}
-
-NOTES:
-{covered_text}
-
-Return ONLY valid JSON: {{"missing": ["missing point", "..."]}}""")
-            missing = [m for m in verify.get("missing", []) if isinstance(m, str) and m.strip()]
-            if missing:
-                fill = await _gemini_json(
-                    "You are a CBSE teacher adding the remaining points to study notes, accurately and clearly.",
-                    f"""{ctx}
-
-Add clear, accurate notes covering ONLY these previously-missed points. Keep formulas/values exact.
-
-MISSED POINTS:
-{chr(10).join('- ' + m for m in missing)}
-
-Return ONLY valid JSON with extra sections:
-{{"sections": [{{"heading": "string", "content": "string", "key_points": ["..."], "image_prompt": ""}}]}}""")
-                data.setdefault("sections", []).extend(fill.get("sections", []))
-        except Exception as e:
-            logger.error(f"notes verification pass failed: {e}")
-
-    data["_coverage"] = {"total_points": len(checklist)}
-    return data
-
-
-async def llm_generate_mcqs(payload: GenerateTestInput) -> list:
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"quiz-{uuid.uuid4()}",
-                   system_message=(
-                       "You are an expert exam setter. You convert raw question sheets into clean, "
-                       "competitive multiple-choice questions for CBSE Class 9-10."
-                   )).with_model("gemini", "gemini-3.1-pro-preview")
-    prompt = f"""Convert the following material into competitive MCQs.
-Class: {payload.class_level} | Subject: {payload.subject} | Chapter: {payload.chapter} | Topic: {payload.topic or 'General'}
-
-MATERIAL:
-{payload.raw_text}
-
-Return ONLY valid JSON (no markdown fences) as:
-{{
-  "questions": [
-    {{
-      "question": "string",
-      "options": ["opt A", "opt B", "opt C", "opt D"],
-      "correct_index": 0,
-      "explanation": "why this is correct"
-    }}
-  ]
-}}
-Rules: exactly 4 options each, correct_index is 0-3. If the material already has MCQs, preserve them. If it only has topics/questions, create good MCQs. Produce between 5 and 15 questions."""
-    resp = await chat.send_message(UserMessage(text=prompt))
-    data = json.loads(_strip_json(resp))
-    return data.get("questions", [])
-
-
-async def gen_concept_image(prompt: str) -> Optional[str]:
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"img-{uuid.uuid4()}",
-                       system_message="You create clean, colorful educational illustrations.")
-        chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
-        msg = UserMessage(text=(
-            f"A clean, friendly, colorful educational diagram illustration for a CBSE study note. "
-            f"Concept: {prompt}. Flat vector style, pastel colors, clear labels, white background, no text paragraphs."
-        ))
-        _, images = await chat.send_message_multimodal_response(msg)
-        if not images:
-            return None
-        img = images[0]
-        image_bytes = base64.b64decode(img["data"])
-        path = f"{APP_NAME}/notes/{uuid.uuid4()}.png"
-        put_object(path, image_bytes, img.get("mime_type", "image/png"))
-        return path
-    except Exception as e:
-        logger.error(f"image gen failed: {e}")
-        return None
-
-
-def extract_text_from_file(filename: str, data: bytes) -> str:
-    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
-    try:
-        if ext == "pdf":
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(data))
-            return "\n".join((p.extract_text() or "") for p in reader.pages)
-        if ext in ("docx",):
-            import docx
-            d = docx.Document(io.BytesIO(data))
-            return "\n".join(p.text for p in d.paragraphs)
-        if ext in ("txt", "md"):
-            return data.decode("utf-8", errors="ignore")
-    except Exception as e:
-        logger.error(f"extract failed: {e}")
-    return ""
-
 
 # ------------------------- Auth routes -------------------------
 @api_router.post("/auth/register")
@@ -651,7 +271,7 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
     if body.question_count < 1:
         raise HTTPException(status_code=400, detail="question_count must be at least 1")
     now = datetime.now(timezone.utc)
-    valid_from = now if body.activate_now else now
+    valid_from = now  # MVP: tests go live immediately (activate_now is a no-op)
     doc = {"id": str(uuid.uuid4()), "title": body.title, "kind": body.kind,
            "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
            "topic": body.topic or "", "batch_id": body.batch_id,
@@ -1102,9 +722,11 @@ async def stats(user: dict = Depends(get_current_user)):
     if user["role"] == "student":
         subs = await db.submissions.find({"student_id": user["id"], "kind": "test"}, {"_id": 0}).to_list(500)
         avg = round(sum(s["score"] for s in subs) / len(subs)) if subs else 0
+        batch_docs = await db.batches.find({"id": {"$in": user.get("batch_ids", [])}}, {"_id": 0, "class_level": 1}).to_list(20)
+        class_levels = [b["class_level"] for b in batch_docs]
+        note_count = await db.notes.count_documents({"class_level": {"$in": class_levels}}) if class_levels else 0
         return {"tests_taken": len(subs), "avg_score": avg,
-                "batches": await db.batches.count_documents({"id": {"$in": user.get("batch_ids", [])}}),
-                "notes": await db.notes.count_documents({})}
+                "batches": len(batch_docs), "notes": note_count}
     q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
     return {"notes": await db.notes.count_documents(q),
             "tests": await db.tests.count_documents({**q, "kind": "test"}),
@@ -1114,8 +736,9 @@ async def stats(user: dict = Depends(get_current_user)):
 
 
 app.include_router(api_router)
+_cors_origins = (os.environ.get('CORS_ORIGINS') or "http://localhost:3000,http://127.0.0.1:3000").strip()
 app.add_middleware(CORSMiddleware, allow_credentials=True,
-                   allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+                   allow_origins=[o.strip() for o in _cors_origins.split(',') if o.strip()],
                    allow_methods=["*"], allow_headers=["*"])
 
 
