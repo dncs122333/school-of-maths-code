@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui/button";
-import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, Orbit, FolderOpen } from "lucide-react";
+import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, Orbit, FolderOpen, Brain, BarChart3 } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -17,7 +17,7 @@ export default function Navbar() {
     { to: "/materials", label: "Materials", icon: FolderOpen },
     { to: "/tests", label: "Tests", icon: FileQuestion },
     { to: "/dpp", label: "DPP", icon: Sparkles },
-    ...(isTeacher ? [{ to: "/batches", label: "Batches", icon: Users }] : []),
+    ...(isTeacher ? [{ to: "/reports", label: "Reports", icon: BarChart3 }, { to: "/batches", label: "Batches", icon: Users }] : [{ to: "/mastery", label: "Mastery", icon: Brain }]),
   ];
 
   return (

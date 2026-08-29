@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/button";
-import { Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock, PlayCircle } from "lucide-react";
+import { Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock, PlayCircle, Trophy, ChevronDown } from "lucide-react";
 import { motion } from "framer-motion";
 
 function timeLeft(iso) {
@@ -12,6 +12,38 @@ function timeLeft(iso) {
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+}
+
+function Leaderboard({ testId }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState(null);
+  const toggle = () => {
+    if (!open && rows === null) {
+      api.get(`/tests/${testId}/leaderboard`).then((r) => setRows(r.data)).catch(() => setRows([]));
+    }
+    setOpen(!open);
+  };
+  return (
+    <div className="mt-3">
+      <button data-testid={`leaderboard-${testId}`} onClick={toggle}
+        className="w-full flex items-center justify-center gap-1 text-xs font-600 text-[#94A3B8] hover:text-white py-1 transition-colors">
+        <Trophy className="h-3.5 w-3.5" /> Leaderboard
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-3">
+          {rows === null ? <div className="text-xs text-[#94A3B8]">Loading…</div>
+            : rows.length === 0 ? <div className="text-xs text-[#94A3B8]">No submissions yet.</div>
+            : rows.slice(0, 5).map((r, i) => (
+                <div key={i} className="flex items-center justify-between py-1 text-xs">
+                  <span className="text-[#94A3B8] truncate">{i + 1}. {r.student_name}</span>
+                  <span className="font-700 text-white">{r.score}% <span className="text-[#94A3B8] font-400">({r.correct}/{r.total})</span></span>
+                </div>
+              ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function QuizList({ kind }) {
@@ -90,6 +122,7 @@ export default function QuizList({ kind }) {
                     <Button disabled className="w-full rounded-full font-600 bg-[#1E293B] text-[#94A3B8]">Not active</Button>
                   )}
                 </div>
+                {!isDpp && <Leaderboard testId={t.id} />}
               </motion.div>
             );
           })}

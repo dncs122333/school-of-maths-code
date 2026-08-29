@@ -16,6 +16,8 @@ import CreateNote from "./pages/CreateNote";
 import CreateQuiz from "./pages/CreateQuiz";
 import Batches from "./pages/Batches";
 import Materials from "./pages/Materials";
+import Mastery from "./pages/Mastery";
+import Reports from "./pages/Reports";
 
 function Shell({ children }) {
   return (
@@ -45,6 +47,8 @@ function App() {
             <Route path="/dpp/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="dpp" /></Shell></ProtectedRoute>} />
             <Route path="/quiz/:id" element={<ProtectedRoute><Shell><QuizRunner /></Shell></ProtectedRoute>} />
             <Route path="/batches" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Batches /></Shell></ProtectedRoute>} />
+            <Route path="/mastery" element={<ProtectedRoute roles={["student"]}><Shell><Mastery /></Shell></ProtectedRoute>} />
+            <Route path="/reports" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Reports /></Shell></ProtectedRoute>} />
           </Routes>
         </BrowserRouter>
         <Toaster position="bottom-right" theme="dark" richColors />
