@@ -71,9 +71,15 @@ export default function QuizList({ kind }) {
                 )}
                 <div className="mt-5">
                   {isTeacher ? (
-                    <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="w-full rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
-                      <Link to={`/quiz/${t.id}`}>Preview</Link>
-                    </Button>
+                    t.status === "processing" ? (
+                      <Button disabled className="w-full rounded-full font-600 bg-[#1E293B] text-[#94A3B8]">Building…</Button>
+                    ) : t.status === "failed" ? (
+                      <Button disabled className="w-full rounded-full font-600 bg-[#1E293B] text-[#F87171]">Failed</Button>
+                    ) : (
+                      <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="w-full rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
+                        <Link to={`/quiz/${t.id}`}>Preview</Link>
+                      </Button>
+                    )
                   ) : done ? (
                     <Button disabled className="w-full rounded-full font-600 bg-[#1E293B] text-[#94A3B8]">Completed</Button>
                   ) : active ? (

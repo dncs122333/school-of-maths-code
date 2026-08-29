@@ -14,6 +14,7 @@ import secrets
 import asyncio
 import csv
 import hashlib
+import random
 import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
@@ -180,13 +181,13 @@ class GenerateNoteInput(BaseModel):
 
 class GenerateTestInput(BaseModel):
     title: str
-    kind: str = "test"  # test | dpp
+    kind: str = "test"
     class_level: str
     subject: str
     chapter: str
     topic: Optional[str] = ""
     batch_id: Optional[str] = None
-    raw_text: str
+    question_count: int = 10
     duration_minutes: int = 20
     valid_hours: int = 24
     activate_now: bool = True
@@ -629,13 +630,25 @@ async def download_resource(res_id: str, authorization: str = Header(None)):
 
 
 # ------------------------- Tests / DPP -------------------------
+async def _build_test(test_id: str, body: GenerateTestInput):
+    """Background task: sample ACTIVE questions from the bank, snapshot them, mark ready."""
+    try:
+        questions = await _sample_bank_questions(body.class_level, body.subject, body.chapter,
+                                                 body.topic or "", body.question_count)
+        if not questions:
+            raise ValueError("No active questions available for this selection")
+        await db.tests.update_one({"id": test_id}, {"$set": {
+            "questions": questions, "status": "ready", "question_count": len(questions)}})
+    except Exception as e:
+        logger.error(f"test build failed ({test_id}): {e}")
+        await db.tests.update_one({"id": test_id}, {"$set": {
+            "status": "failed", "error": str(e)[:200]}})
+
+
 @api_router.post("/tests")
 async def create_test(body: GenerateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
-    if not body.raw_text.strip():
-        raise HTTPException(status_code=400, detail="Content is empty")
-    questions = await llm_generate_mcqs(body)
-    if not questions:
-        raise HTTPException(status_code=400, detail="Could not build questions from the material")
+    if body.question_count < 1:
+        raise HTTPException(status_code=400, detail="question_count must be at least 1")
     now = datetime.now(timezone.utc)
     valid_from = now if body.activate_now else now
     doc = {"id": str(uuid.uuid4()), "title": body.title, "kind": body.kind,
@@ -644,17 +657,71 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
            "duration_minutes": body.duration_minutes, "valid_hours": body.valid_hours,
            "valid_from": valid_from.isoformat(),
            "valid_until": (valid_from + timedelta(hours=body.valid_hours)).isoformat(),
-           "questions": questions, "teacher_id": user["id"], "teacher_name": user["name"],
+           "questions": [], "status": "processing", "question_count": 0,
+           "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": now.isoformat()}
     await db.tests.insert_one(doc)
-    doc.pop("_id", None)
-    return {"id": doc["id"], "title": doc["title"], "question_count": len(questions)}
+    asyncio.create_task(_build_test(doc["id"], body))
+    return {"id": doc["id"], "status": "processing"}
 
 
-def _strip_answers(test: dict) -> dict:
+def _shuffled_order(seed: int, n: int = 4) -> List[int]:
+    """Deterministic per-(test, student, question) option permutation.
+
+    Stateless by design: the same (test_id, student_id, question index) always
+    yields the same order, so a student sees a stable layout across refreshes and
+    grading can reconstruct the same mapping without extra storage."""
+    rng = random.Random(seed)
+    order = list(range(n))
+    rng.shuffle(order)
+    return order
+
+
+def _option_seed(test_id: str, student_id: str, q_index: int) -> int:
+    raw = f"{test_id}:{student_id}:{q_index}".encode("utf-8")
+    return int(hashlib.sha256(raw).hexdigest()[:8], 16)
+
+
+async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
+                                 topic: str, count: int) -> list:
+    q = {"class_level": class_level, "subject": subject, "chapter": chapter, "status": "active"}
+    if topic:
+        q["topic"] = topic
+    pool = await db.question_bank.find(q, {"_id": 0}).to_list(1000)
+    if not pool:
+        return []
+    buckets = {"easy": [], "medium": [], "hard": []}
+    for item in pool:
+        buckets.setdefault(item.get("difficulty", "medium"), []).append(item)
+    n = max(1, int(count))
+    easy_n = round(n * 0.3)
+    medium_n = round(n * 0.5)
+    hard_n = n - easy_n - medium_n
+    picked, picked_ids = [], set()
+    for diff, k in (("easy", easy_n), ("medium", medium_n), ("hard", hard_n)):
+        bucket = buckets.get(diff, [])
+        for item in random.sample(bucket, min(k, len(bucket))):
+            picked.append(item)
+            picked_ids.add(item["id"])
+    # Fill any shortfall (a difficulty bucket may be under-stocked) from the rest.
+    if len(picked) < n:
+        rest = [x for x in pool if x["id"] not in picked_ids]
+        picked.extend(random.sample(rest, min(n - len(picked), len(rest))))
+    random.shuffle(picked)
+    return [{"question": x["question"], "options": x["options"],
+             "correct_index": x["correct_index"], "explanation": x.get("explanation", "")}
+            for x in picked]
+
+
+def _strip_answers(test: dict, student_id: str) -> dict:
     t = dict(test)
-    t["question_count"] = len(t.get("questions", []))
-    t["questions"] = [{"question": q["question"], "options": q["options"]} for q in t.get("questions", [])]
+    questions = t.get("questions", [])
+    t["question_count"] = len(questions)
+    out = []
+    for i, q in enumerate(questions):
+        order = _shuffled_order(_option_seed(t["id"], student_id, i))
+        out.append({"question": q["question"], "options": [q["options"][j] for j in order]})
+    t["questions"] = out
     return t
 
 
@@ -667,8 +734,10 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         q["teacher_id"] = user["id"]
         tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
         return tests
-    if user["role"] == "student" and kind != "dpp":
-        q["batch_id"] = {"$in": user.get("batch_ids", [])}
+    if user["role"] == "student":
+        q["status"] = "ready"
+        if kind != "dpp":
+            q["batch_id"] = {"$in": user.get("batch_ids", [])}
     tests = await db.tests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
     out = []
@@ -699,7 +768,7 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
                 raise HTTPException(status_code=403, detail="This test is not active right now")
             if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
                 raise HTTPException(status_code=403, detail="You have already submitted this test")
-        return _strip_answers(test)
+        return _strip_answers(test, user["id"])
     return test
 
 
@@ -726,12 +795,16 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
     correct = 0
     review = []
     for i, q in enumerate(questions):
-        chosen = answers[i]
-        is_ok = chosen == q["correct_index"]
+        # Reconstruct the same per-student option order the student saw.
+        order = _shuffled_order(_option_seed(test_id, user["id"], i))
+        shuffled_options = [q["options"][j] for j in order]
+        chosen = answers[i]                                # index into shuffled options
+        correct_display = order.index(q["correct_index"])  # index into shuffled options
+        is_ok = chosen == correct_display
         if is_ok:
             correct += 1
-        review.append({"question": q["question"], "options": q["options"], "chosen": chosen,
-                       "correct_index": q["correct_index"], "explanation": q.get("explanation", ""),
+        review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
+                       "correct_index": correct_display, "explanation": q.get("explanation", ""),
                        "is_correct": is_ok, "time_s": times[i]})
 
     score = round(correct / total * 100) if total else 0
@@ -1001,6 +1074,13 @@ async def startup():
                                    {"$set": {"status": "failed", "error": "generation interrupted"}})
     except Exception as e:
         logger.error(f"note sweep failed: {e}")
+    # Recover any tests left mid-build if the worker restarted
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+        await db.tests.update_many({"status": "processing", "created_at": {"$lt": cutoff}},
+                                   {"$set": {"status": "failed", "error": "build interrupted"}})
+    except Exception as e:
+        logger.error(f"test sweep failed: {e}")
     try:
         init_storage()
         logger.info("Storage initialized")

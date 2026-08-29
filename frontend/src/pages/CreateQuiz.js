@@ -1,12 +1,11 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Upload, Sparkles, FileText, Wand2 } from "lucide-react";
+import { Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CreateQuiz({ kind }) {
@@ -15,10 +14,8 @@ export default function CreateQuiz({ kind }) {
   const [catalog, setCatalog] = useState({});
   const [batches, setBatches] = useState([]);
   const [f, setF] = useState({ title: "", class_level: "9", subject: "", chapter: "", topic: "",
-    batch_id: "", raw_text: "", duration_minutes: 20, valid_hours: 24, activate_now: true });
+    batch_id: "", question_count: 10, duration_minutes: 20, valid_hours: 24, activate_now: true });
   const [busy, setBusy] = useState(false);
-  const [extracting, setExtracting] = useState(false);
-  const fileRef = useRef();
 
   useEffect(() => {
     api.get("/catalog").then((r) => setCatalog(r.data));
@@ -27,27 +24,15 @@ export default function CreateQuiz({ kind }) {
   const subjects = catalog[f.class_level] ? Object.keys(catalog[f.class_level]) : [];
   const chapters = catalog[f.class_level]?.[f.subject] || [];
 
-  const onFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setExtracting(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await api.post("/extract", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      if (r.data.text?.trim()) { setF((p) => ({ ...p, raw_text: (p.raw_text + "\n" + r.data.text).trim() })); toast.success("Text extracted"); }
-      else toast.error("Couldn't read text — try pasting");
-    } catch (e) { toast.error("Extraction failed"); } finally { setExtracting(false); }
-  };
-
   const submit = async () => {
-    if (!f.title || !f.subject || !f.chapter || !f.raw_text.trim()) { toast.error("Fill title, subject, chapter and content"); return; }
+    if (!f.title || !f.subject || !f.chapter) { toast.error("Fill title, subject and chapter"); return; }
     if (!isDpp && !f.batch_id) { toast.error("Select a batch for this test"); return; }
     setBusy(true);
     try {
       await api.post("/tests", { ...f, kind, batch_id: isDpp ? null : f.batch_id,
-        duration_minutes: Number(f.duration_minutes), valid_hours: Number(f.valid_hours) });
-      toast.success(isDpp ? "DPP published!" : "Test is live!");
+        question_count: Number(f.question_count), duration_minutes: Number(f.duration_minutes),
+        valid_hours: Number(f.valid_hours) });
+      toast.success(isDpp ? "DPP published!" : "Test is building — it'll go live in a moment");
       nav(isDpp ? "/dpp" : "/tests");
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); } finally { setBusy(false); }
   };
@@ -58,7 +43,7 @@ export default function CreateQuiz({ kind }) {
     <div className="max-w-3xl mx-auto">
       <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Teacher studio</span>
       <h1 className="font-head text-3xl font-700 tracking-tight flex items-center gap-2 text-white">{isDpp ? "New Daily Practice" : "Launch a timed test"} <Wand2 className="h-6 w-6 text-[#06B6D4]" /></h1>
-      <p className="text-[#94A3B8] mt-2">Upload or paste your {isDpp ? "questions" : "test sheet"}. AI converts it into clean MCQs {isDpp ? "for practice" : "live for the window you set"}.</p>
+      <p className="text-[#94A3B8] mt-2">Pick a class, subject and chapter — we sample from your reviewed question bank ({isDpp ? "for open practice" : "and activate it for the window you set"}).</p>
 
       <div className="mt-6 space-y-5 rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
         <div>
@@ -93,6 +78,16 @@ export default function CreateQuiz({ kind }) {
           </div>
         </div>
 
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <Label className="font-600 text-[#94A3B8]">Number of questions</Label>
+            <Input data-testid="quiz-count" type="number" min={1} max={50} className={inp + " font-mono"} value={f.question_count} onChange={(e) => setF({ ...f, question_count: e.target.value })} />
+          </div>
+          {isDpp ? (
+            <div className="flex items-end text-xs text-[#94A3B8] pb-2">Practice is untimed and repeatable.</div>
+          ) : null}
+        </div>
+
         {!isDpp && (
           <div className="grid sm:grid-cols-3 gap-4">
             <div>
@@ -113,19 +108,8 @@ export default function CreateQuiz({ kind }) {
           </div>
         )}
 
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <Label className="font-600 text-[#94A3B8]">{isDpp ? "Questions / topics" : "Test sheet"}</Label>
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md" hidden onChange={onFile} />
-            <Button data-testid="quiz-upload-btn" type="button" variant="outline" size="sm" className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600" onClick={() => fileRef.current.click()} disabled={extracting}>
-              {extracting ? <><FileText className="h-4 w-4 mr-1 animate-pulse" /> Reading…</> : <><Upload className="h-4 w-4 mr-1" /> Upload file</>}
-            </Button>
-          </div>
-          <Textarea data-testid="quiz-text" rows={9} className="rounded-xl bg-[#0B0F19] border-[#1E293B]" value={f.raw_text} onChange={(e) => setF({ ...f, raw_text: e.target.value })} placeholder="Paste MCQs, questions, or just the topics to test on…" />
-        </div>
-
         <Button data-testid="generate-quiz-btn" onClick={submit} disabled={busy} className="w-full rounded-full bg-[#3B82F6] text-white font-700 h-12 hover:bg-[#60A5FA] glow-blue">
-          {busy ? <><Sparkles className="h-5 w-5 mr-2 animate-spin" /> Building MCQs…</> : <><Sparkles className="h-5 w-5 mr-2" /> {isDpp ? "Publish DPP" : "Create & activate test"}</>}
+          {busy ? <><Sparkles className="h-5 w-5 mr-2 animate-spin" /> Building…</> : <><Sparkles className="h-5 w-5 mr-2" /> {isDpp ? "Publish DPP" : "Create & activate test"}</>}
         </Button>
       </div>
     </div>

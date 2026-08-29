@@ -240,18 +240,48 @@ class TestFullFlow:
         r = st["s"].get(f"{API}/notes/{st['note']['id']}", headers=st["student"]["h"], timeout=15)
         assert r.status_code == 200
 
-    # ----- timed test -----
+    # ----- timed test (bank-driven, async) -----
+    def _seed_bank(self, chapter, n=6, difficulty="medium"):
+        """Import n unique ACTIVE questions for a chapter and return the unique topic tag."""
+        st = self.state
+        tag = uuid.uuid4().hex[:8]
+        rows = [f'{i},Class 9,Science,"{chapter}","Topic {tag}","MCQ {tag} {i}?","A","B","C","D",Option B,"expl","{difficulty}"'
+                for i in range(n)]
+        csv_text = ("ID,Class,Subject,Chapter,Topic,Question,Option A,Option B,Option C,Option D,"
+                    "Correct Option,Explanation,Difficulty\n" + "\n".join(rows) + "\n")
+        files = {"file": ("q.csv", csv_text.encode("utf-8"), "text/csv")}
+        r = st["s"].post(f"{API}/questions/import", headers=st["teacher"]["h"],
+                         files=files, data={"status": "active"}, timeout=30)
+        assert r.status_code == 200, r.text
+        assert r.json()["imported"] == n, r.text
+        return tag
+
+    def _wait_test_ready(self, tid, timeout=30):
+        import time
+        st = self.state
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            t = st["s"].get(f"{API}/tests/{tid}", headers=st["teacher"]["h"], timeout=15).json()
+            if t.get("status") == "ready":
+                return t
+            if t.get("status") == "failed":
+                pytest.fail(f"test build failed: {t.get('error')}")
+            time.sleep(0.5)
+        pytest.fail("test never became ready")
+
     def test_30_teacher_creates_timed_test(self):
         st = self.state
+        self._seed_bank("Gravitation", 6)
         payload = {"title": "TEST Gravitation MCQ", "kind": "test", "class_level": "9",
                    "subject": "Science", "chapter": "Gravitation", "topic": "",
-                   "batch_id": st["batch"]["id"], "raw_text": RAW_MCQ,
+                   "batch_id": st["batch"]["id"], "question_count": 6,
                    "duration_minutes": 15, "valid_hours": 24, "activate_now": True}
-        r = st["s"].post(f"{API}/tests", headers=st["teacher"]["h"], json=payload, timeout=180)
+        r = st["s"].post(f"{API}/tests", headers=st["teacher"]["h"], json=payload, timeout=30)
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["question_count"] >= 5 and "id" in d
-        st["test"] = d
+        assert d["status"] == "processing" and "id" in d
+        t = self._wait_test_ready(d["id"])
+        st["test"] = {"id": d["id"], "question_count": t["question_count"]}
 
     def test_31_student_sees_test_active(self):
         st = self.state
@@ -311,13 +341,16 @@ class TestFullFlow:
     # ----- DPP -----
     def test_40_teacher_creates_dpp(self):
         st = self.state
+        self._seed_bank("Motion", 5)
         payload = {"title": "TEST DPP", "kind": "dpp", "class_level": "9",
-                   "subject": "Science", "chapter": "Gravitation", "topic": "",
-                   "batch_id": None, "raw_text": RAW_MCQ,
+                   "subject": "Science", "chapter": "Motion", "topic": "",
+                   "batch_id": None, "question_count": 5,
                    "duration_minutes": 10, "valid_hours": 24}
-        r = st["s"].post(f"{API}/tests", headers=st["teacher"]["h"], json=payload, timeout=180)
+        r = st["s"].post(f"{API}/tests", headers=st["teacher"]["h"], json=payload, timeout=30)
         assert r.status_code == 200, r.text
-        st["dpp"] = r.json()
+        d = r.json()
+        t = self._wait_test_ready(d["id"])
+        st["dpp"] = {"id": d["id"], "question_count": t["question_count"]}
 
     def test_41_student_sees_dpp(self):
         st = self.state
