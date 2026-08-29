@@ -24,6 +24,7 @@ import jwt
 import requests
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
+from lib.mastery import compute_topic_mastery
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends, UploadFile, File, Form, Query, Header
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
@@ -684,7 +685,11 @@ def _option_seed(test_id: str, student_id: str, q_index: int) -> int:
 
 async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
                                  topic: str, count: int) -> list:
-    q = {"class_level": class_level, "subject": subject, "chapter": chapter, "status": "active"}
+    q = {"class_level": class_level, "status": "active"}
+    if subject:
+        q["subject"] = subject
+    if chapter:
+        q["chapter"] = chapter
     if topic:
         q["topic"] = topic
     pool = await db.question_bank.find(q, {"_id": 0}).to_list(1000)
@@ -709,7 +714,9 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
         picked.extend(random.sample(rest, min(n - len(picked), len(rest))))
     random.shuffle(picked)
     return [{"question": x["question"], "options": x["options"],
-             "correct_index": x["correct_index"], "explanation": x.get("explanation", "")}
+             "correct_index": x["correct_index"], "explanation": x.get("explanation", ""),
+             "subject": x.get("subject", ""), "chapter": x.get("chapter", ""),
+             "topic": x.get("topic", ""), "difficulty": x.get("difficulty", "medium")}
             for x in picked]
 
 
@@ -736,7 +743,9 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         return tests
     if user["role"] == "student":
         q["status"] = "ready"
-        if kind != "dpp":
+        if kind == "diagnostic":
+            q["student_id"] = user["id"]
+        elif kind != "dpp":
             q["batch_id"] = {"$in": user.get("batch_ids", [])}
     tests = await db.tests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
@@ -767,7 +776,9 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
             if not (datetime.fromisoformat(test["valid_from"]) <= now <= datetime.fromisoformat(test["valid_until"])):
                 raise HTTPException(status_code=403, detail="This test is not active right now")
             if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
-                raise HTTPException(status_code=403, detail="You have already submitted this test")
+                raise HTTPException(status_code=403, detail="Already submitted")
+        if test["kind"] == "diagnostic" and test.get("student_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Not yours")
         return _strip_answers(test, user["id"])
     return test
 
@@ -794,6 +805,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
 
     correct = 0
     review = []
+    results = []
     for i, q in enumerate(questions):
         # Reconstruct the same per-student option order the student saw.
         order = _shuffled_order(_option_seed(test_id, user["id"], i))
@@ -806,12 +818,19 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
         review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
                        "correct_index": correct_display, "explanation": q.get("explanation", ""),
                        "is_correct": is_ok, "time_s": times[i]})
+        # Per-question result for the mastery engine.
+        results.append({"q": i, "subject": q.get("subject", test.get("subject", "")),
+                        "chapter": q.get("chapter", test.get("chapter", "")),
+                        "topic": q.get("topic", test.get("topic", "")),
+                        "difficulty": q.get("difficulty", "medium"),
+                        "is_correct": is_ok, "time_s": times[i]})
 
     score = round(correct / total * 100) if total else 0
     status = "flagged" if tab_switches >= 3 else "submitted"
     sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
            "student_id": user["id"], "student_name": user["name"],
            "answers": answers, "times": times, "tab_switches": tab_switches,
+           "results": results,
            "score": score, "correct": correct, "total": total, "status": status,
            "created_at": datetime.now(timezone.utc).isoformat()}
     # Tests store a single attempt; DPPs store every attempt for repeat history.
@@ -982,6 +1001,89 @@ async def delete_question(question_id: str, user: dict = Depends(require_role("t
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+
+# ------------------------- Mastery & diagnostic -------------------------
+class DiagnosticInput(BaseModel):
+    class_level: Optional[str] = None
+
+
+def _flatten_attempts(subs):
+    attempts = []
+    for s in subs:
+        for r in (s.get("results") or []):
+            attempts.append({**r, "created_at": s.get("created_at")})
+    return attempts
+
+
+@api_router.post("/tests/diagnostic")
+async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_role("student"))):
+    class_level = (body.class_level or "").strip() or None
+    if not class_level:
+        batches = await db.batches.find({"id": {"$in": user.get("batch_ids", [])}}, {"_id": 0}).to_list(10)
+        class_level = batches[0]["class_level"] if batches else "9"
+    questions = await _sample_bank_questions(class_level, "", "", "", 10)
+    if not questions:
+        raise HTTPException(status_code=400, detail="No active questions available for a diagnostic")
+    now = datetime.now(timezone.utc)
+    doc = {"id": str(uuid.uuid4()), "title": f"Diagnostic — Class {class_level}", "kind": "diagnostic",
+           "class_level": class_level, "subject": "", "chapter": "", "topic": "", "batch_id": None,
+           "student_id": user["id"], "duration_minutes": 0, "valid_hours": 168,
+           "valid_from": now.isoformat(), "valid_until": (now + timedelta(hours=168)).isoformat(),
+           "questions": questions, "status": "ready", "question_count": len(questions),
+           "teacher_id": None, "teacher_name": "Diagnostic", "created_at": now.isoformat()}
+    await db.tests.insert_one(doc)
+    return {"id": doc["id"], "status": "ready", "question_count": len(questions)}
+
+
+@api_router.get("/mastery/me")
+async def my_mastery(user: dict = Depends(require_role("student"))):
+    subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).to_list(2000)
+    return compute_topic_mastery(_flatten_attempts(subs))
+
+
+@api_router.get("/mastery/teacher")
+async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    students_raw = await db.users.find({"role": "student", "batch_ids": batch_id}).to_list(500)
+    students = [{"id": str(s["_id"]), "name": s["name"]} for s in students_raw]
+    student_ids = [s["id"] for s in students]
+    subs = await db.submissions.find({"student_id": {"$in": student_ids}}, {"_id": 0}).to_list(3000) if student_ids else []
+    per_student = {}
+    for s in subs:
+        per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
+
+    topic_scores = {}  # (subject, chapter, topic) -> [scores]
+    student_topics = {}
+    for sid in student_ids:
+        mastery = compute_topic_mastery(per_student.get(sid, []))
+        student_topics[sid] = {f"{m['subject']}|{m['chapter']}|{m['topic']}": m for m in mastery}
+        for m in mastery:
+            topic_scores.setdefault((m["subject"], m["chapter"], m["topic"]), []).append(m["score"])
+
+    weak_topics = [{"subject": k[0], "chapter": k[1], "topic": k[2],
+                    "class_avg": round(sum(v) / len(v))}
+                   for k, v in topic_scores.items()]
+    weak_topics.sort(key=lambda x: x["class_avg"])  # weakest first
+
+    return {"students": [{"id": s["id"], "name": s["name"],
+                          "topics": list(student_topics.get(s["id"], {}).values())}
+                         for s in students],
+            "weak_topics": weak_topics}
+
+
+@api_router.get("/mastery/teacher/student/{student_id}")
+async def teacher_student_mastery(student_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"})
+    if not student:
+        raise HTTPException(status_code=404, detail="Not found")
+    subs = await db.submissions.find({"student_id": student_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    topics = compute_topic_mastery(_flatten_attempts(subs))
+    trend = [{"test_id": s["test_id"], "title": s.get("title", ""), "kind": s.get("kind", ""),
+              "score": s.get("score"), "correct": s.get("correct"), "total": s.get("total"),
+              "tab_switches": s.get("tab_switches", 0), "created_at": s.get("created_at")}
+             for s in subs[:50]]
+    return {"student": {"id": str(student["_id"]), "name": student["name"]},
+            "topics": topics, "trend": trend}
 
 
 # ------------------------- Media -------------------------
