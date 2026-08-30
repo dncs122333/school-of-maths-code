@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Que
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES
+from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
 from db import db, api_router
 from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
@@ -313,6 +313,20 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
     if topic:
         q["topic"] = topic
     pool = await db.question_bank.find(q, {"_id": 0}).to_list(1000)
+    if not pool and topic:
+        q_no_topic = {"class_level": class_level, "status": "active"}
+        if subject:
+            q_no_topic["subject"] = subject
+        if chapter:
+            q_no_topic["chapter"] = chapter
+        pool = await db.question_bank.find(q_no_topic, {"_id": 0}).to_list(1000)
+    if not pool and chapter:
+        q_subject = {"class_level": class_level, "status": "active"}
+        if subject:
+            q_subject["subject"] = subject
+        pool = await db.question_bank.find(q_subject, {"_id": 0}).to_list(1000)
+    if not pool:
+        pool = await db.question_bank.find({"class_level": class_level, "status": "active"}, {"_id": 0}).to_list(1000)
     if not pool:
         return []
     buckets = {"easy": [], "medium": [], "hard": []}
@@ -627,6 +641,28 @@ async def delete_question(question_id: str, user: dict = Depends(require_role("t
     return {"ok": True}
 
 
+class QuestionReviewInput(BaseModel):
+    status: Optional[str] = "active"
+    correct_index: Optional[int] = None
+    explanation: Optional[str] = None
+
+
+@api_router.put("/questions/{question_id}/review")
+@api_router.patch("/questions/{question_id}")
+async def review_question(question_id: str, body: QuestionReviewInput, user: dict = Depends(require_role("teacher", "admin"))):
+    update = {"status": body.status}
+    if body.correct_index is not None:
+        update["correct_index"] = body.correct_index
+    if body.explanation is not None:
+        update["explanation"] = body.explanation
+    if body.status == "active":
+        update["flags"] = []
+    res = await db.question_bank.update_one({"id": question_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True, "id": question_id, "status": body.status}
+
+
 # ------------------------- Mastery & diagnostic -------------------------
 class DiagnosticInput(BaseModel):
     class_level: Optional[str] = None
@@ -815,6 +851,53 @@ async def startup():
         logger.info("Storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
+    # Auto-seed question bank if empty
+    await seed_default_questions()
+
+
+async def seed_default_questions():
+    try:
+        count = await db.question_bank.count_documents({})
+        if count > 0:
+            return
+        seed_path = ROOT_DIR / "seed" / "sample_questions.csv"
+        if not seed_path.exists():
+            return
+        with open(seed_path, "r", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        now = datetime.now(timezone.utc).isoformat()
+        admin = await db.users.find_one({"role": "admin"})
+        admin_id = str(admin["_id"]) if admin else "system"
+        inserted = 0
+        for i, row in enumerate(rows):
+            src_id = (row.get("ID") or "").strip() or str(i + 1)
+            question = (row.get("Question") or "").strip()
+            options = [(row.get("Option A") or "").strip(),
+                       (row.get("Option B") or "").strip(),
+                       (row.get("Option C") or "").strip(),
+                       (row.get("Option D") or "").strip()]
+            correct_index = _normalize_correct_option(row.get("Correct Option") or "")
+            class_level = _normalize_class(row.get("Class") or "")
+            subject = (row.get("Subject") or "").strip()
+            chapter = (row.get("Chapter") or "").strip()
+            topic = (row.get("Topic") or "").strip()
+            explanation = (row.get("Explanation") or "").strip()
+            difficulty = _normalize_difficulty(row.get("Difficulty") or "")
+            if not question or any(not o for o in options) or correct_index is None:
+                continue
+            doc = {"id": str(uuid.uuid4()), "class_level": class_level, "subject": subject,
+                   "chapter": chapter, "topic": topic, "question": question, "options": options,
+                   "correct_index": correct_index, "explanation": explanation, "difficulty": difficulty,
+                   "status": "active", "source": "seed", "source_id": src_id,
+                   "dedup_key": _dedup_key(question), "created_by": admin_id, "created_at": now}
+            try:
+                await db.question_bank.insert_one(doc)
+                inserted += 1
+            except Exception:
+                pass
+        logger.info(f"Seeded {inserted} sample questions into question_bank")
+    except Exception as e:
+        logger.error(f"Failed to seed sample questions: {e}")
 
 
 @app.on_event("shutdown")

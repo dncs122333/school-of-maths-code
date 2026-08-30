@@ -19,6 +19,8 @@ import Materials from "./pages/Materials";
 import Mastery from "./pages/Mastery";
 import Reports from "./pages/Reports";
 
+import TeacherDashboard from "./pages/TeacherDashboard";
+
 function Shell({ children }) {
   return (
     <div className="min-h-screen cosmic-bg">
@@ -37,6 +39,7 @@ function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<ProtectedRoute><Shell><Dashboard /></Shell></ProtectedRoute>} />
+            <Route path="/teacher/dashboard" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><TeacherDashboard /></Shell></ProtectedRoute>} />
             <Route path="/notes" element={<ProtectedRoute><Shell><NotesLibrary /></Shell></ProtectedRoute>} />
             <Route path="/notes/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateNote /></Shell></ProtectedRoute>} />
             <Route path="/notes/:id" element={<ProtectedRoute><Shell><NoteReader /></Shell></ProtectedRoute>} />
