@@ -376,12 +376,14 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         subs = await db.submissions.find({"test_id": t["id"], "student_id": user["id"]}, {"_id": 0}) \
             .sort("created_at", -1).to_list(1)
         sub = subs[0] if subs else None
+        is_ready = t.get("status") == "ready"
         out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
                     "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
                     "duration_minutes": t["duration_minutes"], "question_count": len(t.get("questions", [])),
                     "valid_from": t["valid_from"], "valid_until": t["valid_until"],
-                    "is_active": (t["kind"] == "dpp") or (vf <= now <= vu),
-                    "submitted": bool(sub), "score": sub.get("score") if sub else None})
+                    "is_active": is_ready and ((t["kind"] == "dpp") or (vf <= now <= vu)),
+                    "submitted": bool(sub), "score": sub.get("score") if sub else None,
+                    "status": t.get("status")})
     return out
 
 
@@ -392,6 +394,8 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Not found")
     if user["role"] == "student":
         if test["kind"] == "test":
+            if test.get("status") != "ready":
+                raise HTTPException(status_code=403, detail="This test is still building or has failed.")
             now = datetime.now(timezone.utc)
             if not (datetime.fromisoformat(test["valid_from"]) <= now <= datetime.fromisoformat(test["valid_until"])):
                 raise HTTPException(status_code=403, detail="This test is not active right now")
@@ -708,7 +712,7 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
 
 # ------------------------- Media -------------------------
 @api_router.get("/media/{path:path}")
-async def media(path: str):
+async def media(path: str, user: dict = Depends(get_current_user)):
     try:
         data, ct = get_object(path)
         return Response(content=data, media_type=ct)

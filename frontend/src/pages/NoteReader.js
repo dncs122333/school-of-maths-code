@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, mediaUrl } from "../lib/api";
+import { api } from "../lib/api";
+import AuthedImage from "../components/AuthedImage";
 import { Button } from "../components/ui/button";
 import { ArrowLeft, Lightbulb, Sparkles, ListChecks, Sigma, Orbit } from "lucide-react";
 import { motion } from "framer-motion";
@@ -84,7 +85,7 @@ export default function NoteReader() {
               <h2 className="font-head text-2xl font-600 tracking-tight text-white">{s.heading}</h2>
             </div>
             {s.image_path && (
-              <img src={mediaUrl(s.image_path)} alt={s.heading} className="rounded-2xl border border-[#1E293B] w-full max-h-80 object-contain bg-white my-4" />
+              <AuthedImage path={s.image_path} alt={s.heading} className="rounded-2xl border border-[#1E293B] w-full max-h-80 object-contain bg-white my-4" />
             )}
             <p className="note-content text-[17px]">{s.content}</p>
             {s.formulas?.length > 0 && (
