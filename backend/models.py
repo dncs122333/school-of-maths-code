@@ -51,3 +51,15 @@ class SubmitInput(BaseModel):
     times: Optional[List[float]] = None
     tab_switches: Optional[int] = 0
 
+
+
+class StartTestInput(BaseModel):
+    device_id: str
+    device_fingerprint: Optional[str] = None
+
+class AutoSaveInput(BaseModel):
+    answers: List[dict]
+    last_activity_at: Optional[str] = None
+
+class SyncLocalInput(BaseModel):
+    local_queue: List[dict]
