@@ -144,6 +144,7 @@ async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role
            "topic": body.topic or "", "intro": "", "sections": [], "mnemonics": [], "quick_revision": [],
            "coverage": {}, "status": "processing",
            "teacher_id": user["id"], "teacher_name": user["name"],
+           "is_pinned": False, "is_deleted": False, "images": [], "max_images": 100,
            "created_at": datetime.now(timezone.utc).isoformat()}
     await db.notes.insert_one(doc)
     asyncio.create_task(_process_note(note_id, body))
@@ -1157,3 +1158,97 @@ async def archive_batch(batch_id: str, user: dict = Depends(require_role("teache
     )
     
     return {"status": "archived"}
+
+
+# ------------------------- Spec v2.0: Notes Feature (Sections 4.1-4.5, 15.3) -------------------------
+
+@api_router.delete("/notes/{note_id}")
+async def delete_note(note_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    # Spec 4.2: Soft delete with 30-day retention
+    result = await db.notes.update_one(
+        {"id": note_id, "teacher_id": user["id"]},
+        {"$set": {"is_deleted": True, "deleted_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"status": "deleted"}
+
+@api_router.put("/notes/{note_id}/pin")
+async def pin_note(note_id: str, body: PinNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
+    note = await db.notes.find_one({"id": note_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    if body.is_pinned:
+        # Spec 2.9: Max 3 pinned notes per batch
+        pinned_count = await db.notes.count_documents({
+            "batch_id": body.batch_id, "is_pinned": True, "is_deleted": {"$ne": True}
+        })
+        if pinned_count >= 3:
+            raise HTTPException(status_code=400, detail="Max 3 pinned notes per batch")
+            
+    await db.notes.update_one(
+        {"id": note_id},
+        {"$set": {"is_pinned": body.is_pinned, "batch_id": body.batch_id, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"status": "updated", "is_pinned": body.is_pinned}
+
+@api_router.post("/notes/{note_id}/bookmark")
+async def toggle_bookmark(note_id: str, user: dict = Depends(require_role("student"))):
+    existing = await db.student_bookmarks.find_one({"note_id": note_id, "student_id": user["id"]})
+    if existing:
+        await db.student_bookmarks.delete_one({"_id": existing["_id"]})
+        return {"status": "removed"}
+    else:
+        await db.student_bookmarks.insert_one({
+            "id": str(uuid.uuid4()), "note_id": note_id, "student_id": user["id"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        return {"status": "added"}
+
+@api_router.get("/notes/bookmarks")
+async def list_bookmarks(user: dict = Depends(require_role("student"))):
+    bookmarks = await db.student_bookmarks.find({"student_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return bookmarks
+
+@api_router.post("/notes/{note_id}/view")
+async def mark_note_viewed(note_id: str, user: dict = Depends(require_role("student"))):
+    # Spec 2.12: Unique constraint (note_id, student_id)
+    await db.note_views.update_one(
+        {"note_id": note_id, "student_id": user["id"]},
+        {"$set": {"viewed_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    return {"status": "viewed"}
+
+@api_router.post("/notes/{note_id}/images")
+async def add_note_image(note_id: str, file: UploadFile = File(...), user: dict = Depends(require_role("teacher", "admin"))):
+    note = await db.notes.find_one({"id": note_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    images = note.get("images", [])
+    # Spec 4.1: Max 100 images per note (hard limit)
+    if len(images) >= 100:
+        raise HTTPException(status_code=400, detail="Max 100 images per note. Please split into multiple notes.")
+        
+    content = await file.read()
+    ext = file.filename.split(".")[-1].lower() if file.filename else "jpg"
+    img_id = str(uuid.uuid4())
+    path = f"notes/{note_id}/{img_id}.{ext}"
+    
+    # Use existing put_object from ai.py
+    put_object(path, content, file.content_type or "image/jpeg")
+    
+    image_doc = {
+        "id": img_id, "original_url": path, "thumbnail_url": path, "full_url": path,
+        "order_index": len(images), "file_size_kb": len(content) // 1024,
+        "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.notes.update_one(
+        {"id": note_id},
+        {"$push": {"images": image_doc}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"image": image_doc}
