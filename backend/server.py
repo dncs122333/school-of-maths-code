@@ -22,7 +22,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
 from db import db, api_router
-from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput
+from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput, EditNoteInput
 from PIL import Image, ImageDraw, ImageFont
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
 from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
@@ -134,6 +134,23 @@ async def _process_note(note_id: str, body: GenerateNoteInput):
         await db.notes.update_one({"id": note_id}, {"$set": {"status": "failed", "error": str(e)[:200]}})
 
 
+
+
+# ------------------------- Helper: Student Note Access Control (Spec 4.5) -------------------------
+async def check_student_note_access(user_id: str, note_doc: dict) -> bool:
+    batch_id = note_doc.get("batch_id")
+    if not batch_id:
+        return False
+    active_link = await db.batch_students.find_one({"student_id": user_id, "batch_id": batch_id, "status": "ACTIVE"})
+    if active_link:
+        return True
+    inactive_link = await db.batch_students.find_one({"student_id": user_id, "batch_id": batch_id, "status": "INACTIVE", "left_at": {"$ne": None}})
+    if inactive_link:
+        left_at = datetime.fromisoformat(inactive_link["left_at"])
+        if datetime.now(timezone.utc) - left_at <= timedelta(days=30):
+            return True
+    return False
+
 @api_router.post("/notes")
 async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
     if not body.raw_text.strip():
@@ -154,9 +171,23 @@ async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role
 @api_router.get("/notes")
 async def list_notes(class_level: Optional[str] = None, subject: Optional[str] = None,
                      chapter: Optional[str] = None, user: dict = Depends(get_current_user)):
-    q = {}
+    q = {"is_deleted": {"$ne": True}}
     if user["role"] == "teacher":
         q["teacher_id"] = user["id"]
+    else:
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = (now - timedelta(days=30)).isoformat()
+        valid_links = await db.batch_students.find({
+            "student_id": user["id"],
+            "$or": [
+                {"status": "ACTIVE"},
+                {"status": "INACTIVE", "left_at": {"$gte": thirty_days_ago}}
+            ]
+        }, {"_id": 0, "batch_id": 1}).to_list(100)
+        valid_batch_ids = [link["batch_id"] for link in valid_links]
+        if not valid_batch_ids:
+            return []
+        q["batch_id"] = {"$in": valid_batch_ids}
     if class_level:
         q["class_level"] = class_level
     if subject:
@@ -169,9 +200,12 @@ async def list_notes(class_level: Optional[str] = None, subject: Optional[str] =
 
 @api_router.get("/notes/{note_id}")
 async def get_note(note_id: str, user: dict = Depends(get_current_user)):
-    note = await db.notes.find_one({"id": note_id}, {"_id": 0})
+    note = await db.notes.find_one({"id": note_id, "is_deleted": {"$ne": True}}, {"_id": 0})
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+    if user["role"] == "student":
+        if not await check_student_note_access(user["id"], note):
+            raise HTTPException(status_code=403, detail="Access denied to this note")
     return note
 
 
@@ -1031,6 +1065,35 @@ async def sync_local(test_id: str, body: SyncLocalInput, user: dict = Depends(re
     await db.student_attempts.update_one({"id": attempt["id"]}, {"$set": {"answers": list(server_answers.values())}})
     return {"status": "synced"}
 
+
+
+@api_router.put("/notes/{note_id}")
+async def edit_note(note_id: str, body: EditNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
+    note = await db.notes.find_one({"id": note_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if body.title is not None:
+        update_data["title"] = body.title
+        
+    if body.batch_id is not None:
+        update_data["batch_id"] = body.batch_id
+        
+    if body.is_pinned is not None:
+        if body.is_pinned:
+            target_batch = body.batch_id or note.get("batch_id")
+            if target_batch:
+                pinned_count = await db.notes.count_documents({
+                    "batch_id": target_batch, "is_pinned": True, "is_deleted": {"$ne": True}, "id": {"$ne": note_id}
+                })
+                if pinned_count >= 3:
+                    raise HTTPException(status_code=400, detail="Max 3 pinned notes per batch")
+        update_data["is_pinned"] = body.is_pinned
+        
+    await db.notes.update_one({"id": note_id}, {"$set": update_data})
+    return {"status": "updated"}
+
 @api_router.get("/api/notes/{note_id}/image/{image_id}")
 async def get_watermarked_image(note_id: str, image_id: str, user: dict = Depends(require_role("student"))):
     note = await db.notes.find_one({"id": note_id}, {"_id": 0})
@@ -1228,23 +1291,59 @@ async def add_note_image(note_id: str, file: UploadFile = File(...), user: dict 
         raise HTTPException(status_code=404, detail="Note not found")
         
     images = note.get("images", [])
-    # Spec 4.1: Max 100 images per note (hard limit)
     if len(images) >= 100:
         raise HTTPException(status_code=400, detail="Max 100 images per note. Please split into multiple notes.")
         
     content = await file.read()
-    ext = file.filename.split(".")[-1].lower() if file.filename else "jpg"
     img_id = str(uuid.uuid4())
-    path = f"notes/{note_id}/{img_id}.{ext}"
     
-    # Use existing put_object from ai.py
-    put_object(path, content, file.content_type or "image/jpeg")
-    
-    image_doc = {
-        "id": img_id, "original_url": path, "thumbnail_url": path, "full_url": path,
-        "order_index": len(images), "file_size_kb": len(content) // 1024,
-        "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()
-    }
+    try:
+        img = Image.open(io.BytesIO(content))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+            
+        max_width = 1200
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_size = (max_width, int(img.height * ratio))
+            img_full = img.resize(new_size, Image.Resampling.LANCZOS)
+        else:
+            img_full = img.copy()
+            
+        buf_full = io.BytesIO()
+        img_full.save(buf_full, format="JPEG", quality=80, optimize=True)
+        full_bytes = buf_full.getvalue()
+        
+        thumb_width = 300
+        ratio = thumb_width / img.width
+        new_size = (thumb_width, int(img.height * ratio))
+        img_thumb = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        buf_thumb = io.BytesIO()
+        img_thumb.save(buf_thumb, format="JPEG", quality=60, optimize=True)
+        thumb_bytes = buf_thumb.getvalue()
+        
+        path_full = f"notes/{note_id}/{img_id}_full.jpg"
+        path_thumb = f"notes/{note_id}/{img_id}_thumb.jpg"
+        
+        put_object(path_full, full_bytes, "image/jpeg")
+        put_object(path_thumb, thumb_bytes, "image/jpeg")
+        
+        image_doc = {
+            "id": img_id, "original_url": path_full, "thumbnail_url": path_thumb, "full_url": path_full,
+            "order_index": len(images), "file_size_kb": len(full_bytes) // 1024,
+            "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Image compression failed for note {note_id}, falling back to raw upload: {e}")
+        ext = file.filename.split(".")[-1].lower() if file.filename else "jpg"
+        path_raw = f"notes/{note_id}/{img_id}.{ext}"
+        put_object(path_raw, content, file.content_type or "application/octet-stream")
+        image_doc = {
+            "id": img_id, "original_url": path_raw, "thumbnail_url": path_raw, "full_url": path_raw,
+            "order_index": len(images), "file_size_kb": len(content) // 1024,
+            "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat()
+        }
     
     await db.notes.update_one(
         {"id": note_id},
