@@ -74,6 +74,7 @@ async def catalog():
 async def create_batch(body: BatchInput, user: dict = Depends(require_role("teacher", "admin"))):
     code = secrets.token_hex(3).upper()
     doc = {"id": str(uuid.uuid4()), "name": body.name, "class_level": body.class_level,
+           "academic_year": getattr(body, 'academic_year', '2025-26'), "subjects": getattr(body, 'subjects', []), "status": "ACTIVE",
            "code": code, "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": datetime.now(timezone.utc).isoformat()}
     await db.batches.insert_one(doc)
@@ -1086,3 +1087,73 @@ async def get_watermarked_image(note_id: str, image_id: str, user: dict = Depend
     except Exception as e:
         # Fallback to raw image if watermarking fails
         return Response(content=raw_data, media_type=ct)
+
+
+# ------------------------- Spec v2.0: Batch Management & Student Admission -------------------------
+
+@api_router.post("/batches/{batch_id}/students")
+async def add_student_to_batch(batch_id: str, body: AddStudentInput, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found or access denied")
+    if batch.get("status") == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="Cannot add students to archived batch")
+
+    student_id = str(uuid.uuid4())
+    temp_password = secrets.token_hex(6) 
+    
+    student_doc = {
+        "id": student_id, "name": body.name, "phone": body.phone,
+        "email": f"student_{student_id}@local.com",
+        "password": hash_password(temp_password), "role": "student",
+        "parent_name": body.parent_name, "parent_email": body.parent_email,
+        "parent_phone": body.parent_phone, "batch_ids": [batch_id],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(student_doc)
+
+    link_doc = {
+        "id": str(uuid.uuid4()), "batch_id": batch_id, "student_id": student_id,
+        "joined_at": datetime.now(timezone.utc).isoformat(), "left_at": None,
+        "status": "ACTIVE", "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.batch_students.insert_one(link_doc)
+
+    return {"student_id": student_id, "temp_password": temp_password, "status": "created"}
+
+@api_router.put("/batches/{batch_id}/students/{student_id}")
+async def mark_student_inactive(batch_id: str, student_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    result = await db.batch_students.update_one(
+        {"batch_id": batch_id, "student_id": student_id, "status": "ACTIVE"},
+        {"$set": {"status": "INACTIVE", "left_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Active student link not found")
+    
+    await db.users.update_one({"id": student_id}, {"$pull": {"batch_ids": batch_id}})
+    
+    return {"status": "inactive"}
+
+@api_router.put("/batches/{batch_id}/archive")
+async def archive_batch(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    result = await db.batches.update_one(
+        {"id": batch_id, "teacher_id": user["id"]},
+        {"$set": {
+            "status": "ARCHIVED", 
+            "archived_at": datetime.now(timezone.utc).isoformat(), 
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    await db.batch_students.update_many(
+        {"batch_id": batch_id, "status": "ACTIVE"},
+        {"$set": {"status": "INACTIVE", "left_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"status": "archived"}
