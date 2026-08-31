@@ -17,6 +17,8 @@ class LoginInput(BaseModel):
 class BatchInput(BaseModel):
     name: str
     class_level: str
+    academic_year: Optional[str] = "2025-26"
+    subjects: Optional[List[str]] = []
 
 
 class JoinInput(BaseModel):
@@ -63,3 +65,11 @@ class AutoSaveInput(BaseModel):
 
 class SyncLocalInput(BaseModel):
     local_queue: List[dict]
+
+
+class AddStudentInput(BaseModel):
+    name: str
+    phone: str
+    parent_name: Optional[str] = None
+    parent_email: Optional[EmailStr] = None
+    parent_phone: Optional[str] = None
