@@ -78,3 +78,9 @@ class AddStudentInput(BaseModel):
 class PinNoteInput(BaseModel):
     batch_id: str
     is_pinned: bool
+
+
+class EditNoteInput(BaseModel):
+    title: Optional[str] = None
+    batch_id: Optional[str] = None
+    is_pinned: Optional[bool] = None
