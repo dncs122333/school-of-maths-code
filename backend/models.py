@@ -73,3 +73,8 @@ class AddStudentInput(BaseModel):
     parent_name: Optional[str] = None
     parent_email: Optional[EmailStr] = None
     parent_phone: Optional[str] = None
+
+
+class PinNoteInput(BaseModel):
+    batch_id: str
+    is_pinned: bool
