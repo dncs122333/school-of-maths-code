@@ -22,7 +22,8 @@ from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
 from db import db, api_router
-from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput
+from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput
+from PIL import Image, ImageDraw, ImageFont
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
 from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
 from lib.mastery import compute_topic_mastery
@@ -419,61 +420,6 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Not yours")
         return _strip_answers(test, user["id"])
     return test
-
-
-@api_router.post("/tests/{test_id}/submit")
-async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(require_role("student"))):
-    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
-    if not test:
-        raise HTTPException(status_code=404, detail="Not found")
-    if test["kind"] == "test" and await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
-        raise HTTPException(status_code=403, detail="Already submitted")
-    questions = test["questions"]
-    total = len(questions)
-
-    # Normalize answers to length == total (backward compatible with short/empty lists)
-    answers = list(body.answers)
-    answers = (answers + [-1] * total)[:total]
-
-    # Normalize per-question times (seconds); default 0.0 for missing entries
-    times = [round(float(t), 2) for t in (body.times or [])]
-    times = (times + [0.0] * total)[:total]
-
-    tab_switches = max(0, int(body.tab_switches or 0))
-
-    correct = 0
-    review = []
-    results = []
-    for i, q in enumerate(questions):
-        # Reconstruct the same per-student option order the student saw.
-        order = _shuffled_order(_option_seed(test_id, user["id"], i))
-        shuffled_options = [q["options"][j] for j in order]
-        chosen = answers[i]                                # index into shuffled options
-        correct_display = order.index(q["correct_index"])  # index into shuffled options
-        is_ok = chosen == correct_display
-        if is_ok:
-            correct += 1
-        review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
-                       "correct_index": correct_display, "explanation": q.get("explanation", ""),
-                       "is_correct": is_ok, "time_s": times[i]})
-        # Per-question result for the mastery engine.
-        results.append({"q": i, "subject": q.get("subject", test.get("subject", "")),
-                        "chapter": q.get("chapter", test.get("chapter", "")),
-                        "topic": q.get("topic", test.get("topic", "")),
-                        "difficulty": q.get("difficulty", "medium"),
-                        "is_correct": is_ok, "time_s": times[i]})
-
-    score = round(correct / total * 100) if total else 0
-    status = "flagged" if tab_switches >= 3 else "submitted"
-    sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
-           "student_id": user["id"], "student_name": user["name"],
-           "answers": answers, "times": times, "tab_switches": tab_switches,
-           "results": results,
-           "score": score, "correct": correct, "total": total, "status": status,
-           "created_at": datetime.now(timezone.utc).isoformat()}
-    # Tests store a single attempt; DPPs store every attempt for repeat history.
-    await db.submissions.insert_one(dict(sub))
-    return {"score": score, "correct": correct, "total": total, "review": review, "status": status}
 
 
 @api_router.get("/tests/{test_id}/leaderboard")
@@ -903,3 +849,240 @@ async def seed_default_questions():
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+@api_router.post("/api/tests/{test_id}/submit")
+async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(require_role("student"))):
+    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Not found")
+        
+    attempt = await db.student_attempts.find_one({"test_id": test_id, "student_id": user["id"], "status": "IN_PROGRESS"}, {"_id": 0})
+    if not attempt:
+        # Fallback to legacy submission if no active attempt found
+        if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
+            raise HTTPException(status_code=403, detail="Already submitted")
+        attempt = {"id": str(uuid.uuid4()), "answers": []}
+        
+    questions = test["questions"]
+    total = len(questions)
+
+    answers = list(body.answers)
+    answers = (answers + [-1] * total)[:total]
+
+    times = [round(float(t), 2) for t in (body.times or [])]
+    times = (times + [0.0] * total)[:total]
+
+    correct = 0
+    review = []
+    results = []
+    for i, q in enumerate(questions):
+        order = _shuffled_order(_option_seed(test_id, user["id"], i))
+        shuffled_options = [q["options"][j] for j in order]
+        chosen = answers[i]                                
+        correct_display = order.index(q["correct_index"])  
+        is_ok = chosen == correct_display
+        if is_ok:
+            correct += 1
+        review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
+                       "correct_index": correct_display, "explanation": q.get("explanation", ""),
+                       "is_correct": is_ok, "time_s": times[i]})
+        results.append({"q": i, "subject": q.get("subject", test.get("subject", "")),
+                        "chapter": q.get("chapter", test.get("chapter", "")),
+                        "topic": q.get("topic", test.get("topic", "")),
+                        "difficulty": q.get("difficulty", "medium"),
+                        "is_correct": is_ok, "time_s": times[i]})
+
+    score = round(correct / total * 100) if total else 0
+    
+    # Grace period & Late Penalty (Spec 5.4.2)
+    deadline = test.get("deadline")
+    if isinstance(deadline, str):
+        try:
+            deadline = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+        except:
+            deadline = None
+            
+    grace_hours = test.get("grace_period_hours", 0)
+    late_penalty = test.get("late_penalty_percent", 0)
+    
+    now = datetime.now(timezone.utc)
+    status = "submitted"
+    penalty_applied = 0
+    
+    if deadline and now > deadline:
+        if grace_hours > 0 and now <= deadline + timedelta(hours=grace_hours):
+            status = "late_submitted"
+            penalty_applied = late_penalty
+            score = max(0, score - penalty_applied)
+        else:
+            status = "auto_submitted" 
+
+    # Anti-Cheat logic (Spec 11.1 & 11.2)
+    tab_switches = max(0, int(body.tab_switches or 0))
+    is_flagged = False
+    if tab_switches >= 3:
+        is_flagged = True
+        status = "flagged_submitted"
+        
+    # Update attempt
+    await db.student_attempts.update_one(
+        {"id": attempt["id"]}, 
+        {"$set": {
+            "status": status, 
+            "is_flagged": is_flagged, 
+            "tab_switch_count": tab_switches, 
+            "submitted_at": now.isoformat(),
+            "score": correct,
+            "percentage": score,
+            "penalty_applied": penalty_applied,
+            "final_score": correct, 
+            "final_percentage": score,
+            "answers": [{"question_id": str(i), "selected_option": str(a), "time_spent_seconds": t} for i, a, t in zip(range(total), answers, times)]
+        }}
+    )
+    
+    # Mark device session inactive
+    await db.active_device_sessions.update_many(
+        {"attempt_id": attempt["id"], "is_active": True},
+        {"$set": {"is_active": False}}
+    )
+
+    sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
+           "student_id": user["id"], "student_name": user["name"],
+           "answers": answers, "times": times, "tab_switches": tab_switches,
+           "results": results,
+           "score": score, "correct": correct, "total": total, "status": status,
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.submissions.insert_one(dict(sub))
+    
+    return {"score": score, "correct": correct, "total": total, "review": review, "status": status}
+
+
+
+# ------------------------- Spec v2.0 Fixes: Test Race Condition & Media Auth -------------------------
+
+@api_router.post("/api/tests/{test_id}/start")
+async def start_test(test_id: str, body: StartTestInput, user: dict = Depends(require_role("student"))):
+    test = await db.tests.find_one({"id": test_id, "status": "ACTIVE"}, {"_id": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found or not active")
+
+    # Device Locking (Spec 11.4)
+    existing_session = await db.active_device_sessions.find_one({
+        "test_id": test_id, "student_id": user["id"], "is_active": True
+    })
+    
+    if existing_session and existing_session["device_id"] != body.device_id:
+        raise HTTPException(status_code=409, detail="Attempt locked to another device")
+        
+    if existing_session:
+        attempt = await db.student_attempts.find_one({"id": existing_session["attempt_id"]}, {"_id": 0})
+        await db.active_device_sessions.update_one(
+            {"id": existing_session["id"]}, 
+            {"$set": {"last_activity_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        return {"attempt_id": attempt["id"], "answers": attempt.get("answers", []), "resumed": True}
+
+    attempt_id, session_id = str(uuid.uuid4()), str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    attempt = {
+        "id": attempt_id, "test_id": test_id, "student_id": user["id"],
+        "device_id": body.device_id, "started_at": now,
+        "answers": [], "score": 0, "status": "IN_PROGRESS",
+        "tab_switch_count": 0, "is_flagged": False, "created_at": now
+    }
+    session = {
+        "id": session_id, "attempt_id": attempt_id, "test_id": test_id,
+        "student_id": user["id"], "device_id": body.device_id,
+        "started_at": now, "last_activity_at": now, "is_active": True, "created_at": now
+    }
+    
+    await db.student_attempts.insert_one(attempt)
+    await db.active_device_sessions.insert_one(session)
+    
+    return {"attempt_id": attempt_id, "test_config": test, "resumed": False}
+
+@api_router.post("/api/tests/{test_id}/save")
+async def auto_save(test_id: str, body: AutoSaveInput, user: dict = Depends(require_role("student"))):
+    attempt = await db.student_attempts.find_one({"test_id": test_id, "student_id": user["id"], "status": "IN_PROGRESS"}, {"_id": 0})
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Active attempt not found")
+        
+    await db.student_attempts.update_one({"id": attempt["id"]}, {"$set": {"answers": body.answers}})
+    await db.active_device_sessions.update_one(
+        {"attempt_id": attempt["id"], "is_active": True}, 
+        {"$set": {"last_activity_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"status": "saved"}
+
+@api_router.post("/api/tests/{test_id}/sync-local")
+async def sync_local(test_id: str, body: SyncLocalInput, user: dict = Depends(require_role("student"))):
+    attempt = await db.student_attempts.find_one({"test_id": test_id, "student_id": user["id"], "status": "IN_PROGRESS"}, {"_id": 0})
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Active attempt not found")
+        
+    server_answers = {w["question_id"]: w for w in attempt.get("answers", [])}
+    for local_item in body.local_queue:
+        if "question_id" in local_item:
+            server_answers[local_item["question_id"]] = local_item
+        
+    await db.student_attempts.update_one({"id": attempt["id"]}, {"$set": {"answers": list(server_answers.values())}})
+    return {"status": "synced"}
+
+@api_router.get("/api/notes/{note_id}/image/{image_id}")
+async def get_watermarked_image(note_id: str, image_id: str, user: dict = Depends(require_role("student"))):
+    note = await db.notes.find_one({"id": note_id}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    # Strict Access Control: Verify BatchStudent link (Spec 2.3 & 4.5)
+    is_enrolled = await db.batch_students.find_one({
+        "batch_id": note.get("batch_id"), "student_id": user["id"], "status": "ACTIVE"
+    })
+    if not is_enrolled:
+        raise HTTPException(status_code=403, detail="Access denied to this note")
+
+    # Fetch raw image from object storage
+    images = note.get("images", [])
+    if int(image_id) >= len(images):
+        raise HTTPException(status_code=404, detail="Image not found")
+        
+    image_url = images[int(image_id)].get("full_url") or images[int(image_id)].get("url")
+    if not image_url:
+         raise HTTPException(status_code=404, detail="Image URL not found")
+         
+    try:
+        raw_data, ct = get_object(image_url)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Image not found in storage")
+    
+    # Dynamic Watermarking (Spec 4.4)
+    try:
+        img = Image.open(io.BytesIO(raw_data)).convert("RGBA")
+        txt = Image.new("RGBA", img.size, (255,255,255,0))
+        
+        center_name = user.get("center_name", "Coaching Center")
+        watermark_text = f"{user['name']} ・ {center_name}"
+        if len(watermark_text) > 25:
+            watermark_text = watermark_text[:22] + "..."
+            
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = ImageFont.load_default()
+            
+        draw = ImageDraw.Draw(txt)
+        bbox = draw.textbbox((0, 0), watermark_text, font=font)
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        
+        # Bottom-right, 30% opacity light gray
+        draw.text((img.width - w - 10, img.height - h - 10), watermark_text, font=font, fill=(211, 211, 211, 76))
+        
+        watermarked = Image.alpha_composite(img, txt)
+        buf = io.BytesIO()
+        watermarked.convert("RGB").save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        return Response(content=buf.read(), media_type="image/jpeg")
+    except Exception as e:
+        # Fallback to raw image if watermarking fails
+        return Response(content=raw_data, media_type=ct)
