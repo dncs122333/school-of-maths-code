@@ -2214,3 +2214,162 @@ async def resolve_attention(flag_id: str, body: ResolveAttentionInput, user: dic
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Flag not found")
     return {"status": "resolved"}
+
+
+# ------------------------- Spec v2.0: Student Home Screen Aggregation (Sections 3, 15.1) -------------------------
+
+@api_router.get("/api/home")
+async def get_home_screen(user: dict = Depends(require_role("student"))):
+    now = datetime.now(timezone.utc)
+    
+    student_name = user.get("name", "Student")
+    
+    # 1. Find primary batch (first joined)
+    active_links = await db.batch_students.find({"student_id": user["id"], "status": "ACTIVE"}, {"_id": 0, "batch_id": 1, "joined_at": 1}).sort("joined_at", 1).to_list(10)
+    legacy_ids = user.get("batch_ids", [])
+    all_batch_ids = list(set([l["batch_id"] for l in active_links] + legacy_ids))
+    
+    primary_batch_id = active_links[0]["batch_id"] if active_links else (legacy_ids[0] if legacy_ids else None)
+    
+    # 2. Avg Score (Class Tests only)
+    test_attempts = await db.student_attempts.find({"student_id": user["id"], "status": {"$ne": "IN_PROGRESS"}}, {"_id": 0, "percentage": 1}).to_list(1000)
+    if not test_attempts:
+        test_attempts = await db.submissions.find({"student_id": user["id"]}, {"_id": 0, "score": 1, "total": 1}).to_list(1000)
+        scores = [(t["score"]/t["total"]*100) for t in test_attempts if t.get("total", 0) > 0]
+    else:
+        scores = [t.get("percentage", 0) for t in test_attempts]
+        
+    avg_score = round(sum(scores) / len(scores), 1) if scores else None
+    
+    # 3. Batch Rank
+    batch_rank = None
+    if primary_batch_id:
+        batch_students = await get_batch_students(primary_batch_id)
+        if batch_students:
+            all_attempts = await db.student_attempts.find({"student_id": {"$in": batch_students}, "status": {"$ne": "IN_PROGRESS"}}, {"_id": 0, "student_id": 1, "percentage": 1}).to_list(5000)
+            if not all_attempts:
+                all_attempts = await db.submissions.find({"student_id": {"$in": batch_students}}, {"_id": 0, "student_id": 1, "score": 1, "total": 1}).to_list(5000)
+                
+            student_avgs = {}
+            for a in all_attempts:
+                sid = a["student_id"]
+                pct = a.get("percentage")
+                if pct is None and a.get("total", 0) > 0:
+                    pct = (a["score"] / a["total"]) * 100
+                if pct is not None:
+                    if sid not in student_avgs: student_avgs[sid] = []
+                    student_avgs[sid].append(pct)
+                    
+            avg_scores = {sid: sum(pcts)/len(pcts) for sid, pcts in student_avgs.items() if pcts}
+            sorted_students = sorted(avg_scores.items(), key=lambda x: x[1], reverse=True)
+            for i, (sid, avg) in enumerate(sorted_students):
+                if sid == user["id"]:
+                    batch_rank = i + 1
+                    break
+
+    # 4. Current Streak
+    streak_doc = await db.practice_streaks.find_one({"student_id": user["id"]}, {"_id": 0})
+    current_streak = streak_doc.get("current_streak", 0) if streak_doc else 0
+    
+    # 5. Urgent Test
+    urgent_test = None
+    has_urgent_test = False
+    has_new_test = False
+    if all_batch_ids:
+        tomorrow = now + timedelta(hours=24)
+        urgent_tests = await db.tests.find({
+            "status": "ACTIVE", 
+            "$or": [{"batch_ids": {"$in": all_batch_ids}}, {"batch_id": {"$in": all_batch_ids}}],
+            "deadline": {"$gte": now.isoformat(), "$lte": tomorrow.isoformat()}
+        }, {"_id": 0}).sort("deadline", 1).to_list(5)
+        
+        for t in urgent_tests:
+            attempted = await db.student_attempts.find_one({"test_id": t["id"], "student_id": user["id"]})
+            if not attempted:
+                attempted = await db.submissions.find_one({"test_id": t["id"], "student_id": user["id"]})
+            if not attempted:
+                deadline_dt = datetime.fromisoformat(t["deadline"].replace('Z', '+00:00')) if isinstance(t["deadline"], str) else t["deadline"]
+                diff = deadline_dt - now
+                hours_left = int(diff.total_seconds() // 3600)
+                mins_left = int((diff.total_seconds() % 3600) // 60)
+                time_remaining = f"{hours_left} hours left" if hours_left > 0 else f"{mins_left} minutes left"
+                
+                urgent_test = {
+                    "id": t["id"],
+                    "title": t.get("title", "Class Test"),
+                    "deadline": t["deadline"],
+                    "time_remaining": time_remaining
+                }
+                has_urgent_test = True
+                break
+
+    # Check for ANY new unattempted test (for notification dot)
+    if all_batch_ids and not has_urgent_test:
+        active_tests = await db.tests.find({
+            "status": "ACTIVE", 
+            "$or": [{"batch_ids": {"$in": all_batch_ids}}, {"batch_id": {"$in": all_batch_ids}}]
+        }, {"_id": 0, "id": 1}).to_list(100)
+        for t in active_tests:
+            attempted = await db.student_attempts.find_one({"test_id": t["id"], "student_id": user["id"]})
+            if not attempted:
+                attempted = await db.submissions.find_one({"test_id": t["id"], "student_id": user["id"]})
+            if not attempted:
+                has_new_test = True
+                break
+
+    # 6. Notices (max 1 active)
+    notices = []
+    if all_batch_ids:
+        active_notice = await db.notices.find_one({
+            "batch_id": {"$in": all_batch_ids}, 
+            "is_active": True, 
+            "expires_at": {"$gt": now.isoformat()}
+        }, {"_id": 0})
+        if active_notice:
+            dismissed = await db.notice_reads.find_one({"notice_id": active_notice["id"], "student_id": user["id"], "dismissed_at": {"$ne": None}})
+            if not dismissed:
+                notices.append(active_notice)
+
+    # 7. Unread Notes Count (for notification dot)
+    unread_notes_count = 0
+    if all_batch_ids:
+        total_notes = await db.notes.count_documents({"batch_id": {"$in": all_batch_ids}, "is_deleted": {"$ne": True}})
+        viewed_notes = await db.note_views.count_documents({"student_id": user["id"]})
+        unread_notes_count = max(0, total_notes - viewed_notes)
+
+    # 8. Recent Activities (max 2)
+    recent_activities = []
+    recent_tests = await db.student_attempts.find({"student_id": user["id"], "status": {"$ne": "IN_PROGRESS"}}, {"_id": 0, "title": 1, "score": 1, "total": 1, "submitted_at": 1, "created_at": 1}).sort("submitted_at", -1).to_list(2)
+    for t in recent_tests:
+        recent_activities.append({
+            "type": "test",
+            "title": f"Class Test: {t.get('title', 'Test')}",
+            "time": t.get("submitted_at") or t.get("created_at"),
+            "score_text": f"{t.get('score', 0)}/{t.get('total', 0)} correct"
+        })
+        
+    recent_practices = await db.practice_sessions.find({"student_id": user["id"], "status": "COMPLETED"}, {"_id": 0, "topic": 1, "total_questions": 1, "completed_at": 1, "created_at": 1}).sort("completed_at", -1).to_list(2)
+    for p in recent_practices:
+        recent_activities.append({
+            "type": "practice",
+            "title": f"Practice: {p.get('topic', 'Topic')}",
+            "time": p.get("completed_at") or p.get("created_at"),
+            "score_text": f"{p.get('total_questions', 0)} questions"
+        })
+        
+    recent_activities.sort(key=lambda x: x.get("time", ""), reverse=True)
+    recent_activities = recent_activities[:2]
+
+    return {
+        "student_name": student_name,
+        "avg_score": avg_score,
+        "batch_rank": batch_rank,
+        "current_streak": current_streak,
+        "has_urgent_test": has_urgent_test,
+        "urgent_test": urgent_test,
+        "notices": notices,
+        "unread_notes_count": unread_notes_count,
+        "has_new_test": has_new_test,
+        "recent_activities": recent_activities,
+        "last_updated": now.isoformat()
+    }
