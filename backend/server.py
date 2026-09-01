@@ -87,10 +87,21 @@ async def list_batches(user: dict = Depends(get_current_user)):
     if user["role"] in ("teacher", "admin"):
         q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
     else:
-        q = {"id": {"$in": user.get("batch_ids", [])}}
+        # Students only see batches they are actively linked to (via legacy or new table)
+        active_links = await db.batch_students.find({"student_id": user["id"], "status": "ACTIVE"}, {"_id": 0, "batch_id": 1}).to_list(100)
+        linked_ids = [link["batch_id"] for link in active_links]
+        legacy_ids = user.get("batch_ids", [])
+        all_ids = list(set(linked_ids + legacy_ids))
+        q = {"id": {"$in": all_ids}}
+        
     batches = await db.batches.find(q, {"_id": 0}).to_list(500)
     for b in batches:
-        b["student_count"] = await db.users.count_documents({"batch_ids": b["id"]})
+        # Count active students from new link table, fallback to legacy array
+        active_links = await db.batch_students.count_documents({"batch_id": b["id"], "status": "ACTIVE"})
+        if active_links > 0:
+            b["student_count"] = active_links
+        else:
+            b["student_count"] = await db.users.count_documents({"batch_ids": b["id"]})
     return batches
 
 
@@ -1163,6 +1174,31 @@ async def add_student_to_batch(batch_id: str, body: AddStudentInput, user: dict 
     if batch.get("status") == "ARCHIVED":
         raise HTTPException(status_code=400, detail="Cannot add students to archived batch")
 
+    # Spec 1.6: Check if student already exists by phone number to re-link them
+    existing_student = await db.users.find_one({"phone": body.phone, "role": "student"}, {"_id": 0})
+    
+    if existing_student:
+        student_id = existing_student["id"]
+        # Re-link them to the new batch
+        await db.users.update_one({"id": student_id}, {"$addToSet": {"batch_ids": batch_id}})
+        
+        existing_link = await db.batch_students.find_one({"batch_id": batch_id, "student_id": student_id})
+        if existing_link:
+            await db.batch_students.update_one(
+                {"id": existing_link["id"]},
+                {"$set": {"status": "ACTIVE", "left_at": None, "joined_at": datetime.now(timezone.utc).isoformat()}}
+            )
+        else:
+            link_doc = {
+                "id": str(uuid.uuid4()), "batch_id": batch_id, "student_id": student_id,
+                "joined_at": datetime.now(timezone.utc).isoformat(), "left_at": None,
+                "status": "ACTIVE", "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.batch_students.insert_one(link_doc)
+            
+        return {"student_id": student_id, "temp_password": None, "status": "relinked"}
+
+    # Create new student if they don't exist
     student_id = str(uuid.uuid4())
     temp_password = secrets.token_hex(6) 
     
