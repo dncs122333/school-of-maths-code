@@ -1387,3 +1387,186 @@ async def add_note_image(note_id: str, file: UploadFile = File(...), user: dict 
     )
     
     return {"image": image_doc}
+
+
+# ------------------------- Spec v2.0: Chapter Practice Feature (Sections 6.1-6.7, 15.5) -------------------------
+
+@api_router.post("/practice/start")
+async def start_practice(body: StartPracticeInput, user: dict = Depends(require_role("student"))):
+    # 1. Get student's active batch
+    batch_id = user.get("batch_ids", [None])[0]
+    if not batch_id:
+        link = await db.batch_students.find_one({"student_id": user["id"], "status": "ACTIVE"})
+        if link: batch_id = link["batch_id"]
+    if not batch_id:
+        raise HTTPException(status_code=400, detail="Student not enrolled in any batch")
+
+    # 2. Check Daily Cap (Spec 6.4) - 5 attempts per topic per day (IST)
+    IST = timezone(timedelta(hours=5, minutes=30))
+    today_ist = datetime.now(IST).date().isoformat()
+    topic_key = body.topic or f"ALL_{body.chapter}"
+    
+    daily_cap = await db.topic_attempt_caps.find_one({
+        "student_id": user["id"], "topic_key": topic_key, "date": today_ist
+    })
+    if daily_cap and daily_cap.get("attempt_count", 0) >= 5:
+        raise HTTPException(status_code=400, detail="You've practiced this topic 5 times today. Come back tomorrow!")
+
+    # 3. Check Monthly Slot (Spec 6.5) - Free Tier: 5 slots per month
+    month_ist = datetime.now(IST).strftime("%Y-%m")
+    monthly_counter = await db.practice_slot_counters.find_one({
+        "student_id": user["id"], "month": month_ist
+    })
+    if monthly_counter and monthly_counter.get("used_slots", 0) >= 5:
+        raise HTTPException(status_code=400, detail="You've used 5/5 practice slots this month. Upgrade to Premium for unlimited practice.")
+
+    # 4. Fetch Questions from Bank
+    q_filter = {"status": "active", "subject": body.subject, "chapter": body.chapter}
+    if body.topic:
+        q_filter["topic"] = body.topic
+    
+    pool = await db.question_bank.find(q_filter, {"_id": 0}).to_list(1000)
+    if not pool:
+        raise HTTPException(status_code=404, detail="No questions available for this topic.")
+
+    # 5. Question Retirement Rule (Spec 6.2) - Exclude questions used in tests in last 20 days
+    twenty_days_ago = (datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+    recent_tests = await db.tests.find({"created_at": {"$gte": twenty_days_ago}}, {"_id": 0, "questions": 1}).to_list(500)
+    retired_texts = set()
+    for t in recent_tests:
+        for q in t.get("questions", []):
+            retired_texts.add(q.get("question", ""))
+            
+    available_pool = [q for q in pool if q.get("question", "") not in retired_texts]
+    if not available_pool:
+        available_pool = pool # Fallback if all are retired
+
+    # 6. Sample questions
+    count = min(body.question_count or 10, len(available_pool))
+    selected_questions = random.sample(available_pool, count)
+    
+    # 7. Create Session
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    session = {
+        "id": session_id, "student_id": user["id"], "batch_id": batch_id,
+        "subject": body.subject, "chapter": body.chapter, "topic": body.topic,
+        "questions": selected_questions, "answers": [],
+        "status": "IN_PROGRESS", "started_at": now, "created_at": now
+    }
+    await db.practice_sessions.insert_one(session)
+
+    # 8. Increment Caps
+    await db.topic_attempt_caps.update_one(
+        {"student_id": user["id"], "topic_key": topic_key, "date": today_ist},
+        {"$inc": {"attempt_count": 1}, "$setOnInsert": {"created_at": now}},
+        upsert=True
+    )
+    await db.practice_slot_counters.update_one(
+        {"student_id": user["id"], "month": month_ist},
+        {"$inc": {"used_slots": 1}, "$setOnInsert": {"created_at": now, "max_slots": 5}},
+        upsert=True
+    )
+
+    return {
+        "session_id": session_id, 
+        "questions": [{"id": q.get("id", str(i)), "question": q["question"], "options": q["options"]} for i, q in enumerate(selected_questions)]
+    }
+
+@api_router.post("/practice/{session_id}/answer")
+async def save_practice_answer(session_id: str, body: PracticeAnswerInput, user: dict = Depends(require_role("student"))):
+    result = await db.practice_sessions.update_one(
+        {"id": session_id, "student_id": user["id"], "status": "IN_PROGRESS"},
+        {"$push": {"answers": {"question_id": body.question_id, "selected_option": body.selected_option}}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found or already submitted")
+    return {"status": "saved"}
+
+@api_router.post("/practice/{session_id}/submit")
+async def submit_practice(session_id: str, user: dict = Depends(require_role("student"))):
+    session = await db.practice_sessions.find_one({"id": session_id, "student_id": user["id"], "status": "IN_PROGRESS"}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or already submitted")
+
+    questions = session.get("questions", [])
+    answers = session.get("answers", [])
+    ans_map = {a["question_id"]: a["selected_option"] for a in answers}
+    
+    correct = 0
+    for i, q in enumerate(questions):
+        q_id = q.get("id", str(i))
+        chosen = ans_map.get(q_id)
+        correct_opt = q.get("correct_index", q.get("correct_option", -1))
+        if str(chosen) == str(correct_opt):
+            correct += 1
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.practice_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"status": "COMPLETED", "score": correct, "total_questions": len(questions), "completed_at": now}}
+    )
+
+    # Update Streak (Spec 6.6)
+    streak = await db.practice_streaks.find_one({"student_id": user["id"]})
+    IST = timezone(timedelta(hours=5, minutes=30))
+    today_ist = datetime.now(IST).date()
+    
+    if streak:
+        last_date_str = streak.get("last_practice_date")
+        if isinstance(last_date_str, str):
+            last_date = datetime.fromisoformat(last_date_str).date()
+        else:
+            last_date = last_date_str
+            
+        diff = (today_ist - last_date).days
+        if diff == 1:
+            new_streak = streak["current_streak"] + 1
+        elif diff > 1:
+            new_streak = 1
+        else:
+            new_streak = streak["current_streak"] # same day
+            
+        longest = max(streak.get("longest_streak", 0), new_streak)
+        await db.practice_streaks.update_one(
+            {"student_id": user["id"]},
+            {"$set": {"current_streak": new_streak, "longest_streak": longest, "last_practice_date": today_ist.isoformat(), "updated_at": now}}
+        )
+    else:
+        await db.practice_streaks.insert_one({
+            "id": str(uuid.uuid4()), "student_id": user["id"],
+            "current_streak": 1, "longest_streak": 1,
+            "last_practice_date": today_ist.isoformat(),
+            "created_at": now, "updated_at": now
+        })
+
+    return {"score": correct, "total": len(questions), "status": "completed"}
+
+@api_router.get("/practice/{session_id}/review")
+async def get_practice_review(session_id: str, user: dict = Depends(require_role("student"))):
+    session = await db.practice_sessions.find_one({"id": session_id, "student_id": user["id"], "status": "COMPLETED"}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Completed session not found")
+    return session
+
+@api_router.get("/practice/streak")
+async def get_practice_streak(user: dict = Depends(require_role("student"))):
+    streak = await db.practice_streaks.find_one({"student_id": user["id"]}, {"_id": 0})
+    if not streak:
+        return {"current_streak": 0, "longest_streak": 0}
+    
+    # Check if streak is broken (>24h / missed a day)
+    last_date_str = streak.get("last_practice_date")
+    if isinstance(last_date_str, str):
+        last_date = datetime.fromisoformat(last_date_str).date()
+    else:
+        last_date = last_date_str
+        
+    IST = timezone(timedelta(hours=5, minutes=30))
+    today_ist = datetime.now(IST).date()
+    
+    if (today_ist - last_date).days > 1:
+        await db.practice_streaks.update_one({"student_id": user["id"]}, {"$set": {"current_streak": 0}})
+        streak["current_streak"] = 0
+        
+    return streak
