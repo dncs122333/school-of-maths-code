@@ -22,7 +22,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
 from db import db, api_router
-from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput, EditNoteInput
+from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput, EditNoteInput, StartPracticeInput, PracticeAnswerInput, CreateNoticeInput, CreateChallengeInput, ResolveChallengeInput
 from PIL import Image, ImageDraw, ImageFont
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
 from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
