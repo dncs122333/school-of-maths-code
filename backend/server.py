@@ -1781,3 +1781,65 @@ async def get_practice_streak(user: dict = Depends(require_role("student"))):
         return {"current_streak": 0, "longest_streak": 0}
     return {"current_streak": streak["current_streak"], "longest_streak": streak["longest_streak"]}
 
+
+
+# ------------------------- Spec v2.0: Class Notices Feature (Sections 2.18, 2.19, 15.2) -------------------------
+
+@api_router.post("/api/notices")
+async def create_notice(body: CreateNoticeInput, user: dict = Depends(require_role("teacher", "admin"))):
+    if len(body.message) > 500:
+        raise HTTPException(status_code=400, detail="Message max 500 characters")
+    if not (1 <= body.ttl_hours <= 720):
+        raise HTTPException(status_code=400, detail="TTL must be between 1 and 720 hours")
+        
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=body.ttl_hours)
+    
+    notice = {
+        "id": str(uuid.uuid4()), "teacher_id": user["id"], "batch_id": body.batch_id,
+        "message": body.message, "ttl_hours": body.ttl_hours,
+        "expires_at": expires_at.isoformat(), "is_active": True,
+        "created_at": now.isoformat(), "updated_at": now.isoformat()
+    }
+    await db.notices.insert_one(notice)
+    return notice
+
+@api_router.get("/api/notices")
+async def list_notices(user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    if user["role"] == "student":
+        active_links = await db.batch_students.find({"student_id": user["id"], "status": "ACTIVE"}, {"batch_id": 1}).to_list(100)
+        legacy_ids = user.get("batch_ids", [])
+        batch_ids = list(set([l["batch_id"] for l in active_links] + legacy_ids))
+        
+        notices = await db.notices.find({
+            "batch_id": {"$in": batch_ids}, "is_active": True,
+            "expires_at": {"$gt": now.isoformat()}
+        }, {"_id": 0}).sort("created_at", -1).to_list(50)
+        
+        dismissed = await db.notice_reads.find({"student_id": user["id"], "dismissed_at": {"$ne": None}}, {"notice_id": 1}).to_list(500)
+        dismissed_ids = {d["notice_id"] for d in dismissed}
+        
+        return [n for n in notices if n["id"] not in dismissed_ids]
+    else:
+        return await db.notices.find({"teacher_id": user["id"], "is_active": True}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+@api_router.delete("/api/notices/{notice_id}")
+async def delete_notice(notice_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    result = await db.notices.update_one(
+        {"id": notice_id, "teacher_id": user["id"]},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Notice not found")
+    return {"status": "deleted"}
+
+@api_router.post("/api/notices/{notice_id}/dismiss")
+async def dismiss_notice(notice_id: str, user: dict = Depends(require_role("student"))):
+    now = datetime.now(timezone.utc)
+    await db.notice_reads.update_one(
+        {"notice_id": notice_id, "student_id": user["id"]},
+        {"$set": {"dismissed_at": now.isoformat()}, "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now.isoformat()}},
+        upsert=True
+    )
+    return {"status": "dismissed"}
