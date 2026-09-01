@@ -22,7 +22,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
 from db import db, api_router
-from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput, EditNoteInput, StartPracticeInput, PracticeAnswerInput, CreateNoticeInput, CreateChallengeInput, ResolveChallengeInput
+from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput, StartTestInput, AutoSaveInput, SyncLocalInput, EditNoteInput, StartPracticeInput, PracticeAnswerInput, CreateNoticeInput, CreateChallengeInput, ResolveChallengeInput, MarkAttentionInput, ResolveAttentionInput
 from PIL import Image, ImageDraw, ImageFont
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
 from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
@@ -2058,3 +2058,159 @@ async def retry_wrong_questions(test_id: str, user: dict = Depends(require_role(
         "session_id": session_id,
         "questions": [{"id": q.get("id", q["question"]), "question": q["question"], "options": q["options"]} for q in selected]
     }
+
+
+# ------------------------- Spec v2.0: Teacher Dashboard & Analytics (Sections 7, 15.6) -------------------------
+
+async def get_batch_students(batch_id: str):
+    links = await db.batch_students.find({"batch_id": batch_id, "status": "ACTIVE"}, {"_id": 0, "student_id": 1}).to_list(500)
+    return [l["student_id"] for l in links]
+
+@api_router.get("/api/teacher/practice-activity")
+async def teacher_practice_activity(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+        
+    student_ids = await get_batch_students(batch_id)
+    if not student_ids:
+        return []
+        
+    students = await db.users.find({"id": {"$in": student_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    
+    result = []
+    for s in students:
+        sid = s["id"]
+        # Practice stats
+        practice_sessions = await db.practice_sessions.find({"student_id": sid, "status": "COMPLETED"}, {"_id": 0, "score": 1, "total_questions": 1}).to_list(1000)
+        p_correct = sum(p.get("score", 0) for p in practice_sessions)
+        p_total = sum(p.get("total_questions", 0) for p in practice_sessions)
+        p_acc = round((p_correct / p_total * 100), 1) if p_total > 0 else 0.0
+        
+        # Test stats
+        test_attempts = await db.student_attempts.find({"student_id": sid, "status": {"$in": ["SUBMITTED", "LATE_SUBMITTED", "AUTO_SUBMITTED", "FLAGGED_SUBMITTED"]}}, {"_id": 0, "score": 1, "total": 1}).to_list(1000)
+        if not test_attempts:
+            test_attempts = await db.submissions.find({"student_id": sid}, {"_id": 0, "correct": 1, "total": 1}).to_list(1000)
+            t_correct = sum(t.get("correct", 0) for t in test_attempts)
+            t_total = sum(t.get("total", 0) for t in test_attempts)
+        else:
+            t_correct = sum(t.get("score", 0) for t in test_attempts)
+            t_total = sum(t.get("total", 0) for t in test_attempts)
+            
+        t_acc = round((t_correct / t_total * 100), 1) if t_total > 0 else 0.0
+        practice_time_mins = len(practice_sessions) * 5 
+        
+        result.append({
+            "student_id": sid,
+            "name": s.get("name", "Unknown"),
+            "practice_time_mins": practice_time_mins,
+            "practice_acc": p_acc,
+            "test_acc": t_acc
+        })
+        
+    return result
+
+@api_router.get("/api/teacher/topic-weakness")
+async def teacher_topic_weakness(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id, "teacher_id": user["id"]}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+        
+    student_ids = await get_batch_students(batch_id)
+    if not student_ids:
+        return []
+        
+    attempts = await db.student_attempts.find({"student_id": {"$in": student_ids}, "status": {"$ne": "IN_PROGRESS"}}, {"_id": 0, "test_id": 1, "answers": 1}).to_list(5000)
+    if not attempts:
+        attempts = await db.submissions.find({"student_id": {"$in": student_ids}}, {"_id": 0, "test_id": 1, "results": 1}).to_list(5000)
+        
+    topic_stats = {} 
+    
+    for att in attempts:
+        test = await db.tests.find_one({"id": att["test_id"]}, {"_id": 0, "questions": 1})
+        if not test: continue
+        
+        questions = test.get("questions", [])
+        answers = att.get("answers", [])
+        
+        if answers and isinstance(answers[0], dict):
+            ans_map = {a["question_id"]: a["selected_option"] for a in answers}
+        else:
+            ans_map = {str(i): str(a) for i, a in enumerate(answers)}
+            
+        for i, q in enumerate(questions):
+            q_id = q.get("id") or str(i)
+            topic = q.get("topic", "Unknown")
+            chosen = ans_map.get(q_id)
+            correct_opt = q.get("correct_index") or q.get("correct_option_id")
+            
+            is_correct = chosen is not None and (str(correct_opt).upper() == str(chosen).upper() or (str(correct_opt).isdigit() and str(chosen).isdigit() and int(correct_opt) == int(chosen)))
+            
+            if topic not in topic_stats:
+                topic_stats[topic] = {"correct": 0, "total": 0, "weak_students": set()}
+                
+            topic_stats[topic]["total"] += 1
+            if is_correct:
+                topic_stats[topic]["correct"] += 1
+            else:
+                topic_stats[topic]["weak_students"].add(att["student_id"])
+                
+    result = []
+    for topic, stats in topic_stats.items():
+        if stats["total"] > 0:
+            avg_acc = (stats["correct"] / stats["total"]) * 100
+            weak_pct = (len(stats["weak_students"]) / len(student_ids)) * 100 if student_ids else 0
+            if avg_acc < 60.0: 
+                result.append({
+                    "topic": topic,
+                    "avg_accuracy": round(avg_acc, 1),
+                    "weak_student_percentage": round(weak_pct, 1)
+                })
+                
+    return result
+
+@api_router.post("/api/teacher/mark-attention")
+async def mark_attention(body: MarkAttentionInput, user: dict = Depends(require_role("teacher", "admin"))):
+    if body.reason and len(body.reason) > 200:
+        raise HTTPException(status_code=400, detail="Reason max 200 characters")
+        
+    now = datetime.now(timezone.utc)
+    flag_id = str(uuid.uuid4())
+    
+    flag = {
+        "id": flag_id, "teacher_id": user["id"], "student_id": body.student_id,
+        "batch_id": body.batch_id, "reason": body.reason,
+        "is_resolved": False, "resolved_at": None,
+        "created_at": now.isoformat(), "updated_at": now.isoformat()
+    }
+    await db.mark_attentions.insert_one(flag)
+    
+    student = await db.users.find_one({"id": body.student_id}, {"_id": 0, "name": 1})
+    s_name = student.get("name", "Student") if student else "Student"
+    
+    notification = {
+        "id": str(uuid.uuid4()), "user_id": user["id"], "type": "MARK_ATTENTION",
+        "title": "Student Flagged",
+        "body": f"You flagged {s_name} for attention.",
+        "reference_id": flag_id, "reference_type": "MarkAttention",
+        "is_read": False, "read_at": None, "created_at": now.isoformat()
+    }
+    await db.in_app_notifications.insert_one(notification)
+    
+    return {"status": "flagged", "id": flag_id}
+
+@api_router.get("/api/teacher/mark-attention")
+async def list_attention_flags(user: dict = Depends(require_role("teacher", "admin"))):
+    flags = await db.mark_attentions.find({"teacher_id": user["id"], "is_resolved": False}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return flags
+
+@api_router.put("/api/teacher/mark-attention/{flag_id}")
+async def resolve_attention(flag_id: str, body: ResolveAttentionInput, user: dict = Depends(require_role("teacher", "admin"))):
+    now = datetime.now(timezone.utc)
+    result = await db.mark_attentions.update_one(
+        {"id": flag_id, "teacher_id": user["id"]},
+        {"$set": {"is_resolved": body.is_resolved, "resolved_at": now.isoformat(), "updated_at": now.isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Flag not found")
+    return {"status": "resolved"}
