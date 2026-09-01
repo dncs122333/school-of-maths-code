@@ -95,3 +95,9 @@ class StartPracticeInput(BaseModel):
 class PracticeAnswerInput(BaseModel):
     question_id: str
     selected_option: str
+
+
+class CreateNoticeInput(BaseModel):
+    batch_id: str
+    message: str
+    ttl_hours: Optional[int] = 168
