@@ -1843,3 +1843,48 @@ async def dismiss_notice(notice_id: str, user: dict = Depends(require_role("stud
         upsert=True
     )
     return {"status": "dismissed"}
+
+
+# ------------------------- Spec v2.0: Challenge Question Feature (Sections 13, 15.9) -------------------------
+
+@api_router.post("/api/challenges")
+async def create_challenge(body: CreateChallengeInput, user: dict = Depends(get_current_user)):
+    if body.test_id:
+        count = await db.challenges.count_documents({
+            "test_id": body.test_id, "raised_by": user["id"]
+        })
+        if count >= 3:
+            raise HTTPException(status_code=403, detail="Max 3 challenges per test")
+            
+    challenge = {
+        "id": str(uuid.uuid4()), "question_id": body.question_id,
+        "test_id": body.test_id, "practice_session_id": body.practice_session_id,
+        "raised_by": user["id"], "reason": body.reason,
+        "status": "PENDING", "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.challenges.insert_one(challenge)
+    return challenge
+
+@api_router.get("/api/challenges")
+async def list_challenges(user: dict = Depends(require_role("teacher", "admin"))):
+    if user["role"] == "admin":
+        return await db.challenges.find({"status": "PENDING"}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    else:
+        teacher_tests = await db.tests.find({"teacher_id": user["id"]}, {"id": 1}).to_list(1000)
+        test_ids = [t["id"] for t in teacher_tests]
+        return await db.challenges.find({"test_id": {"$in": test_ids}}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+@api_router.put("/api/challenges/{challenge_id}")
+async def resolve_challenge(challenge_id: str, body: ResolveChallengeInput, user: dict = Depends(require_role("admin"))):
+    if body.status not in ["VALIDATED", "REJECTED"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+        
+    now = datetime.now(timezone.utc)
+    result = await db.challenges.update_one(
+        {"id": challenge_id, "status": "PENDING"},
+        {"$set": {"status": body.status, "admin_notes": body.admin_notes, "resolved_at": now.isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Challenge not found or already resolved")
+        
+    return {"status": "resolved"}
