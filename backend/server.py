@@ -1888,3 +1888,173 @@ async def resolve_challenge(challenge_id: str, body: ResolveChallengeInput, user
         raise HTTPException(status_code=404, detail="Challenge not found or already resolved")
         
     return {"status": "resolved"}
+
+
+# ------------------------- Spec v2.0: Test Results, Review & Retry Logic (Sections 5.5, 12, 15.4) -------------------------
+
+@api_router.get("/api/tests/{test_id}/result")
+async def get_test_result(test_id: str, user: dict = Depends(require_role("student"))):
+    attempt = await db.student_attempts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+    if not attempt:
+        attempt = await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+        if not attempt:
+            raise HTTPException(status_code=404, detail="Attempt not found")
+            
+    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+        
+    # Rank Calculation (Spec 12)
+    rank = None
+    batch_id = test.get("batch_ids", [None])[0]
+    if batch_id and test.get("leaderboard_enabled", False):
+        all_attempts = await db.student_attempts.find({"test_id": test_id, "status": {"$in": ["submitted", "late_submitted", "flagged_submitted", "auto_submitted"]}}, {"_id": 0, "student_id": 1, "percentage": 1}).to_list(1000)
+        if not all_attempts:
+            all_attempts = await db.submissions.find({"test_id": test_id}, {"_id": 0, "student_id": 1, "score": 1, "total": 1}).to_list(1000)
+            for a in all_attempts:
+                a["percentage"] = (a["score"] / a["total"] * 100) if a["total"] > 0 else 0
+                
+        sorted_attempts = sorted(all_attempts, key=lambda x: x.get("percentage", 0), reverse=True)
+        for i, a in enumerate(sorted_attempts):
+            if a["student_id"] == user["id"]:
+                rank = i + 1
+                break
+
+    # Solutions Reveal Timing (Spec 5.2.3)
+    reveal_timing = test.get("solutions_reveal_timing", "IMMEDIATE")
+    show_solutions = False
+    now = datetime.now(timezone.utc)
+    
+    if reveal_timing == "IMMEDIATE":
+        show_solutions = True
+    elif reveal_timing in ["AFTER_DEADLINE", "AFTER_ALL_SUBMIT"]:
+        deadline = test.get("deadline")
+        if deadline:
+            if isinstance(deadline, str):
+                deadline = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+            if now >= deadline:
+                show_solutions = True
+
+    # Topic-wise breakdown
+    topic_stats = {}
+    questions = test.get("questions", [])
+    answers = attempt.get("answers", [])
+    
+    if answers and isinstance(answers[0], dict):
+        ans_map = {a["question_id"]: a["selected_option"] for a in answers}
+    else:
+        ans_map = {str(i): str(a) for i, a in enumerate(answers)}
+
+    for i, q in enumerate(questions):
+        q_id = q.get("id") or str(i)
+        topic = q.get("topic", "Unknown")
+        chosen = ans_map.get(q_id)
+        correct_opt = q.get("correct_index") or q.get("correct_option_id")
+        
+        is_correct = False
+        if chosen is not None and (str(correct_opt).upper() == str(chosen).upper() or (str(correct_opt).isdigit() and str(chosen).isdigit() and int(correct_opt) == int(chosen))):
+            is_correct = True
+            
+        if topic not in topic_stats:
+            topic_stats[topic] = {"correct": 0, "total": 0}
+        topic_stats[topic]["total"] += 1
+        if is_correct:
+            topic_stats[topic]["correct"] += 1
+
+    # Construct review data
+    review = []
+    for i, q in enumerate(questions):
+        q_id = q.get("id") or str(i)
+        chosen = ans_map.get(q_id)
+        correct_opt = q.get("correct_index") or q.get("correct_option_id")
+        is_correct = chosen is not None and (str(correct_opt).upper() == str(chosen).upper() or (str(correct_opt).isdigit() and str(chosen).isdigit() and int(correct_opt) == int(chosen)))
+        
+        review_item = {
+            "question_id": q_id,
+            "question_text": q.get("question") or q.get("question_text"),
+            "options": q.get("options", []),
+            "student_answer": chosen,
+            "is_correct": is_correct
+        }
+        if show_solutions:
+            review_item["correct_answer"] = correct_opt
+            review_item["explanation"] = q.get("explanation", "")
+        else:
+            review_item["correct_answer"] = None
+            review_item["explanation"] = "Solutions will be revealed later."
+            
+        review.append(review_item)
+
+    return {
+        "test_id": test_id,
+        "title": test.get("title"),
+        "score": attempt.get("score", attempt.get("correct", 0)),
+        "percentage": attempt.get("percentage", attempt.get("score", 0)),
+        "rank": rank,
+        "topic_breakdown": topic_stats,
+        "review": review,
+        "show_solutions": show_solutions
+    }
+
+@api_router.post("/api/tests/{test_id}/retry-wrong")
+async def retry_wrong_questions(test_id: str, user: dict = Depends(require_role("student"))):
+    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+        
+    attempt = await db.student_attempts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+    if not attempt:
+        attempt = await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+        if not attempt:
+            raise HTTPException(status_code=404, detail="Attempt not found")
+
+    questions = test.get("questions", [])
+    answers = attempt.get("answers", [])
+    
+    if answers and isinstance(answers[0], dict):
+        ans_map = {a["question_id"]: a["selected_option"] for a in answers}
+    else:
+        ans_map = {str(i): str(a) for i, a in enumerate(answers)}
+
+    wrong_topics = set()
+    seen_question_texts = set()
+    
+    for i, q in enumerate(questions):
+        q_id = q.get("id") or str(i)
+        seen_question_texts.add(q.get("question") or q.get("question_text"))
+        
+        chosen = ans_map.get(q_id)
+        correct_opt = q.get("correct_index") or q.get("correct_option_id")
+        
+        is_correct = chosen is not None and (str(correct_opt).upper() == str(chosen).upper() or (str(correct_opt).isdigit() and str(chosen).isdigit() and int(correct_opt) == int(chosen)))
+        
+        if not is_correct:
+            wrong_topics.add(q.get("topic", "Unknown"))
+
+    if not wrong_topics:
+        raise HTTPException(status_code=400, detail="No wrong questions to retry!")
+
+    pool = await db.question_bank.find({"topic": {"$in": list(wrong_topics)}, "status": "active"}, {"_id": 0}).to_list(1000)
+    available_pool = [q for q in pool if (q.get("question") or q.get("question_text")) not in seen_question_texts]
+    
+    if not available_pool:
+        raise HTTPException(status_code=404, detail="No new questions available in the pool for these topics.")
+        
+    import random
+    count = min(5, len(available_pool))
+    selected = random.sample(available_pool, count)
+    
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    session = {
+        "id": session_id, "student_id": user["id"],
+        "test_id": test_id, "type": "RETRY_DRILL",
+        "questions": selected, "answers": [],
+        "status": "IN_PROGRESS", "started_at": now.isoformat(), "created_at": now.isoformat()
+    }
+    await db.practice_sessions.insert_one(session)
+    
+    return {
+        "session_id": session_id,
+        "questions": [{"id": q.get("id", q["question"]), "question": q["question"], "options": q["options"]} for q in selected]
+    }
