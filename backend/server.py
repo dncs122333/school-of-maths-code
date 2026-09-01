@@ -1570,3 +1570,81 @@ async def get_practice_streak(user: dict = Depends(require_role("student"))):
         streak["current_streak"] = 0
         
     return streak
+
+
+# ------------------------- Helpers: Chapter Practice (Spec 6.2-6.6) -------------------------
+async def get_retired_question_ids(teacher_id: str, days: int = 20):
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    tests = await db.tests.find({"teacher_id": teacher_id, "status": {"$in": ["ACTIVE", "CLOSED"]}}, {"id": 1}).to_list(1000)
+    test_ids = [t["id"] for t in tests]
+    if not test_ids:
+        return set()
+        
+    attempts = await db.submissions.find({
+        "test_id": {"$in": test_ids},
+        "created_at": {"$gte": cutoff.isoformat()}
+    }, {"answers": 1}).to_list(5000)
+    
+    retired_ids = set()
+    for att in attempts:
+        for ans in att.get("answers", []):
+            if isinstance(ans, dict):
+                q_id = ans.get("question_id")
+            else:
+                q_id = str(ans) # Legacy format fallback
+            if q_id:
+                retired_ids.add(q_id)
+    return retired_ids
+
+async def check_daily_cap(student_id: str, topic: str, cap: int = 5):
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_now = datetime.now(timezone.utc) + ist_offset
+    today_str = ist_now.strftime("%Y-%m-%d")
+    
+    cap_doc = await db.topic_attempt_caps.find_one({
+        "student_id": student_id, "topic": topic, "date": today_str
+    })
+    if cap_doc and cap_doc.get("attempt_count", 0) >= cap:
+        return False, cap_doc.get("attempt_count", 0)
+    return True, cap_doc.get("attempt_count", 0) if cap_doc else 0
+
+async def check_monthly_slot(student_id: str, max_slots: int = 5):
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_now = datetime.now(timezone.utc) + ist_offset
+    month_str = ist_now.strftime("%Y-%m")
+    
+    slot_doc = await db.practice_slot_counters.find_one({
+        "student_id": student_id, "month": month_str
+    })
+    if slot_doc and slot_doc.get("used_slots", 0) >= max_slots:
+        return False, slot_doc.get("used_slots", 0)
+    return True, slot_doc.get("used_slots", 0) if slot_doc else 0
+
+async def update_practice_streak(student_id: str):
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_now = datetime.now(timezone.utc) + ist_offset
+    today_str = ist_now.strftime("%Y-%m-%d")
+    
+    streak_doc = await db.practice_streaks.find_one({"student_id": student_id})
+    if not streak_doc:
+        await db.practice_streaks.insert_one({
+            "student_id": student_id, "current_streak": 1, "longest_streak": 1,
+            "last_practice_date": today_str, "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+        return 1
+        
+    last_date = streak_doc.get("last_practice_date")
+    if last_date == today_str:
+        return streak_doc.get("current_streak", 0)
+        
+    yesterday = (ist_now - timedelta(days=1)).strftime("%Y-%m-%d")
+    new_streak = streak_doc.get("current_streak", 0) + 1 if last_date == yesterday else 1
+    longest = max(streak_doc.get("longest_streak", 0), new_streak)
+    
+    await db.practice_streaks.update_one(
+        {"student_id": student_id},
+        {"$set": {"current_streak": new_streak, "longest_streak": longest, "last_practice_date": today_str, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return new_streak
+
