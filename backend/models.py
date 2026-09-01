@@ -84,3 +84,14 @@ class EditNoteInput(BaseModel):
     title: Optional[str] = None
     batch_id: Optional[str] = None
     is_pinned: Optional[bool] = None
+
+
+class StartPracticeInput(BaseModel):
+    subject: str
+    chapter: str
+    topic: Optional[str] = None
+    question_count: Optional[int] = 10
+
+class PracticeAnswerInput(BaseModel):
+    question_id: str
+    selected_option: str
