@@ -112,3 +112,12 @@ class CreateChallengeInput(BaseModel):
 class ResolveChallengeInput(BaseModel):
     status: str
     admin_notes: Optional[str] = None
+
+
+class MarkAttentionInput(BaseModel):
+    student_id: str
+    batch_id: str
+    reason: Optional[str] = None
+
+class ResolveAttentionInput(BaseModel):
+    is_resolved: bool = True
