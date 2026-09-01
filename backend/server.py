@@ -1648,3 +1648,136 @@ async def update_practice_streak(student_id: str):
     )
     return new_streak
 
+
+
+# ------------------------- Spec v2.0: Chapter Practice Feature (Sections 6, 15.5) -------------------------
+
+@api_router.post("/api/practice/start")
+async def start_practice(body: StartPracticeInput, user: dict = Depends(require_role("student"))):
+    now = datetime.now(timezone.utc)
+    # IST is UTC + 5:30
+    ist_offset = timezone(timedelta(hours=5, minutes=30))
+    today_ist = now.astimezone(ist_offset).date()
+    current_month = now.astimezone(ist_offset).strftime("%Y-%m")
+    
+    # 1. Check Monthly Slot (PracticeSlotCounter) - Spec 2.16, 6.5
+    counter = await db.practice_slot_counters.find_one({"student_id": user["id"], "month": current_month})
+    if not counter:
+        counter = {"id": str(uuid.uuid4()), "student_id": user["id"], "month": current_month, "used_slots": 0, "max_slots": 5}
+        await db.practice_slot_counters.insert_one(counter)
+    if counter["used_slots"] >= counter["max_slots"]:
+        raise HTTPException(status_code=403, detail="Monthly practice limit reached. Upgrade to Premium for unlimited practice.")
+        
+    # 2. Check Daily Cap (TopicAttemptCap) - Spec 2.15, 6.4
+    topic_key = body.topic or "ALL"
+    cap = await db.topic_attempt_caps.find_one({"student_id": user["id"], "topic": topic_key, "date": today_ist.isoformat()})
+    if not cap:
+        cap = {"id": str(uuid.uuid4()), "student_id": user["id"], "topic": topic_key, "date": today_ist.isoformat(), "attempt_count": 0}
+        await db.topic_attempt_caps.insert_one(cap)
+    if cap["attempt_count"] >= 5: # Default daily cap (Spec 6.4)
+        raise HTTPException(status_code=403, detail=f"Daily cap reached for this topic. Come back tomorrow!")
+
+    # 3. Fetch Questions & Apply Retirement Rule (Spec 6.2)
+    twenty_days_ago = now.astimezone(ist_offset) - timedelta(days=20)
+    recent_subs = await db.submissions.find({"student_id": user["id"], "created_at": {"$gte": twenty_days_ago.isoformat()}, "kind": "test"}).to_list(100)
+    test_ids = [s["test_id"] for s in recent_subs]
+    retired_texts = set()
+    if test_ids:
+        tests = await db.tests.find({"id": {"$in": test_ids}}, {"questions": 1}).to_list(100)
+        for t in tests:
+            for q in t.get("questions", []):
+                retired_texts.add(q.get("question") or q.get("question_text"))
+                
+    q_filter = {"subject": body.subject, "chapter": body.chapter, "status": "active"}
+    if body.topic and body.topic != "ALL":
+        q_filter["topic"] = body.topic
+        
+    pool = await db.question_bank.find(q_filter, {"_id": 0}).to_list(1000)
+    available_pool = [q for q in pool if (q.get("question") or q.get("question_text")) not in retired_texts]
+    
+    if not available_pool:
+        raise HTTPException(status_code=404, detail="No available questions for this topic (pool exhausted or retired).")
+        
+    import random
+    count = min(body.question_count, len(available_pool))
+    selected = random.sample(available_pool, count)
+    
+    # 4. Create PracticeSession (Spec 2.13)
+    session_id = str(uuid.uuid4())
+    session = {
+        "id": session_id, "student_id": user["id"],
+        "subject": body.subject, "chapter": body.chapter, "topic": body.topic,
+        "questions": selected, "answers": [],
+        "score": 0, "total_questions": count, "status": "IN_PROGRESS",
+        "started_at": now.isoformat(), "created_at": now.isoformat()
+    }
+    await db.practice_sessions.insert_one(session)
+    
+    # 5. Increment Counters
+    await db.practice_slot_counters.update_one({"id": counter["id"]}, {"$inc": {"used_slots": 1}})
+    await db.topic_attempt_caps.update_one({"id": cap["id"]}, {"$inc": {"attempt_count": 1}})
+    
+    # 6. Update Streak (Spec 2.14, 6.6)
+    streak = await db.practice_streaks.find_one({"student_id": user["id"]})
+    if not streak:
+        streak = {"id": str(uuid.uuid4()), "student_id": user["id"], "current_streak": 0, "longest_streak": 0, "last_practice_date": None}
+        await db.practice_streaks.insert_one(streak)
+        
+    last_date_str = streak.get("last_practice_date")
+    last_date = datetime.fromisoformat(last_date_str).date() if last_date_str else None
+    if last_date != today_ist:
+        if last_date == today_ist - timedelta(days=1):
+            new_streak = streak["current_streak"] + 1
+        else:
+            new_streak = 1
+            
+        longest = max(streak["longest_streak"], new_streak)
+        await db.practice_streaks.update_one({"id": streak["id"]}, {"$set": {"current_streak": new_streak, "longest_streak": longest, "last_practice_date": today_ist.isoformat()}})
+
+    return {"session_id": session_id, "questions": [{"id": q.get("id", q["question"]), "question": q["question"], "options": q["options"]} for q in selected]}
+
+@api_router.post("/api/practice/{session_id}/answer")
+async def save_practice_answer(session_id: str, body: PracticeAnswerInput, user: dict = Depends(require_role("student"))):
+    session = await db.practice_sessions.find_one({"id": session_id, "student_id": user["id"], "status": "IN_PROGRESS"})
+    if not session:
+        raise HTTPException(status_code=404, detail="Active practice session not found")
+        
+    # Update or insert answer
+    answers = session.get("answers", [])
+    answers = [a for a in answers if a["question_id"] != body.question_id]
+    answers.append({"question_id": body.question_id, "selected_option": body.selected_option})
+    
+    await db.practice_sessions.update_one({"id": session_id}, {"$set": {"answers": answers}})
+    return {"status": "saved"}
+
+@api_router.post("/api/practice/{session_id}/submit")
+async def submit_practice(session_id: str, user: dict = Depends(require_role("student"))):
+    session = await db.practice_sessions.find_one({"id": session_id, "student_id": user["id"], "status": "IN_PROGRESS"})
+    if not session:
+        raise HTTPException(status_code=404, detail="Active practice session not found")
+        
+    correct = 0
+    questions = session.get("questions", [])
+    answers = {a["question_id"]: a["selected_option"] for a in session.get("answers", [])}
+    
+    for q in questions:
+        q_id = q.get("id") or q.get("question")
+        chosen = answers.get(q_id)
+        correct_opt = q.get("correct_index") or q.get("correct_option_id")
+        # Handle both index (int) and string ID formats
+        if str(correct_opt).upper() == str(chosen).upper() or (str(correct_opt).isdigit() and int(correct_opt) == int(chosen)):
+            correct += 1
+            
+    await db.practice_sessions.update_one(
+        {"id": session_id}, 
+        {"$set": {"status": "COMPLETED", "score": correct, "completed_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"score": correct, "total": len(questions), "status": "completed"}
+
+@api_router.get("/api/practice/streak")
+async def get_practice_streak(user: dict = Depends(require_role("student"))):
+    streak = await db.practice_streaks.find_one({"student_id": user["id"]}, {"_id": 0})
+    if not streak:
+        return {"current_streak": 0, "longest_streak": 0}
+    return {"current_streak": streak["current_streak"], "longest_streak": streak["longest_streak"]}
+
