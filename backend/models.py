@@ -101,3 +101,14 @@ class CreateNoticeInput(BaseModel):
     batch_id: str
     message: str
     ttl_hours: Optional[int] = 168
+
+
+class CreateChallengeInput(BaseModel):
+    question_id: str
+    test_id: Optional[str] = None
+    practice_session_id: Optional[str] = None
+    reason: str
+
+class ResolveChallengeInput(BaseModel):
+    status: str
+    admin_notes: Optional[str] = None
