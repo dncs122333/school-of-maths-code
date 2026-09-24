@@ -104,7 +104,7 @@ Created automatically on startup from `backend/.env`:
 - `/teacher/dashboard` — Direct route to Teacher Command Hub
 - `/batches?batch_id=X` — Active batches manager with student leaderboard rankings (`#1 🥇, #2 🥈...`) and diagnostic modal
 - `/tests` / `/dpp` — Timed test assessment runners and untimed daily practice
-- `/notes` — AI Study notes library and reader
+- `/notes` — AI Study notes library and reader (with anti-piracy rotating watermark)
 
 ---
 
@@ -115,9 +115,10 @@ Created automatically on startup from `backend/.env`:
 2. **Fault Tolerance & Recovery:**
    - Background tasks handle errors gracefully; on backend reboot, startup sweeps reset interrupted note generations older than 20 minutes to `failed`.
    - Hierarchical fallback ensures tests always build reliably even if specific topic questions are scarce.
-3. **Security:**
+3. **Security & Anti-Piracy:**
    - Password hashing with `bcrypt`.
    - Role-scoped endpoint dependency injection (`require_role("teacher", "admin")`).
    - Secure file retrieval verifying student batch membership before serving media streams.
+   - **Dynamic Rotating Watermark**: When students view teacher notes, a tiled diagonal watermark (-25°) containing student name and email is rendered over all content and concept illustrations, coupled with an animated floating security token to prevent screenshotting, screen-recording, or unauthorized material sharing.
 4. **UX & Design Standards:**
    - "Cosmic Observatory" dark theme using Tailwind CSS and Framer Motion micro-interactions.

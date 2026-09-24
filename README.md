@@ -4,7 +4,7 @@ A coaching-center platform for **CBSE Classes 9–10**. Teachers create batches,
 
 ## Features
 
-- **AI study notes** — 3-pass Gemini pipeline (extract → generate → verify/gap-fill) with concept images
+- **AI study notes** — 3-pass Gemini pipeline (extract → generate → verify/gap-fill) with concept images and dynamic anti-piracy rotating watermark (student name + email)
 - **Class materials** — chapter-tagged file uploads with authenticated downloads
 - **Question bank** — CSV import with validation, dedupe, answer-key sanity checks, and automatic startup seeding
 - **Bank-driven tests & DPP** — 30/50/20 difficulty mix, async creation, per-student option shuffle, and hierarchical topic fallback

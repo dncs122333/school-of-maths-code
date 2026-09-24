@@ -125,8 +125,9 @@ Bands: **< 55% weak · 55–75% developing · > 75% strong**. Extra signals: tim
 
 ## 4. Features (lean MVP)
 
-### 4.1 Notes (existing — unchanged)
-AI "beautiful notes" (extract → generate → verify → gap-fill) + chapter-tagged materials upload with authenticated downloads. Kept as-is; no new work.
+### 4.1 Notes (AI-generated & secure viewing with rotating watermark)
+- AI "beautiful notes" (extract → generate → verify → gap-fill) + chapter-tagged materials upload with authenticated downloads.
+- **Dynamic Rotating Watermark (anti-piracy protection):** When students view teacher notes in `NoteReader`, a full-bleed diagonal watermark rotated at -25° is tiled across all content sections, formulas, and concept illustrations. It displays the authenticated student's name and email (`[Student Name] • [student@email.com]`), accompanied by an animated floating security badge drifting across the viewport to prevent screen recording, cropping, or unauthorized redistribution. Watermark persistence is enforced on print/PDF export.
 
 ### 4.2 Class Test (timed) — *question source changed to the bank*
 Teacher selects **class → subject → chapter → topic(s) → batch → question count → duration → validity window**.
@@ -197,6 +198,7 @@ POST   /tests/diagnostic          # 10-question cold-start test
 | Double submission | existing guard (already works). |
 | Correct answers during attempt | hidden (already works). |
 | Option-order randomization | server-side shuffle at `GET /tests/{id}`. |
+| Content piracy & note leaking | Dynamic rotating watermark in Note Reader embedding student name and email across tiled -25° diagonal pattern and animated floating badge. |
 | Device lock / offline sync | **deferred** (not meaningful for web MVP). |
 
 ---

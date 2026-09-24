@@ -14,7 +14,7 @@
 | **Admin** | Seeded super-user with full teacher capabilities and platform-wide visibility across all data and system statistics. |
 
 ### 1.2 Core Features
-1. **AI "Beautiful Notes"**
+1. **AI "Beautiful Notes" & Dynamic Watermarking**
    - Teacher pastes rough notes or uploads a **PDF / DOCX / TXT** file (text auto-extracted).
    - A **multi-pass accuracy engine** generates the notes:
      1. **Extract** — pulls an exhaustive checklist of every definition, fact, formula, unit and example.
@@ -23,6 +23,7 @@
    - Notes are aligned to the **CBSE 2025–26 (2026 board exam) syllabus & NCERT** for the chosen class/subject/chapter.
    - Output includes sections, key points, **formulas**, concept **illustrations (AI images)**, mnemonics and quick-revision.
    - **Asynchronous**: creation returns instantly; an animated loader polls until the note is `ready`.
+   - **Anti-Piracy Rotating Watermark**: When viewed by students in the `NoteReader`, a full-coverage diagonal watermark rotated at -25° is tiled across the document embedding the student's name and email (`Student Name • student@email.com`), alongside a dynamic floating security badge drifting across the viewport to deter screen capture and unauthorized sharing. Watermark visibility is maintained on physical print and PDF exports.
 
 2. **Class Materials (direct uploads, no AI)**
    - Teacher uploads any file (PDF/image/DOCX/PPTX/TXT) and assigns it to a **batch**.
