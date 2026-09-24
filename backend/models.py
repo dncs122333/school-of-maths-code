@@ -23,14 +23,27 @@ class JoinInput(BaseModel):
     code: str
 
 
-class GenerateNoteInput(BaseModel):
+class NoteSection(BaseModel):
+    heading: str
+    content: str  # plain text or markdown — teacher writes it directly
+
+
+class CreateNoteInput(BaseModel):
     title: str
     class_level: str
     subject: str
     chapter: str
     topic: Optional[str] = ""
     batch_id: Optional[str] = None
-    raw_text: str
+    intro: Optional[str] = ""
+    sections: Optional[List[NoteSection]] = []
+    quick_revision: Optional[List[str]] = []
+    key_terms: Optional[List[str]] = []
+    raw_text: Optional[str] = ""
+
+
+# Alias for backward compatibility and future AI generation version
+GenerateNoteInput = CreateNoteInput
 
 
 class GenerateTestInput(BaseModel):

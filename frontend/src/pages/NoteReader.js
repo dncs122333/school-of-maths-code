@@ -1,69 +1,31 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import AuthedImage from "../components/AuthedImage";
 import WatermarkOverlay from "../components/WatermarkOverlay";
 import { Button } from "../components/ui/button";
-import { ArrowLeft, Lightbulb, Sparkles, ListChecks, Sigma, Orbit, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Lightbulb, BookMarked, ListChecks, Sigma, Tag, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
-
-const STEPS = [
-  "Reading your source material…",
-  "Extracting every concept, formula & fact…",
-  "Writing beautiful, accurate notes…",
-  "Painting concept illustrations…",
-  "Double-checking nothing was missed…",
-];
 
 export default function NoteReader() {
   const { id } = useParams();
   const { user } = useAuth();
   const [note, setNote] = useState(null);
-  const [step, setStep] = useState(0);
-  const timer = useRef();
+  const [err, setErr] = useState(null);
 
   useEffect(() => {
-    let stop = false;
-    const poll = async () => {
-      try {
-        const r = await api.get(`/notes/${id}`);
-        setNote(r.data);
-        if (r.data.status === "processing" && !stop) timer.current = setTimeout(poll, 3000);
-      } catch (e) { if (!stop) timer.current = setTimeout(poll, 3000); }
-    };
-    poll();
-    const si = setInterval(() => setStep((s) => (s + 1) % STEPS.length), 3500);
-    return () => { stop = true; clearTimeout(timer.current); clearInterval(si); };
+    api.get(`/notes/${id}`).then((r) => setNote(r.data)).catch(() => setErr("Could not load this note."));
   }, [id]);
 
-  if (!note) return <div className="py-20 text-center text-[#94A3B8]">Loading notes…</div>;
-
-  if (note.status === "processing") {
-    return (
-      <div className="max-w-xl mx-auto py-16 text-center">
-        <div className="relative h-32 w-32 mx-auto">
-          <div className="absolute inset-0 rounded-full border border-dashed border-white/15 animate-spin-slow" />
-          <div className="absolute inset-3 rounded-full border-2 border-[#3B82F6] border-t-transparent animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center"><Orbit className="h-10 w-10 text-[#06B6D4]" /></div>
-        </div>
-        <h1 className="font-head text-2xl font-700 text-white mt-8">Crafting your beautiful notes</h1>
-        <p className="text-[#94A3B8] mt-2">Our multi-pass accuracy engine is working — this can take a minute or two. You can leave and come back; it'll be ready.</p>
-        <motion.p key={step} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="mt-6 font-mono text-sm text-[#06B6D4]">{STEPS[step]}</motion.p>
-        <Button asChild variant="ghost" className="rounded-full mt-8 text-[#94A3B8] hover:text-white hover:bg-white/5"><Link to="/notes"><ArrowLeft className="h-4 w-4 mr-1" /> Back to library</Link></Button>
-      </div>
-    );
-  }
-
-  if (note.status === "failed") {
-    return (
-      <div className="max-w-xl mx-auto py-16 text-center">
-        <h1 className="font-head text-2xl font-700 text-white">Generation didn't complete</h1>
-        <p className="text-[#94A3B8] mt-2">Something went wrong while generating these notes. Please try creating them again.</p>
-        <Button asChild className="rounded-full mt-6 bg-[#3B82F6] text-white"><Link to="/notes/new">Try again</Link></Button>
-      </div>
-    );
-  }
+  if (!note && !err) return <div className="py-20 text-center text-[#94A3B8]">Loading notes…</div>;
+  if (err) return (
+    <div className="max-w-xl mx-auto py-16 text-center">
+      <h1 className="font-head text-2xl font-700 text-white">Note not found</h1>
+      <p className="text-[#94A3B8] mt-2">{err}</p>
+      <Button asChild className="rounded-full mt-6 bg-[#3B82F6] text-white"><Link to="/notes">Back to library</Link></Button>
+    </div>
+  );
 
   return (
     <div className="max-w-3xl mx-auto relative overflow-hidden rounded-3xl p-1 sm:p-3">
@@ -137,8 +99,19 @@ export default function NoteReader() {
 
       {note.quick_revision?.length > 0 && (
         <div className="mt-6 rounded-3xl bg-[#06B6D4]/10 border border-[#06B6D4]/30 p-6">
-          <div className="flex items-center gap-2 font-head text-xl font-600 mb-3 text-[#06B6D4]"><Sparkles className="h-5 w-5" /> Quick revision</div>
+          <div className="flex items-center gap-2 font-head text-xl font-600 mb-3 text-[#06B6D4]"><BookMarked className="h-5 w-5" /> Quick revision</div>
           <ul className="space-y-2">{note.quick_revision.map((m, i) => <li key={i} className="flex gap-2 text-[#F8FAFC]/90"><span className="font-700 font-mono text-[#06B6D4]">{i + 1}.</span>{m}</li>)}</ul>
+        </div>
+      )}
+
+      {note.key_terms?.length > 0 && (
+        <div className="mt-6 rounded-3xl bg-[#111827] border border-[#1E293B] p-6">
+          <div className="flex items-center gap-2 font-head text-xl font-600 mb-3 text-[#FBBF24]"><Tag className="h-5 w-5" /> Key Terms</div>
+          <div className="flex flex-wrap gap-2">
+            {note.key_terms.map((t, i) => (
+              <span key={i} className="px-3 py-1 rounded-full bg-[#FBBF24]/10 border border-[#FBBF24]/30 text-[#FBBF24] text-sm font-500">{t}</span>
+            ))}
+          </div>
         </div>
       )}
     </div>

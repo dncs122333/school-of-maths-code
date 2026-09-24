@@ -163,54 +163,29 @@ class TestFullFlow:
             if b["id"] == st["batch"]["id"]:
                 assert b["student_count"] >= 1
 
-    # ----- notes (AI) — ASYNC flow -----
-    def test_20_teacher_creates_note_async(self):
-        import time
+    # ----- notes (manual) -----
+    def test_20_teacher_creates_note(self):
         st = self.state
-        payload = {"title": "TEST Gravitation", "class_level": "9", "subject": "Science",
-                   "chapter": "Gravitation", "topic": "Basics", "raw_text": RAW_NOTES}
-        t0 = time.time()
-        r = st["s"].post(f"{API}/notes", headers=st["teacher"]["h"], json=payload, timeout=30)
-        dt = time.time() - t0
+        payload = {
+            "title": "TEST Gravitation", "class_level": "9", "subject": "Science",
+            "chapter": "Gravitation", "topic": "Basics",
+            "intro": "An introduction to gravity.",
+            "sections": [
+                {"heading": "What is Gravity?", "content": "Gravity is a force of attraction..."},
+                {"heading": "Newton's Law", "content": "F = Gm1m2/r^2"},
+                {"heading": "Free Fall", "content": "When only gravity acts on a body."},
+            ],
+            "quick_revision": ["Gravity pulls objects towards Earth.", "g = 9.8 m/s^2"],
+            "key_terms": ["gravity", "free fall", "G"],
+        }
+        r = st["s"].post(f"{API}/notes", headers=st["teacher"]["h"], json=payload, timeout=15)
         assert r.status_code == 200, r.text
         d = r.json()
-        assert "id" in d and d.get("status") == "processing", f"expected instant processing resp, got {d}"
-        assert dt < 10, f"POST /api/notes should be near-instant, took {dt:.1f}s"
-        st["note_id"] = d["id"]
-
-        # Immediately, the list should include this note with status='processing'
-        rl = st["s"].get(f"{API}/notes", headers=st["teacher"]["h"], timeout=15)
-        assert rl.status_code == 200
-        listed = [n for n in rl.json() if n["id"] == d["id"]]
-        assert listed, "newly created note not in /notes list"
-        assert "status" in listed[0]
-        # It could already be 'ready' if generation was super fast, but usually 'processing'
-        assert listed[0]["status"] in ("processing", "ready")
-
-        # Poll GET /api/notes/{id} until status ready
-        deadline = time.time() + 200
-        note = None
-        while time.time() < deadline:
-            rg = st["s"].get(f"{API}/notes/{d['id']}", headers=st["teacher"]["h"], timeout=20)
-            assert rg.status_code == 200
-            note = rg.json()
-            if note.get("status") == "ready":
-                break
-            if note.get("status") == "failed":
-                pytest.fail(f"note generation failed: {note.get('error')}")
-            time.sleep(3)
-        assert note and note.get("status") == "ready", f"note did not become ready in time; last={note}"
-        assert isinstance(note.get("sections"), list) and len(note["sections"]) >= 3
-        assert isinstance(note.get("mnemonics"), list)
-        assert isinstance(note.get("quick_revision"), list)
-        coverage = note.get("coverage") or {}
-        assert coverage.get("total_points", 0) > 0, f"coverage missing total_points: {coverage}"
-        for sec in note["sections"]:
-            assert "image_prompt" not in sec  # must not leak
-        # At least one image_path expected (multi-pass generates concept images)
-        has_img = any(sec.get("image_path") for sec in note["sections"])
-        assert has_img, "no section has image_path after ready"
-        st["note"] = note
+        assert "id" in d and d.get("status") == "ready", f"expected ready status, got {d}"
+        assert len(d["sections"]) == 3
+        assert d["quick_revision"] == payload["quick_revision"]
+        assert d["key_terms"] == payload["key_terms"]
+        st["note"] = d
 
     def test_21_list_has_status_field(self):
         st = self.state
@@ -221,19 +196,13 @@ class TestFullFlow:
         for n in items:
             assert "status" in n, f"note list item missing status: {n}"
 
-    def test_22_media_serves_image(self):
+    def test_22_note_in_library_has_section_count(self):
         st = self.state
-        img_path = None
-        for sec in st["note"].get("sections", []):
-            if sec.get("image_path"):
-                img_path = sec["image_path"]
-                break
-        if not img_path:
-            pytest.skip("No image_path present (image gen failed or none generated)")
-        r = st["s"].get(f"{API}/media/{img_path}", timeout=60)
-        assert r.status_code == 200
-        assert r.headers.get("content-type", "").startswith("image/")
-        assert len(r.content) > 100
+        r = st["s"].get(f"{API}/notes", headers=st["teacher"]["h"], timeout=15)
+        listed = [n for n in r.json() if n["id"] == st["note"]["id"]]
+        assert listed, "note not in list"
+        # sections are stripped from list response
+        assert "sections" not in listed[0]
 
     def test_23_student_can_view_note(self):
         st = self.state

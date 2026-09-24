@@ -22,7 +22,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME
 from db import db, api_router
-from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput
+from models import RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteInput, GenerateTestInput, SubmitInput
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
 from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
 from lib.mastery import compute_topic_mastery
@@ -109,33 +109,14 @@ async def extract(file: UploadFile = File(...), user: dict = Depends(require_rol
     return {"text": text, "filename": file.filename}
 
 
-async def _process_note(note_id: str, body: GenerateNoteInput):
-    try:
-        data = await llm_generate_notes(body)
-        sections = data.get("sections", [])
-        img_done = 0
-        for s in sections:
-            p = (s.get("image_prompt") or "").strip()
-            if p and img_done < 4:
-                path = await gen_concept_image(p)
-                if path:
-                    s["image_path"] = path
-                    img_done += 1
-            s.pop("image_prompt", None)
-        await db.notes.update_one({"id": note_id}, {"$set": {
-            "title": body.title or data.get("title", "Untitled"),
-            "intro": data.get("intro", ""), "sections": sections,
-            "mnemonics": data.get("mnemonics", []), "quick_revision": data.get("quick_revision", []),
-            "coverage": data.get("_coverage", {}), "status": "ready"}})
-    except Exception as e:
-        logger.error(f"note processing failed: {e}")
-        await db.notes.update_one({"id": note_id}, {"$set": {"status": "failed", "error": str(e)[:200]}})
-
-
 @api_router.post("/notes")
-async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
-    if not body.raw_text.strip():
-        raise HTTPException(status_code=400, detail="Notes content is empty")
+async def create_note(body: CreateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
+    sections = [s.dict() for s in body.sections] if body.sections else []
+    if not sections:
+        if body.raw_text and body.raw_text.strip():
+            sections = [{"heading": "Overview", "content": body.raw_text.strip()}]
+        else:
+            raise HTTPException(status_code=400, detail="At least one section or content is required")
 
     batch_id = body.batch_id if body.batch_id and body.batch_id != "all" else None
     batch_name = None
@@ -151,13 +132,15 @@ async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role
     doc = {"id": note_id, "title": body.title or "Untitled",
            "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
            "topic": body.topic or "", "batch_id": batch_id, "batch_name": batch_name,
-           "intro": "", "sections": [], "mnemonics": [], "quick_revision": [],
-           "coverage": {}, "status": "processing",
+           "intro": body.intro or "", "sections": sections,
+           "quick_revision": body.quick_revision or [],
+           "key_terms": body.key_terms or [],
+           "status": "ready",
            "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": datetime.now(timezone.utc).isoformat()}
     await db.notes.insert_one(doc)
-    asyncio.create_task(_process_note(note_id, body))
-    return {"id": note_id, "status": "processing", "batch_id": batch_id}
+    doc.pop("_id", None)
+    return doc
 
 
 @api_router.get("/notes")
