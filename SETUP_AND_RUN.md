@@ -61,7 +61,16 @@ Code edits to `server.py` or the React `src/` hot-reload automatically. Restart 
 
 ### 4.1 Start MongoDB
 ```bash
-# example (Linux service) — or run your own mongod / Atlas string
+# macOS standalone binary (local setup):
+/Users/dhruv/mongodb-local/mongodb-macos-aarch64-8.0.12/bin/mongod \
+  --dbpath /Users/dhruv/mongodb-local/data \
+  --logpath /Users/dhruv/mongodb-local/logs/mongod.log \
+  --port 27017 --fork
+
+# Or Docker:
+docker run -d -p 27017:27017 --name vidya-mongo mongo:7
+
+# Or Linux service:
 sudo systemctl start mongod
 ```
 
