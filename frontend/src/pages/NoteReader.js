@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import AuthedImage from "../components/AuthedImage";
+import WatermarkOverlay from "../components/WatermarkOverlay";
 import { Button } from "../components/ui/button";
-import { ArrowLeft, Lightbulb, Sparkles, ListChecks, Sigma, Orbit } from "lucide-react";
+import { ArrowLeft, Lightbulb, Sparkles, ListChecks, Sigma, Orbit, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 
 const STEPS = [
@@ -16,6 +18,7 @@ const STEPS = [
 
 export default function NoteReader() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [note, setNote] = useState(null);
   const [step, setStep] = useState(0);
   const timer = useRef();
@@ -63,10 +66,19 @@ export default function NoteReader() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <Button data-testid="back-btn" asChild variant="ghost" className="rounded-full mb-4 -ml-2 text-[#94A3B8] hover:text-white hover:bg-white/5">
-        <Link to="/notes"><ArrowLeft className="h-4 w-4 mr-1" /> Back to library</Link>
-      </Button>
+    <div className="max-w-3xl mx-auto relative overflow-hidden rounded-3xl p-1 sm:p-3">
+      {/* Dynamic & Tiled Rotated Watermark */}
+      <WatermarkOverlay studentName={user?.name} studentEmail={user?.email} />
+
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <Button data-testid="back-btn" asChild variant="ghost" className="rounded-full -ml-2 text-[#94A3B8] hover:text-white hover:bg-white/5">
+          <Link to="/notes"><ArrowLeft className="h-4 w-4 mr-1" /> Back to library</Link>
+        </Button>
+        <div className="flex items-center gap-1.5 text-xs text-[#94A3B8] font-mono bg-[#111827]/90 px-3 py-1 rounded-full border border-[#1E293B] shadow-sm">
+          <ShieldCheck className="h-3.5 w-3.5 text-[#34D399]" />
+          <span>Licensed Copy: <strong className="text-white font-medium">{user?.name || "Student"}</strong></span>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#3B82F6]">{note.subject}</span>
