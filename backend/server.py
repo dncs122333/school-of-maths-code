@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Que
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
+from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME
 from db import db, api_router
 from models import RegisterInput, LoginInput, BatchInput, JoinInput, GenerateNoteInput, GenerateTestInput, SubmitInput
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
@@ -293,8 +293,13 @@ async def delete_resource(res_id: str, user: dict = Depends(require_role("teache
 
 
 @api_router.get("/resources/{res_id}/file")
-async def download_resource(res_id: str, authorization: str = Header(None)):
-    token = authorization[7:] if authorization and authorization.startswith("Bearer ") else None
+async def download_resource(res_id: str, authorization: str = Header(None), auth: Optional[str] = None):
+    # Support both Bearer header and ?auth= query param (for direct links)
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif auth:
+        token = auth
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user = await user_from_token(token)

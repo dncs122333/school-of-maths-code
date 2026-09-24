@@ -52,12 +52,14 @@ class TestResources:
         sh = {"Authorization": f"Bearer {student['token']}"}
         oh = {"Authorization": f"Bearer {outsider['token']}"}
 
-        # locate the Materials Batch that teacher owns
-        r = requests.get(f"{API}/batches", headers=th, timeout=15)
-        assert r.status_code == 200
-        batches = r.json()
-        mb = next((b for b in batches if b["name"] == "Materials Batch"), None)
-        assert mb, f"'Materials Batch' not found; got {[b['name'] for b in batches]}"
+        # Create a fresh Materials Batch for this test run
+        r = requests.post(f"{API}/batches", headers=th,
+                          json={"name": f"TEST Materials Batch {uuid.uuid4().hex[:6]}", "class_level": "10"}, timeout=15)
+        assert r.status_code == 200, r.text
+        mb = r.json()
+        # Enroll student in batch
+        r = requests.post(f"{API}/batches/join", headers=sh, json={"code": mb["code"]}, timeout=15)
+        assert r.status_code == 200, r.text
 
         TestResources.state = {
             "teacher": teacher, "student": student, "outsider": outsider,

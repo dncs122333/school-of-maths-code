@@ -2,16 +2,26 @@
 import base64
 import io
 import json
+import os
+import mimetypes
 import requests
+from pathlib import Path
 from typing import Optional
-from config import EMERGENT_KEY, STORAGE_URL, logger
+from config import EMERGENT_KEY, STORAGE_URL, logger, ROOT_DIR
 from db import db
 from models import GenerateNoteInput
+
+# Local storage fallback when no cloud key is available
+_LOCAL_STORE = ROOT_DIR / "local_storage"
+_USE_LOCAL = not bool(EMERGENT_KEY)
 
 storage_key = None
 
 def init_storage(force: bool = False):
     global storage_key
+    if _USE_LOCAL:
+        _LOCAL_STORE.mkdir(parents=True, exist_ok=True)
+        return "local"
     if storage_key and not force:
         return storage_key
     resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
@@ -21,6 +31,13 @@ def init_storage(force: bool = False):
 
 
 def put_object(path: str, data: bytes, content_type: str) -> dict:
+    if _USE_LOCAL:
+        dest = _LOCAL_STORE / path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        # Store content-type alongside the file
+        (dest.parent / (dest.name + ".ct")).write_text(content_type)
+        return {"path": path}
     key = init_storage()
     resp = requests.put(f"{STORAGE_URL}/objects/{path}",
                         headers={"X-Storage-Key": key, "Content-Type": content_type},
@@ -35,6 +52,13 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 
 
 def get_object(path: str):
+    if _USE_LOCAL:
+        dest = _LOCAL_STORE / path
+        if not dest.exists():
+            raise FileNotFoundError(f"Local storage: {path} not found")
+        ct_file = dest.parent / (dest.name + ".ct")
+        ct = ct_file.read_text() if ct_file.exists() else mimetypes.guess_type(str(dest))[0] or "application/octet-stream"
+        return dest.read_bytes(), ct
     key = init_storage()
     resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
     if resp.status_code == 404:
@@ -42,6 +66,7 @@ def get_object(path: str):
         resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
     resp.raise_for_status()
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
 
 
 
