@@ -84,6 +84,11 @@ export default function NoteReader() {
         <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#3B82F6]">{note.subject}</span>
         <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full bg-[#0B0F19] border border-[#1E293B] font-mono">Class {note.class_level}</span>
         <span className="text-[11px] font-500 px-2.5 py-1 rounded-full bg-[#0B0F19] border border-[#1E293B] text-[#94A3B8]">{note.chapter}</span>
+        {note.batch_name && (
+          <span className="text-[11px] font-600 px-2.5 py-1 rounded-full border border-[#06B6D4]/40 bg-[#06B6D4]/10 text-[#06B6D4] font-mono">
+            Batch: {note.batch_name}
+          </span>
+        )}
       </div>
       <h1 className="font-head text-3xl sm:text-4xl font-700 tracking-tight leading-tight text-white">{note.title}</h1>
       <p className="mt-3 text-lg text-[#94A3B8] leading-relaxed">{note.intro}</p>

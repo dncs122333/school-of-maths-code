@@ -29,6 +29,7 @@ class GenerateNoteInput(BaseModel):
     subject: str
     chapter: str
     topic: Optional[str] = ""
+    batch_id: Optional[str] = None
     raw_text: str
 
 

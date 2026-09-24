@@ -136,24 +136,61 @@ async def _process_note(note_id: str, body: GenerateNoteInput):
 async def create_note(body: GenerateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
     if not body.raw_text.strip():
         raise HTTPException(status_code=400, detail="Notes content is empty")
+
+    batch_id = body.batch_id if body.batch_id and body.batch_id != "all" else None
+    batch_name = None
+    if batch_id:
+        batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+        if not batch:
+            raise HTTPException(status_code=400, detail="Invalid batch selected")
+        if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You do not own this batch")
+        batch_name = batch.get("name")
+
     note_id = str(uuid.uuid4())
     doc = {"id": note_id, "title": body.title or "Untitled",
            "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
-           "topic": body.topic or "", "intro": "", "sections": [], "mnemonics": [], "quick_revision": [],
+           "topic": body.topic or "", "batch_id": batch_id, "batch_name": batch_name,
+           "intro": "", "sections": [], "mnemonics": [], "quick_revision": [],
            "coverage": {}, "status": "processing",
            "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": datetime.now(timezone.utc).isoformat()}
     await db.notes.insert_one(doc)
     asyncio.create_task(_process_note(note_id, body))
-    return {"id": note_id, "status": "processing"}
+    return {"id": note_id, "status": "processing", "batch_id": batch_id}
 
 
 @api_router.get("/notes")
 async def list_notes(class_level: Optional[str] = None, subject: Optional[str] = None,
-                     chapter: Optional[str] = None, user: dict = Depends(get_current_user)):
+                     chapter: Optional[str] = None, batch_id: Optional[str] = None,
+                     user: dict = Depends(get_current_user)):
     q = {}
     if user["role"] == "teacher":
         q["teacher_id"] = user["id"]
+        if batch_id:
+            if batch_id == "general":
+                q["$or"] = [{"batch_id": None}, {"batch_id": ""}, {"batch_id": {"$exists": False}}]
+            else:
+                q["batch_id"] = batch_id
+    elif user["role"] == "student":
+        student_batches = user.get("batch_ids", [])
+        # Student can only access notes scoped to their enrolled batches OR general notes
+        q["$or"] = [
+            {"batch_id": {"$in": student_batches}},
+            {"batch_id": None},
+            {"batch_id": ""},
+            {"batch_id": {"$exists": False}}
+        ]
+        if batch_id:
+            if batch_id in student_batches:
+                q["batch_id"] = batch_id
+            else:
+                raise HTTPException(status_code=403, detail="You are not enrolled in this batch")
+    else:
+        # admin
+        if batch_id:
+            q["batch_id"] = batch_id
+
     if class_level:
         q["class_level"] = class_level
     if subject:
@@ -169,7 +206,30 @@ async def get_note(note_id: str, user: dict = Depends(get_current_user)):
     note = await db.notes.find_one({"id": note_id}, {"_id": 0})
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+
+    if user["role"] == "student":
+        note_batch = note.get("batch_id")
+        if note_batch and note_batch not in user.get("batch_ids", []):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. This note is restricted to another batch."
+            )
+    elif user["role"] == "teacher":
+        if user["role"] != "admin" and note.get("teacher_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     return note
+
+
+@api_router.delete("/notes/{note_id}")
+async def delete_note(note_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    note = await db.notes.find_one({"id": note_id})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if user["role"] != "admin" and note.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.notes.delete_one({"id": note_id})
+    return {"status": "deleted", "id": note_id}
 
 
 # ------------------------- Materials (direct uploads, no AI) -------------------------
@@ -761,10 +821,21 @@ async def media(path: str, user: dict = Depends(get_current_user)):
 async def stats(user: dict = Depends(get_current_user)):
     if user["role"] == "student":
         subs = await db.submissions.find({"student_id": user["id"], "kind": "test"}, {"_id": 0}).to_list(500)
-        avg = round(sum(s["score"] for s in subs) / len(subs)) if subs else 0
+        avg = round(sum(s.get("score", 0) for s in subs) / len(subs), 1) if subs else 0
         batch_docs = await db.batches.find({"id": {"$in": user.get("batch_ids", [])}}, {"_id": 0, "class_level": 1}).to_list(20)
         class_levels = [b["class_level"] for b in batch_docs]
-        note_count = await db.notes.count_documents({"class_level": {"$in": class_levels}}) if class_levels else 0
+        student_batches = user.get("batch_ids", [])
+        nq = {
+            "$or": [
+                {"batch_id": {"$in": student_batches}},
+                {"batch_id": None},
+                {"batch_id": ""},
+                {"batch_id": {"$exists": False}}
+            ]
+        }
+        if class_levels:
+            nq["class_level"] = {"$in": class_levels}
+        note_count = await db.notes.count_documents(nq) if class_levels else 0
         return {"tests_taken": len(subs), "avg_score": avg,
                 "batches": len(batch_docs), "notes": note_count}
     q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}

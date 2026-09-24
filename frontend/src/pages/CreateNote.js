@@ -12,12 +12,16 @@ import { toast } from "sonner";
 export default function CreateNote() {
   const nav = useNavigate();
   const [catalog, setCatalog] = useState({});
-  const [f, setF] = useState({ title: "", class_level: "9", subject: "", chapter: "", topic: "", raw_text: "" });
+  const [batches, setBatches] = useState([]);
+  const [f, setF] = useState({ title: "", class_level: "9", subject: "", chapter: "", topic: "", batch_id: "", raw_text: "" });
   const [busy, setBusy] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const fileRef = useRef();
 
-  useEffect(() => { api.get("/catalog").then((r) => setCatalog(r.data)); }, []);
+  useEffect(() => {
+    api.get("/catalog").then((r) => setCatalog(r.data));
+    api.get("/batches").then((r) => setBatches(r.data || [])).catch(() => {});
+  }, []);
   const subjects = catalog[f.class_level] ? Object.keys(catalog[f.class_level]) : [];
   const chapters = catalog[f.class_level]?.[f.subject] || [];
 
@@ -86,6 +90,24 @@ export default function CreateNote() {
           <div>
             <Label className="font-600 text-[#94A3B8]">Topic <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
             <Input data-testid="note-topic" className={inp} value={f.topic} onChange={(e) => setF({ ...f, topic: e.target.value })} placeholder="e.g. Redox reactions" />
+          </div>
+          <div>
+            <Label className="font-600 text-[#94A3B8]">Batch Access</Label>
+            <Select value={f.batch_id || "all"} onValueChange={(v) => setF({ ...f, batch_id: v === "all" ? "" : v })}>
+              <SelectTrigger data-testid="note-batch" className={inp}>
+                <SelectValue placeholder="All Batches (General)" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#111827] border-[#1E293B] text-white">
+                <SelectItem value="all">All Batches (General Notes)</SelectItem>
+                {batches
+                  .filter((b) => String(b.class_level) === String(f.class_level))
+                  .map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.name} (Class {b.class_level})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

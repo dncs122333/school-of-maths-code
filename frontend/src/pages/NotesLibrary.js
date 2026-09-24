@@ -77,9 +77,14 @@ export default function NotesLibrary() {
           {notes.map((n, i) => (
             <motion.div key={n.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
               <Link to={`/notes/${n.id}`} data-testid={`note-card-${n.id}`} className="block rounded-3xl bg-[#111827] border border-[#1E293B] p-6 hover:border-[#3B82F6]/40 hover:-translate-y-0.5 transition-transform h-full">
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <span className={`text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border ${CHIP[i % CHIP.length]}`}>{n.subject}</span>
                   <span className="text-[11px] text-[#94A3B8] font-600 font-mono">Class {n.class_level}</span>
+                  {n.batch_name && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#06B6D4]/15 border border-[#06B6D4]/30 text-[#06B6D4]">
+                      {n.batch_name}
+                    </span>
+                  )}
                   {n.status === "processing" && <span className="ml-auto text-[10px] font-600 uppercase tracking-wide px-2 py-0.5 rounded-full border border-[#FBBF24]/40 bg-[#FBBF24]/10 text-[#FBBF24] animate-pulse">Generating</span>}
                   {n.status === "failed" && <span className="ml-auto text-[10px] font-600 uppercase tracking-wide px-2 py-0.5 rounded-full border border-[#F87171]/40 bg-[#F87171]/10 text-[#F87171]">Failed</span>}
                 </div>
