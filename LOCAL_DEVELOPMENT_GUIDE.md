@@ -8,15 +8,16 @@ This document contains startup commands, connection details, architecture overvi
 
 The project consists of three services running concurrently. Start them in the following order:
 
-### Step 1: Start MongoDB
-MongoDB runs using a local standalone binary downloaded into your home directory (or via Docker):
+### Step 1: Database (MongoDB Atlas Cloud or Local)
+The project is configured to use **MongoDB Atlas** (cloud-managed cluster `learning`). No local database daemon needs to be started when connected to Atlas!
+
+*(Optional offline fallback: If developing completely offline without internet, you can start local MongoDB and set `MONGO_URL="mongodb://localhost:27017"` in `backend/.env`:)*
 ```bash
 /Users/dhruv/mongodb-local/mongodb-macos-aarch64-8.0.12/bin/mongod \
   --dbpath /Users/dhruv/mongodb-local/data \
   --logpath /Users/dhruv/mongodb-local/logs/mongod.log \
   --port 27017 --fork
 ```
-*(Note: Because of `--fork`, MongoDB runs as a background daemon process. You only need to run this once per system reboot.)*
 
 ### Step 2: Start the Backend (FastAPI)
 The backend runs on port `8001` and connects to local MongoDB:
