@@ -26,10 +26,15 @@ api.interceptors.response.use(
         // leave as blob if parse fails
       }
     }
-    // On 401, clear stored token and bounce to login
-    if (res?.status === 401) {
+    // On 401, clear the stored token and bounce to the login screen.
+    // Skipped for the login/register calls themselves — a wrong password returns 401
+    // too, and redirecting there would wipe the form before the error can be shown.
+    // Also skipped when already on /auth, to avoid a reload loop.
+    const url = err.config?.url || "";
+    const isAuthAttempt = url.includes("/auth/login") || url.includes("/auth/register");
+    if (res?.status === 401 && !isAuthAttempt && window.location.pathname !== "/auth") {
       localStorage.removeItem("vidya_token");
-      window.location.href = "/login";
+      window.location.href = "/auth"; // the app's login route is /auth (see App.js)
     }
     return Promise.reject(err);
   }
