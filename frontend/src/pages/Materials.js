@@ -120,14 +120,28 @@ export default function Materials() {
   const download = async (r) => {
     setBusyId(r.id);
     try {
-      const blob = await fetchBlob(r);
-      const url = URL.createObjectURL(blob);
+      const res = await api.get(`/resources/${r.id}/file`, { responseType: "blob" });
+      const blob = res.data;
+      // Re-wrap with the server's content-type so the browser treats it correctly
+      const ct = res.headers["content-type"] || blob.type || "application/octet-stream";
+      const typedBlob = new Blob([blob], { type: ct });
+      const url = URL.createObjectURL(typedBlob);
       const a = document.createElement("a");
-      a.href = url; a.download = r.filename;
+      a.href = url;
+      // Ensure filename has the right extension
+      let fname = r.filename || "download";
+      if (!fname.includes(".") && r.content_type) {
+        const extMap = { "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg" };
+        fname += extMap[r.content_type] || "";
+      }
+      a.download = fname;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Download failed"); }
-    finally { setBusyId(null); }
+      toast.success("Download started");
+    } catch (e) {
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || "Download failed — please try again";
+      toast.error(msg);
+    } finally { setBusyId(null); }
   };
 
   const closeViewer = () => {

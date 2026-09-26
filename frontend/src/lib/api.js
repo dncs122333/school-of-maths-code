@@ -12,6 +12,29 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// When responseType is "blob", axios puts the JSON error body into a Blob.
+// We read it back to give meaningful error messages (e.g. "Not authenticated").
+api.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const res = err.response;
+    if (res && res.data instanceof Blob && res.data.type?.includes("json")) {
+      try {
+        const text = await res.data.text();
+        res.data = JSON.parse(text);
+      } catch (_) {
+        // leave as blob if parse fails
+      }
+    }
+    // On 401, clear stored token and bounce to login
+    if (res?.status === 401) {
+      localStorage.removeItem("vidya_token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
 export const mediaUrl = (path) => `${API}/media/${path}`;
 
 export function formatApiErrorDetail(detail) {

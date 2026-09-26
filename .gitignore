@@ -87,3 +87,4 @@ credentials.json
 *.key
 .credentials
 backend/local_storage/
+backup_data/
