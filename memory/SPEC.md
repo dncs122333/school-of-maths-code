@@ -12,7 +12,7 @@ Public URL: https://correct-docs-preview.preview.emergentagent.com
   Modules: `auth.py` (bcrypt + JWT), `ai.py` (object storage + Gemini), `models.py`,
   `config.py`, `lib/mastery.py`.
 - `frontend/` — CRA on :3000 (supervisor `frontend`, `yarn dev` → `craco start`).
-- `mongodb` — in-pod mongod. `backend/.env`: `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `JWT_SECRET`.
+- `mongodb` — in-pod process may exist but is not an application data source. `backend/.env`: Atlas-only `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `JWT_SECRET`.
 - Object storage falls back to `backend/local_storage/` when `EMERGENT_LLM_KEY` is absent.
 
 ### API base (changed in this session)
@@ -26,6 +26,15 @@ sets `allowedHosts: "all"` because the ingress arrives with a non-localhost Host
 JWT bearer token in `localStorage.vidya_token`, sent via an axios request interceptor;
 `get_current_user` also accepts an `access_token` cookie. Roles: `student`, `teacher`, `admin`.
 Login page `/auth`. Credentials: see `memory/test_credentials.md`.
+
+## Atlas-only data source guardrails
+
+- `backend/db.py` accepts only a `mongodb+srv://…mongodb.net` Atlas URI. A local MongoDB URI fails startup rather than becoming a fallback.
+- All `/api` routes except the admin status route ping Atlas through a short-lived availability cache. If Atlas cannot be reached, the API returns `503` with the exact safe message: `Database unavailable. Contact Dhruv immediately.` No driver details or URI are returned.
+- Database driver errors are converted to the same safe `503`; the app records the source as unavailable until a later Atlas ping succeeds.
+- `GET /api/admin/data-source-status` is restricted to the signed `admin` role and remains reachable during an outage without a DB lookup. It returns only source name, availability, check time, safe message, and (when available) read-only current `db.notes` Learning Queue records. It never exposes a URI, credentials, host, or private infrastructure data.
+- Frontend `DatabaseAvailabilityProvider` displays a full-screen outage state on guarded `503`s so stale-looking content is not presented. The admin data-source route remains accessible to show its durable incident notice.
+- Admin route: `/admin/data-source`; it lists title, owner, scope, status, and created/updated times for up to 500 notes. Phase 1 does not delete, alter, or otherwise resolve any queue records.
 
 ## Key flows
 

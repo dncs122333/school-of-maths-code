@@ -48,8 +48,34 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def get_current_claims(request: Request) -> dict:
+    """Read signed identity claims without a database lookup for outage diagnostics."""
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return {"id": payload["sub"], "email": payload["email"], "role": payload["role"]}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except (jwt.InvalidTokenError, KeyError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
 def require_role(*roles):
     async def checker(user: dict = Depends(get_current_user)):
+        if user["role"] not in roles:
+            raise HTTPException(status_code=403, detail="Not allowed for your role")
+        return user
+    return checker
+
+
+def require_claim_role(*roles):
+    async def checker(user: dict = Depends(get_current_claims)):
         if user["role"] not in roles:
             raise HTTPException(status_code=403, detail="Not allowed for your role")
         return user

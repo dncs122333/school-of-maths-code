@@ -13,23 +13,52 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from bson import ObjectId
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 from pydantic import BaseModel
 
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Header
-from fastapi.responses import Response
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Header, Request
+from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME
-from db import db, client, api_router
-from models import RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteInput, GenerateTestInput, SubmitInput
-from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
+from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
+                mark_atlas_unavailable)
+from models import (RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteInput, GenerateTestInput,
+                    SubmitInput, DataSourceStatusResponse)
+from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
+                  require_claim_role, user_from_token)
 from ai import init_storage, put_object, get_object, delete_object, gen_concept_image, extract_text_from_file, llm_generate_notes
 from lib.mastery import compute_topic_mastery
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 
 app = FastAPI()
+
+_DATA_SOURCE_STATUS_PATH = "/api/admin/data-source-status"
+
+
+@app.middleware("http")
+async def atlas_only_guard(request: Request, call_next):
+    """Stop all database-backed API flows when Atlas cannot be reached."""
+    if request.url.path.startswith("/api") and request.url.path != _DATA_SOURCE_STATUS_PATH:
+        status = await atlas_connection_status()
+        if not status["available"]:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": ATLAS_UNAVAILABLE_MESSAGE},
+                headers={"Retry-After": "5"},
+            )
+    return await call_next(request)
+
+
+@app.exception_handler(PyMongoError)
+async def atlas_database_exception_handler(_: Request, __: PyMongoError):
+    mark_atlas_unavailable()
+    return JSONResponse(
+        status_code=503,
+        content={"detail": ATLAS_UNAVAILABLE_MESSAGE},
+        headers={"Retry-After": "5"},
+    )
 
 # ------------------------- Auth routes -------------------------
 @api_router.post("/auth/register")
@@ -885,6 +914,48 @@ async def stats(user: dict = Depends(get_current_user)):
             "students": await db.users.count_documents({"role": "student"})}
 
 
+@api_router.get("/admin/data-source-status", response_model=DataSourceStatusResponse)
+async def data_source_status(_: dict = Depends(require_claim_role("admin"))):
+    """Admin-only Atlas status and a read-only Learning Queue investigation view."""
+    status = await atlas_connection_status(force=True)
+    if not status["available"]:
+        return DataSourceStatusResponse(
+            available=False,
+            message=ATLAS_UNAVAILABLE_MESSAGE,
+            checked_at=status["checked_at"],
+        )
+
+    notes = await db.notes.find(
+        {},
+        {"_id": 0, "id": 1, "title": 1, "status": 1, "teacher_name": 1, "teacher_id": 1,
+         "batch_name": 1, "batch_id": 1, "class_level": 1, "subject": 1, "chapter": 1,
+         "created_at": 1, "updated_at": 1},
+    ).sort("created_at", -1).to_list(500)
+    queue = [
+        {
+            "id": note["id"],
+            "title": note.get("title") or "Untitled",
+            "status": note.get("status") or "ready",
+            "owner_name": note.get("teacher_name") or "Unknown",
+            "owner_id": note.get("teacher_id"),
+            "batch_name": note.get("batch_name"),
+            "batch_id": note.get("batch_id"),
+            "class_level": note.get("class_level"),
+            "subject": note.get("subject"),
+            "chapter": note.get("chapter"),
+            "created_at": note.get("created_at"),
+            "updated_at": note.get("updated_at"),
+        }
+        for note in notes
+    ]
+    return DataSourceStatusResponse(
+        available=True,
+        message="Atlas connected. Learning Queue records below are read-only for investigation.",
+        checked_at=status["checked_at"],
+        learning_queue=queue,
+    )
+
+
 app.include_router(api_router)
 _cors_origins = (os.environ.get('CORS_ORIGINS') or "http://localhost:3000,http://127.0.0.1:3000").strip()
 app.add_middleware(CORSMiddleware, allow_credentials=True,
@@ -917,6 +988,10 @@ for cl in ("9", "10"):
 
 @app.on_event("startup")
 async def startup():
+    status = await atlas_connection_status(force=True)
+    if not status["available"]:
+        logger.error("MongoDB Atlas unavailable at startup; database-backed routes are fail-closed")
+        return
     try:
         await db.users.create_index("email", unique=True)
     except Exception as e:

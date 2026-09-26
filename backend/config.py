@@ -5,7 +5,9 @@ import logging
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+# The pod may expose a stale local MONGO_URL through supervisor. The checked runtime
+# configuration is authoritative so Atlas-only validation in db.py cannot be bypassed.
+load_dotenv(ROOT_DIR / '.env', override=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("vidya")

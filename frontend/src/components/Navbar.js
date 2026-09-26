@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui/button";
-import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, Orbit, FolderOpen, Brain, BarChart3 } from "lucide-react";
+import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, Orbit, FolderOpen, Brain, BarChart3, Database } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -18,6 +18,7 @@ export default function Navbar() {
     { to: "/tests", label: "Tests", icon: FileQuestion },
     { to: "/dpp", label: "DPP", icon: Sparkles },
     ...(isTeacher ? [{ to: "/reports", label: "Reports", icon: BarChart3 }, { to: "/batches", label: "Batches", icon: Users }] : [{ to: "/mastery", label: "Mastery", icon: Brain }]),
+    ...(user.role === "admin" ? [{ to: "/admin/data-source", label: "Data Source", icon: Database }] : []),
   ];
 
   return (
@@ -35,7 +36,7 @@ export default function Navbar() {
             const active = loc.pathname.startsWith(l.to);
             const Icon = l.icon;
             return (
-              <Link key={l.to} to={l.to} data-testid={`nav-${l.label.toLowerCase()}`}
+              <Link key={l.to} to={l.to} data-testid={`nav-${l.label.toLowerCase().replace(/\s+/g, "-")}`}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-500 transition-colors ${active ? "bg-[#3B82F6]/15 text-[#3B82F6]" : "text-[#94A3B8] hover:text-white hover:bg-white/5"}`}>
                 <Icon className="h-4 w-4" /> {l.label}
               </Link>

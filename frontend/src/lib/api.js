@@ -5,6 +5,11 @@ const BASE_URL = RAW_BACKEND_URL.replace(/\/+$/, "");
 const API = `${BASE_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
+export const DATABASE_UNAVAILABLE_MESSAGE = "Database unavailable. Contact Dhruv immediately.";
+
+function notifyDatabaseAvailability(eventName) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(eventName));
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("vidya_token");
@@ -15,7 +20,12 @@ api.interceptors.request.use((config) => {
 // When responseType is "blob", axios puts the JSON error body into a Blob.
 // We read it back to give meaningful error messages (e.g. "Not authenticated").
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    if (!(res.config?.url || "").includes("/admin/data-source-status") || res.data?.available !== false) {
+      notifyDatabaseAvailability("vidya:database-available");
+    }
+    return res;
+  },
   async (err) => {
     const res = err.response;
     if (res && res.data instanceof Blob && res.data.type?.includes("json")) {
@@ -32,6 +42,9 @@ api.interceptors.response.use(
     // Also skipped when already on /auth, to avoid a reload loop.
     const url = err.config?.url || "";
     const isAuthAttempt = url.includes("/auth/login") || url.includes("/auth/register");
+    if (res?.status === 503 && res?.data?.detail === DATABASE_UNAVAILABLE_MESSAGE) {
+      notifyDatabaseAvailability("vidya:database-unavailable");
+    }
     if (res?.status === 401 && !isAuthAttempt && window.location.pathname !== "/auth") {
       localStorage.removeItem("vidya_token");
       window.location.href = "/auth"; // the app's login route is /auth (see App.js)

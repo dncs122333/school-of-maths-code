@@ -1,0 +1,59 @@
+{
+  "summary": "Verified Atlas-only data-source status feature: admin sees connected status + read-only Learning Queue evidence (29 records), teacher is denied both the route and API, and the exact outage copy ships in the frontend. Backend suite: 80/80 passed. Browser checks: 5/5 passed.",
+  "passed": 7,
+  "failed": 0,
+  "bugs": [],
+  "action_items": [],
+  "retest_needed": false,
+  "checks": [
+    {
+      "criterion": "Administrator can open the Atlas-only data-source status view",
+      "name": "admin-data-source-status-view",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Logged in as admin@vidya.com, navigated to /admin/data-source. data-source-page visible, connection-status text 'Atlas connected'. Page body contains no mongodb+srv/connection-string text."
+    },
+    {
+      "criterion": "Administrator can open the Atlas-only data-source status view (API)",
+      "name": "test_admin_can_inspect_atlas_status_and_learning_queue",
+      "lane": "backend",
+      "status": "passed",
+      "evidence": "GET /api/admin/data-source-status with admin token -> 200, {source: 'MongoDB Atlas', available: true, message contains 'Atlas connected'}; no mongo_url/connection_string keys in payload."
+    },
+    {
+      "criterion": "Learning Queue inspection is read-only and evidence-focused",
+      "name": "admin-data-source-status-view",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "data-source-queue-count parsed as integer > 0; first queue row exposes title, owner, scope, created and updated cells (data-testid queue-title/owner/scope/created/updated) all visible."
+    },
+    {
+      "criterion": "Data-source diagnostics are restricted to administrators",
+      "name": "teacher-denied-data-source-status",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Logged in as teacher@vidya.com, navigated to /admin/data-source. data-source-page and data-source-queue-table both not visible (route/UI gated by role)."
+    },
+    {
+      "criterion": "Data-source diagnostics are restricted to administrators (API)",
+      "name": "test_teacher_cannot_access_data_source_diagnostics",
+      "lane": "backend",
+      "status": "passed",
+      "evidence": "GET /api/admin/data-source-status with teacher token -> 403."
+    },
+    {
+      "criterion": "Database outage copy is present on the protected experience",
+      "name": "outage-copy-present-in-bundle",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Fetched served frontend JS bundle(s) via page.request without inducing an outage; exact string 'Database unavailable. Contact Dhruv immediately.' found in bundle. Source review confirms DatabaseUnavailableOverlay.js and DataSourceStatus.js both render DATABASE_UNAVAILABLE_MESSAGE from lib/api.js verbatim."
+    },
+    {
+      "criterion": "Backend suite regression (all prior + data-source tests)",
+      "name": "full backend pytest suite",
+      "lane": "backend",
+      "status": "passed",
+      "evidence": "cd /app/backend && python -m pytest -q -> 80 passed, 6 warnings (pre-existing deprecation warnings only) in 62.31s."
+    }
+  ]
+}

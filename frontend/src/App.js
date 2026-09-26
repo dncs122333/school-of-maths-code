@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { AuthProvider } from "./context/AuthContext";
+import { DatabaseAvailabilityProvider } from "./context/DatabaseAvailabilityContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Navbar from "./components/Navbar";
 
@@ -18,6 +19,7 @@ import Batches from "./pages/Batches";
 import Materials from "./pages/Materials";
 import Mastery from "./pages/Mastery";
 import Reports from "./pages/Reports";
+import DataSourceStatus from "./pages/DataSourceStatus";
 
 import TeacherDashboard from "./pages/TeacherDashboard";
 
@@ -35,26 +37,29 @@ function App() {
     <div className="App">
       <AuthProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/dashboard" element={<ProtectedRoute><Shell><Dashboard /></Shell></ProtectedRoute>} />
-            <Route path="/teacher/dashboard" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><TeacherDashboard /></Shell></ProtectedRoute>} />
-            <Route path="/notes" element={<ProtectedRoute><Shell><NotesLibrary /></Shell></ProtectedRoute>} />
-            <Route path="/notes/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateNote /></Shell></ProtectedRoute>} />
-            <Route path="/notes/:id" element={<ProtectedRoute><Shell><NoteReader /></Shell></ProtectedRoute>} />
-            <Route path="/materials" element={<ProtectedRoute><Shell><Materials /></Shell></ProtectedRoute>} />
-            <Route path="/tests" element={<ProtectedRoute><Shell><QuizList kind="test" /></Shell></ProtectedRoute>} />
-            <Route path="/dpp" element={<ProtectedRoute><Shell><QuizList kind="dpp" /></Shell></ProtectedRoute>} />
-            <Route path="/tests/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="test" /></Shell></ProtectedRoute>} />
-            <Route path="/dpp/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="dpp" /></Shell></ProtectedRoute>} />
-            <Route path="/quiz/:id" element={<ProtectedRoute><Shell><QuizRunner /></Shell></ProtectedRoute>} />
-            <Route path="/batches" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Batches /></Shell></ProtectedRoute>} />
-            <Route path="/mastery" element={<ProtectedRoute roles={["student"]}><Shell><Mastery /></Shell></ProtectedRoute>} />
-            <Route path="/reports" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Reports /></Shell></ProtectedRoute>} />
-          </Routes>
+          <DatabaseAvailabilityProvider>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/dashboard" element={<ProtectedRoute><Shell><Dashboard /></Shell></ProtectedRoute>} />
+              <Route path="/teacher/dashboard" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><TeacherDashboard /></Shell></ProtectedRoute>} />
+              <Route path="/notes" element={<ProtectedRoute><Shell><NotesLibrary /></Shell></ProtectedRoute>} />
+              <Route path="/notes/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateNote /></Shell></ProtectedRoute>} />
+              <Route path="/notes/:id" element={<ProtectedRoute><Shell><NoteReader /></Shell></ProtectedRoute>} />
+              <Route path="/materials" element={<ProtectedRoute><Shell><Materials /></Shell></ProtectedRoute>} />
+              <Route path="/tests" element={<ProtectedRoute><Shell><QuizList kind="test" /></Shell></ProtectedRoute>} />
+              <Route path="/dpp" element={<ProtectedRoute><Shell><QuizList kind="dpp" /></Shell></ProtectedRoute>} />
+              <Route path="/tests/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="test" /></Shell></ProtectedRoute>} />
+              <Route path="/dpp/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="dpp" /></Shell></ProtectedRoute>} />
+              <Route path="/quiz/:id" element={<ProtectedRoute><Shell><QuizRunner /></Shell></ProtectedRoute>} />
+              <Route path="/batches" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Batches /></Shell></ProtectedRoute>} />
+              <Route path="/mastery" element={<ProtectedRoute roles={["student"]}><Shell><Mastery /></Shell></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Reports /></Shell></ProtectedRoute>} />
+              <Route path="/admin/data-source" element={<ProtectedRoute roles={["admin"]}><Shell><DataSourceStatus /></Shell></ProtectedRoute>} />
+            </Routes>
+            <Toaster position="bottom-right" theme="dark" richColors />
+          </DatabaseAvailabilityProvider>
         </BrowserRouter>
-        <Toaster position="bottom-right" theme="dark" richColors />
       </AuthProvider>
     </div>
   );
