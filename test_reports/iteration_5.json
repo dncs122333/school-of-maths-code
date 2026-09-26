@@ -1,0 +1,24 @@
+{
+  "summary": "Verified MongoDB Atlas runtime switch: teacher login succeeds, dashboard renders authenticated content, and invalid credentials remain rejected. 2/2 browser checks passed, 0 failed.",
+  "passed": 2,
+  "failed": 0,
+  "bugs": [],
+  "action_items": [],
+  "retest_needed": false,
+  "checks": [
+    {
+      "criterion": "Teacher can authenticate through the public app after the MongoDB Atlas runtime switch (and dashboard data is available)",
+      "name": "teacher-login-dashboard",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Navigated to /auth, filled email-input/password-input with teacher@vidya.com/teacher123, clicked auth-submit. URL left /auth, page rendered 'Demo Teacher' identity text confirming authenticated dashboard state. No thrown errors."
+    },
+    {
+      "criterion": "Invalid credentials remain rejected",
+      "name": "login-rejects-invalid-credentials",
+      "lane": "browser",
+      "status": "passed",
+      "evidence": "Submitted teacher@vidya.com/wrongpassword via auth-submit. Backend responded 401 (visible as console network error, matching seed fact). Page stayed on /auth and displayed an error/invalid message; no authenticated view entered."
+    }
+  ]
+}
