@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const RAW_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
+const RAW_BACKEND_URL = process.env.REACT_APP_BACKEND_URL || ""; // same-origin /api via the CRA dev proxy
 const BASE_URL = RAW_BACKEND_URL.replace(/\/+$/, "");
 const API = `${BASE_URL}/api`;
 

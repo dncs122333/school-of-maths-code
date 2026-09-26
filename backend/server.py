@@ -18,13 +18,14 @@ from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Header
 from fastapi.responses import Response
+from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME
-from db import db, api_router
+from db import db, client, api_router
 from models import RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteInput, GenerateTestInput, SubmitInput
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
-from ai import init_storage, put_object, get_object, gen_concept_image, extract_text_from_file, llm_generate_notes
+from ai import init_storage, put_object, get_object, delete_object, gen_concept_image, extract_text_from_file, llm_generate_notes
 from lib.mastery import compute_topic_mastery
 
 app = FastAPI()
@@ -221,6 +222,31 @@ _MIME = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpe
          "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
          "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
 
+# Extensions browsers render inline safely (PDF + raster images + plain text);
+# everything else on the allowlist (docx/pptx) downloads as an attachment.
+_PREVIEW_INLINE = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "txt"}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+async def _read_upload_capped(file: UploadFile) -> bytes:
+    """Read an upload in 1 MB chunks, never buffering more than 25 MB in memory.
+
+    Once over the cap the rest of the stream is drained (discarded, not stored)
+    so the client receives a clean 413 instead of a reset socket."""
+    chunks, total, drained = [], 0, 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total <= MAX_UPLOAD_BYTES:
+            chunks.append(chunk)
+        elif drained <= 256 * 1024 * 1024:
+            drained += len(chunk)
+    if total > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large — the upload limit is 25 MB")
+    return b"".join(chunks)
+
 
 @api_router.post("/resources")
 async def create_resource(
@@ -236,11 +262,16 @@ async def create_resource(
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    data = await file.read()
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+    ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "").lower()
+    if ext not in _MIME:
+        raise HTTPException(status_code=400,
+                            detail="File type not allowed — allowed: pdf, png, jpg, jpeg, webp, gif, txt, docx, pptx")
+    data = await _read_upload_capped(file)
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
-    ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "bin").lower()
-    ct = file.content_type or _MIME.get(ext, "application/octet-stream")
+    ct = _MIME[ext]  # derived from the allowlisted extension; never trust the client's content_type
     path = f"{APP_NAME}/resources/{user['id']}/{uuid.uuid4()}.{ext}"
     put_object(path, data, ct)
     doc = {"id": str(uuid.uuid4()), "title": title, "batch_id": batch_id, "batch_name": batch["name"],
@@ -260,7 +291,7 @@ async def list_resources(user: dict = Depends(get_current_user)):
         q["teacher_id"] = user["id"]
     elif user["role"] == "student":
         q["batch_id"] = {"$in": user.get("batch_ids", [])}
-    items = await db.resources.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    items = await db.resources.find(q, {"_id": 0, "storage_path": 0}).sort("created_at", -1).to_list(500)
     return items
 
 
@@ -272,6 +303,10 @@ async def delete_resource(res_id: str, user: dict = Depends(require_role("teache
     if user["role"] != "admin" and res["teacher_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not your resource")
     await db.resources.update_one({"id": res_id}, {"$set": {"is_deleted": True}})
+    try:
+        delete_object(res["storage_path"])  # best-effort; soft-delete must not fail on storage errors
+    except Exception as e:
+        logger.warning(f"storage delete failed for {res_id}: {e}")
     return {"ok": True}
 
 
@@ -294,8 +329,15 @@ async def download_resource(res_id: str, authorization: str = Header(None), auth
     if not allowed:
         raise HTTPException(status_code=403, detail="No access to this file")
     content, ct = get_object(res["storage_path"])
+    filename = res.get("filename") or "download"
+    ext = (filename.rsplit(".", 1)[-1].lower() if "." in filename else "")
+    disposition = "inline" if ext in _PREVIEW_INLINE else "attachment"
+    # Strip quotes/semicolons and CRLF so they cannot break out of the header;
+    # RFC 5987 filename* carries the original name (unicode, quotes, spaces) safely.
+    safe_name = re.sub(r'[\r\n";]+', "_", filename).strip() or "download"
+    encoded = quote(filename, safe="")
     return Response(content=content, media_type=res.get("content_type", ct),
-                    headers={"Content-Disposition": f'inline; filename="{res["filename"]}"'})
+                    headers={"Content-Disposition": f"{disposition}; filename=\"{safe_name}\"; filename*=UTF-8''{encoded}"})
 
 
 # ------------------------- Tests / DPP -------------------------

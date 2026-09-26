@@ -10,7 +10,7 @@ import { FolderOpen, Upload, FileText, Image as ImageIcon, Download, Trash2, Eye
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
-const fmtSize = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+const fmtSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const iconFor = (ct) => (ct?.startsWith("image/") ? ImageIcon : FileText);
 
 export default function Materials() {
@@ -25,6 +25,13 @@ export default function Materials() {
   const [viewer, setViewer] = useState({ open: false, url: "", type: "", name: "", loading: false });
   const [busyId, setBusyId] = useState(null);
   const fileRef = useRef();
+  const viewSeqRef = useRef(0); // bumped on open AND close; in-flight fetches only commit if it still matches
+  const viewerUrlRef = useRef("");
+
+  useEffect(() => () => { // revoke the viewer's object URL when the page unmounts
+    viewSeqRef.current++;
+    if (viewerUrlRef.current) { URL.revokeObjectURL(viewerUrlRef.current); viewerUrlRef.current = ""; }
+  }, []);
 
   const load = () => api.get("/resources").then((r) => setItems(r.data));
   useEffect(() => {
@@ -39,6 +46,8 @@ export default function Materials() {
 
   const upload = async () => {
     if (!f.title || !f.subject || !f.batch_id || !file) { toast.error("Add a title, subject, batch and a file"); return; }
+    if (file.size === 0) { toast.error("That file is empty (0 bytes) — pick a file with content"); return; }
+    if (file.size > 25 * 1024 * 1024) { toast.error("File is larger than 25 MB — please choose a smaller file"); return; }
     setBusy(true);
     try {
       const fd = new FormData();
@@ -59,12 +68,16 @@ export default function Materials() {
 
   const openView = async (r) => {
     const ct = r.content_type || "";
+    const seq = ++viewSeqRef.current;
     setViewer({ open: true, url: "", type: ct, name: r.filename, loading: true });
     try {
       const blob = await fetchBlob(r);
       const url = URL.createObjectURL(blob);
+      if (seq !== viewSeqRef.current) { URL.revokeObjectURL(url); return; } // viewer closed/reopened while loading — never re-open it
+      viewerUrlRef.current = url;
       setViewer({ open: true, url, type: ct, name: r.filename, loading: false });
     } catch (e) {
+      if (seq !== viewSeqRef.current) return;
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not open the file");
       setViewer({ open: false, url: "", type: "", name: "", loading: false });
     }
@@ -84,7 +97,8 @@ export default function Materials() {
   };
 
   const closeViewer = () => {
-    if (viewer.url) URL.revokeObjectURL(viewer.url);
+    viewSeqRef.current++;
+    if (viewerUrlRef.current) { URL.revokeObjectURL(viewerUrlRef.current); viewerUrlRef.current = ""; }
     setViewer({ open: false, url: "", type: "", name: "", loading: false });
   };
 

@@ -68,6 +68,21 @@ def get_object(path: str):
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
+def delete_object(path: str) -> None:
+    """Remove a stored object. Raises on failure — callers decide how soft to be."""
+    if _USE_LOCAL:
+        dest = _LOCAL_STORE / path
+        dest.unlink(missing_ok=True)
+        (dest.parent / (dest.name + ".ct")).unlink(missing_ok=True)
+        return
+    key = init_storage()
+    resp = requests.delete(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    if resp.status_code == 404:
+        key = init_storage(force=True)
+        resp = requests.delete(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+
+
 
 
 def _strip_json(text: str) -> str:

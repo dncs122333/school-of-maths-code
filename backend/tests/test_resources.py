@@ -8,7 +8,7 @@ import requests
 from dotenv import dotenv_values
 
 frontend_env = dotenv_values("/app/frontend/.env")
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or frontend_env.get("REACT_APP_BACKEND_URL", "")).rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or frontend_env.get("REACT_APP_BACKEND_URL") or "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
 
@@ -171,3 +171,54 @@ class TestResources:
         # file 404 after soft-delete
         r = requests.get(f"{API}/resources/{d['id']}/file", headers=s["sh"], timeout=15)
         assert r.status_code == 404
+
+    # ---------------- new cases: allowlist, size cap, ownership, leaks ----------------
+
+    def _post_upload(self, filename, content, ct, headers=None, batch_id=None):
+        s = self.state
+        files = {"file": (filename, io.BytesIO(content), ct)}
+        data = {"title": f"TEST {filename}", "batch_id": batch_id or s["batch"]["id"],
+                "class_level": "10", "subject": "Science",
+                "chapter": "Electricity", "topic": ""}
+        return requests.post(f"{API}/resources", headers=headers or s["th"],
+                             files=files, data=data, timeout=120)
+
+    def test_13_upload_svg_rejected_400(self):
+        r = self._post_upload("evil.svg", b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml")
+        assert r.status_code == 400, r.text
+
+    def test_14_upload_html_rejected_400(self):
+        r = self._post_upload("page.html", b"<html><body>stored xss</body></html>", "text/html")
+        assert r.status_code == 400, r.text
+
+    def test_15_upload_over_25mb_rejected_413(self):
+        r = self._post_upload("big.png", b"\x00" * (26 * 1024 * 1024), "image/png")
+        assert r.status_code == 413, r.text
+
+    def test_16_other_teacher_cannot_upload_to_batch_403(self):
+        s = self.state
+        email = f"TEST_tb_{uuid.uuid4().hex[:8]}@vidya.com"
+        r = requests.post(f"{API}/auth/register", json={
+            "name": "TEST Teacher B", "email": email, "password": "pass1234", "role": "teacher"}, timeout=15)
+        assert r.status_code == 200, r.text
+        tb = r.json()
+        r = self._post_upload("sneak.png", PNG_BYTES, "image/png",
+                              headers={"Authorization": f"Bearer {tb['token']}"})
+        assert r.status_code == 403, r.text
+
+    def test_17_student_list_has_no_storage_path(self):
+        s = self.state
+        r = requests.get(f"{API}/resources", headers=s["sh"], timeout=15)
+        assert r.status_code == 200
+        assert r.json(), "student list should not be empty for this seed"
+        for x in r.json():
+            assert "storage_path" not in x, f"storage_path leaked: {x}"
+
+    def test_18_invalid_query_auth_401(self):
+        r = requests.get(f"{API}/resources/{self.state['img']['id']}/file?auth=not-a-real-token", timeout=15)
+        assert r.status_code == 401, r.text
+
+    def test_19_outsider_query_auth_403(self):
+        tok = self.state["outsider"]["token"]
+        r = requests.get(f"{API}/resources/{self.state['img']['id']}/file?auth={tok}", timeout=15)
+        assert r.status_code == 403, r.text
