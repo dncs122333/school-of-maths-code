@@ -27,6 +27,7 @@ from models import RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteI
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_role, user_from_token
 from ai import init_storage, put_object, get_object, delete_object, gen_concept_image, extract_text_from_file, llm_generate_notes
 from lib.mastery import compute_topic_mastery
+from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 
 app = FastAPI()
 
@@ -331,12 +332,20 @@ async def download_resource(res_id: str, authorization: str = Header(None), auth
     content, ct = get_object(res["storage_path"])
     filename = res.get("filename") or "download"
     ext = (filename.rsplit(".", 1)[-1].lower() if "." in filename else "")
+    media_type = res.get("content_type", ct)
+
+    # The watermark identifies the RECIPIENT, so it applies to students only —
+    # a teacher or admin opening their own upload gets the pristine original.
+    if user["role"] == "student" and ext in WATERMARKABLE_EXTS:
+        content = apply_watermark(content, ext, user.get("name"), user.get("email"))
+        media_type = watermarked_media_type(ext, media_type)
+
     disposition = "inline" if ext in _PREVIEW_INLINE else "attachment"
     # Strip quotes/semicolons and CRLF so they cannot break out of the header;
     # RFC 5987 filename* carries the original name (unicode, quotes, spaces) safely.
     safe_name = re.sub(r'[\r\n";]+', "_", filename).strip() or "download"
     encoded = quote(filename, safe="")
-    return Response(content=content, media_type=res.get("content_type", ct),
+    return Response(content=content, media_type=media_type,
                     headers={"Content-Disposition": f"{disposition}; filename=\"{safe_name}\"; filename*=UTF-8''{encoded}"})
 
 

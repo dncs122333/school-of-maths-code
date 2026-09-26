@@ -44,7 +44,7 @@ Login page `/auth`. Credentials: see `memory/test_credentials.md`.
 `storage_path`, `filename`, `content_type`, `size`, `teacher_id`, `teacher_name`, `is_deleted`,
 `created_at`. `storage_path` is **never** returned by `GET /resources` (projected out).
 
-### Materials security contract (fixed this session)
+## Materials security contract
 
 | Rule | Behaviour |
 |---|---|
@@ -58,6 +58,40 @@ Login page `/auth`. Credentials: see `memory/test_credentials.md`.
 | File access | `403` unless owner, admin, or a student enrolled in the batch; bad token `401` |
 
 `GET /resources/{id}/file` accepts a bearer header **or** `?auth=<token>` (used by direct links).
+
+## Watermarked materials (phase 1)
+
+`backend/watermark.py` burns the recipient's "name • email" **into the file** on each request, so
+the mark survives download, re-sharing, printing and opening in any other app — unlike an
+on-screen overlay.
+
+| Aspect | Behaviour |
+|---|---|
+| Formats marked | pdf (reportlab overlay merged per page via pypdf), png/jpg/jpeg/webp/gif (PIL composite) |
+| Not marked | docx, pptx (cannot carry one — phase 3 converts to PDF), txt (nowhere to put it) |
+| Who gets the mark | students only. Teachers/admin receive the pristine original — the mark names the *recipient* |
+| Per recipient | generated per request, never stored, so a file always names whoever actually opened it |
+| Style | diagonal tiled 380×200 tile, `rgba(15,23,42,0.18)`, font size shrinks with label length |
+| Failure mode | best-effort — `apply_watermark` returns the original bytes if rendering fails, so a broken mark never makes a material unreachable |
+| GIF | returns a marked still PNG (`watermarked_media_type`) |
+
+**Known limitation (closes in phase 2):** the PDF mark is a layer within the document, so a
+determined user with a PDF editor can strip it. Phase 2 flattens pages; phase 2 also adds the
+access trail and per-download trace codes.
+
+### In-app preview
+
+`frontend/src/components/PdfCanvasViewer.js` renders PDFs page-by-page to a canvas with
+pdfjs-dist (legacy build + worker entry, CRA-compatible), giving page navigation and zoom
+(50–250%). The browser's own PDF frame is no longer used — it painted blank inside the dialog
+and exposed save/print controls that bypassed the app. The viewer shows the same marked bytes a
+download produces. Images and txt preview in the same dialog; docx/pptx show a download-only
+button with an explanatory line, and the upload form warns the teacher when they pick one.
+
+The viewer's scroll container uses `items-start` (not `items-center`) — centring inside an
+`overflow-auto` container clips tall content's top out of the scrollable area, which made the
+PDF toolbar unreachable. The toolbar itself is `sticky top-0`.
+
 
 ## Watermark
 

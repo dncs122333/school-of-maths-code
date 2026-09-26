@@ -131,12 +131,18 @@ class TestResources:
         assert r.content == PNG_BYTES
 
     def test_07_download_pdf_with_bearer(self):
+        """Students now receive a watermarked copy (see test_material_watermark.py),
+        so the bytes differ from the upload — but it must still be a valid, readable PDF."""
         s = self.state
         rid = s["pdf"]["id"]
         r = requests.get(f"{API}/resources/{rid}/file", headers=s["sh"], timeout=30)
         assert r.status_code == 200
         assert r.headers.get("content-type", "") == "application/pdf"
-        assert r.content == PDF_BYTES
+        assert r.content.startswith(b"%PDF")
+        # the teacher still gets the pristine original
+        r2 = requests.get(f"{API}/resources/{rid}/file", headers=s["th"], timeout=30)
+        assert r2.status_code == 200
+        assert r2.content == PDF_BYTES
 
     def test_08_download_without_token_401(self):
         s = self.state
