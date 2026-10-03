@@ -118,8 +118,20 @@ async def list_batches(user: dict = Depends(get_current_user)):
     else:
         q = {"id": {"$in": user.get("batch_ids", [])}}
     batches = await db.batches.find(q, {"_id": 0}).to_list(500)
+    if not batches:
+        return []
+    batch_ids = [b["id"] for b in batches]
+    counts = {}
+    pipeline = [
+        {"$match": {"batch_ids": {"$in": batch_ids}}},
+        {"$unwind": "$batch_ids"},
+        {"$match": {"batch_ids": {"$in": batch_ids}}},
+        {"$group": {"_id": "$batch_ids", "count": {"$sum": 1}}},
+    ]
+    async for doc in db.users.aggregate(pipeline):
+        counts[doc["_id"]] = doc["count"]
     for b in batches:
-        b["student_count"] = await db.users.count_documents({"batch_ids": b["id"]})
+        b["student_count"] = counts.get(b["id"], 0)
     return batches
 
 
@@ -511,13 +523,22 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
             q["batch_id"] = {"$in": user.get("batch_ids", [])}
     tests = await db.tests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
+    subs_by_test = {}
+    if tests:
+        test_ids = [t["id"] for t in tests]
+        all_subs = await db.submissions.find(
+            {"test_id": {"$in": test_ids}, "student_id": user["id"]},
+            {"_id": 0, "test_id": 1, "score": 1, "created_at": 1}
+        ).sort("created_at", -1).to_list(len(test_ids) * 10)
+        for s in all_subs:
+            tid = s.get("test_id")
+            if tid and tid not in subs_by_test:
+                subs_by_test[tid] = s  # Keep most recent submission
     out = []
     for t in tests:
         vu = datetime.fromisoformat(t["valid_until"])
         vf = datetime.fromisoformat(t["valid_from"])
-        subs = await db.submissions.find({"test_id": t["id"], "student_id": user["id"]}, {"_id": 0}) \
-            .sort("created_at", -1).to_list(1)
-        sub = subs[0] if subs else None
+        sub = subs_by_test.get(t["id"])
         is_ready = t.get("status") == "ready"
         out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
                     "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
@@ -988,10 +1009,11 @@ for cl in ("9", "10"):
 
 @app.on_event("startup")
 async def startup():
-    status = await atlas_connection_status(force=True)
-    if not status["available"]:
-        logger.error("MongoDB Atlas unavailable at startup; database-backed routes are fail-closed")
-        return
+    # Don't probe Atlas here — the per-request middleware (atlas_only_guard) handles
+    # availability checks. A startup ping races against Atlas's cold-connection time
+    # and would latch _last_available=False for 60s on a slow first connect.
+    # Index creation errors are caught individually below and don't block startup.
+
     try:
         await db.users.create_index("email", unique=True)
     except Exception as e:

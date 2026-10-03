@@ -4,12 +4,13 @@ import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
+import certifi
 from fastapi import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
 
 
 ATLAS_UNAVAILABLE_MESSAGE = "Database unavailable. Contact Dhruv immediately."
-_STATUS_CACHE_SECONDS = 3
+_STATUS_CACHE_SECONDS = 60
 _mongo_url = (os.environ.get("MONGO_URL") or "").strip()
 _parsed_mongo_url = urlparse(_mongo_url)
 
@@ -29,6 +30,7 @@ if not _is_atlas_uri():
 
 client = AsyncIOMotorClient(
     _mongo_url,
+    tlsCAFile=certifi.where(),
     serverSelectionTimeoutMS=5000,
     connectTimeoutMS=5000,
 )
@@ -36,7 +38,7 @@ db = client[os.environ["DB_NAME"]]
 api_router = APIRouter(prefix="/api")
 
 _last_checked_at = 0.0
-_last_available = False
+_last_available = True  # optimistic: assume available until proven otherwise
 _last_checked_iso = None
 
 

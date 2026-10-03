@@ -15,8 +15,7 @@ This guide covers running the app **inside the Emergent environment** (already c
 ## 2. Environment Variables
 
 ### backend/.env
-```
-MONGO_URL="mongodb://localhost:27017"
+MONGO_URL="mongodb+srv://dncs122333_db_user:6Tci8xfr2euAGJsa@learning.gmqg1hr.mongodb.net/?retryWrites=true&w=majority&appName=learning"
 DB_NAME="test_database"
 CORS_ORIGINS="*"
 JWT_SECRET="<a long random secret>"
