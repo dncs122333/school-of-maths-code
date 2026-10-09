@@ -19,9 +19,10 @@ const iconFor = (ct) => (ct?.startsWith("image/") ? ImageIcon : FileText);
 const extOf = (filename) => (filename && filename.includes(".") ? filename.split(".").pop().toLowerCase() : "");
 // Formats the in-app viewer can render. Word/PowerPoint are download-only in phase 1.
 const PREVIEWABLE = new Set(["pdf", "png", "jpg", "jpeg", "webp", "gif", "txt"]);
+const ENABLE_WATERMARKING = process.env.REACT_APP_ENABLE_WATERMARKING === "true";
 const WATERMARKED = new Set(["pdf", "png", "jpg", "jpeg", "webp", "gif"]);
 const canPreview = (r) => PREVIEWABLE.has(extOf(r.filename));
-const isWatermarked = (r) => WATERMARKED.has(extOf(r.filename));
+const isWatermarked = (r) => ENABLE_WATERMARKING && WATERMARKED.has(extOf(r.filename));
 const NO_MARK_EXTS = new Set(["docx", "pptx"]);
 
 export default function Materials() {
@@ -78,7 +79,7 @@ export default function Materials() {
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); } finally { setBusy(false); }
   };
 
-  // Students receive the watermarked copy from the server; teachers get the original.
+  // Clean original file served directly from server without watermarking overhead
   const fetchBlob = async (r) => {
     const res = await api.get(`/resources/${r.id}/file`, { responseType: "blob" });
     return res.data;
@@ -171,7 +172,7 @@ export default function Materials() {
         <p className="text-[#94A3B8] mt-1">Original notes &amp; documents shared with a batch — exactly as uploaded, no changes.</p>
       </div>
 
-      {!isTeacher && (
+      {!isTeacher && ENABLE_WATERMARKING && (
         <div data-testid="watermark-notice" className="flex items-start gap-2.5 rounded-2xl border border-[#3B82F6]/25 bg-[#3B82F6]/5 px-4 py-3">
           <ShieldCheck className="h-4 w-4 text-[#3B82F6] mt-0.5 shrink-0" />
           <p className="text-sm text-[#94A3B8]">
@@ -228,7 +229,7 @@ export default function Materials() {
               <input ref={fileRef} data-testid="material-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.pptx,.txt"
                 onChange={(e) => setFile(e.target.files[0])}
                 className="mt-1.5 block w-full text-sm text-[#94A3B8] file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:bg-[#3B82F6] file:text-white file:font-600 file:cursor-pointer bg-[#0B0F19] border border-[#1E293B] rounded-xl py-1.5 px-2" />
-              {NO_MARK_EXTS.has(pickedExt) && (
+              {ENABLE_WATERMARKING && NO_MARK_EXTS.has(pickedExt) && (
                 <div data-testid="no-watermark-hint" className="mt-2.5 flex items-start gap-2 rounded-xl border border-[#FBBF24]/30 bg-[#FBBF24]/5 px-3 py-2.5">
                   <Info className="h-4 w-4 text-[#FBBF24] mt-0.5 shrink-0" />
                   <p className="text-xs text-[#94A3B8]">
@@ -288,7 +289,7 @@ export default function Materials() {
                         {!previewable && (
                           <div data-testid={`download-only-${r.id}`} className="mt-3 flex items-start gap-1.5 text-xs text-[#94A3B8]/80">
                             <Info className="h-3.5 w-3.5 text-[#FBBF24] mt-0.5 shrink-0" />
-                            <span>Download only — {extOf(r.filename).toUpperCase()} files can&apos;t be previewed{!isTeacher && " or watermarked"}.</span>
+                            <span>Download only — {extOf(r.filename).toUpperCase()} files can&apos;t be previewed{!isTeacher && ENABLE_WATERMARKING && " or watermarked"}.</span>
                           </div>
                         )}
                         <div className="mt-auto pt-5 flex items-center gap-2">

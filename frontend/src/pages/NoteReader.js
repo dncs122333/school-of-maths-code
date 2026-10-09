@@ -27,10 +27,14 @@ export default function NoteReader() {
     </div>
   );
 
+  const ENABLE_WATERMARKING = process.env.REACT_APP_ENABLE_WATERMARKING === "true";
+
   return (
     <div className="max-w-3xl mx-auto relative overflow-hidden rounded-3xl p-1 sm:p-3">
       {/* Dynamic & Tiled Rotated Watermark */}
-      <WatermarkOverlay studentName={user?.name} studentEmail={user?.email} />
+      {ENABLE_WATERMARKING && (
+        <WatermarkOverlay studentName={user?.name} studentEmail={user?.email} />
+      )}
 
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <Button data-testid="back-btn" asChild variant="ghost" className="rounded-full -ml-2 text-[#94A3B8] hover:text-white hover:bg-white/5">

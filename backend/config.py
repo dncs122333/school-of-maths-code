@@ -22,3 +22,5 @@ STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
 
 DIFFICULTIES = ("easy", "medium", "hard")
 _VALID_STATUSES = ("active", "pending_review", "inactive")
+ENABLE_WATERMARKING = os.environ.get("ENABLE_WATERMARKING", "false").strip().lower() in ("true", "1", "yes")
+

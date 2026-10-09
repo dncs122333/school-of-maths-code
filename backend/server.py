@@ -21,7 +21,7 @@ from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME
+from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
 from models import (RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteInput, GenerateTestInput,
@@ -375,11 +375,10 @@ async def download_resource(res_id: str, authorization: str = Header(None), auth
     ext = (filename.rsplit(".", 1)[-1].lower() if "." in filename else "")
     media_type = res.get("content_type", ct)
 
-    # The watermark identifies the RECIPIENT, so it applies to students only —
-    # a teacher or admin opening their own upload gets the pristine original.
-    if user["role"] == "student" and ext in WATERMARKABLE_EXTS:
+    if ENABLE_WATERMARKING and user["role"] == "student" and ext in WATERMARKABLE_EXTS:
         content = apply_watermark(content, ext, user.get("name"), user.get("email"))
         media_type = watermarked_media_type(ext, media_type)
+
 
     disposition = "inline" if ext in _PREVIEW_INLINE else "attachment"
     # Strip quotes/semicolons and CRLF so they cannot break out of the header;
@@ -1009,11 +1008,10 @@ for cl in ("9", "10"):
 
 @app.on_event("startup")
 async def startup():
-    # Don't probe Atlas here — the per-request middleware (atlas_only_guard) handles
-    # availability checks. A startup ping races against Atlas's cold-connection time
-    # and would latch _last_available=False for 60s on a slow first connect.
-    # Index creation errors are caught individually below and don't block startup.
-
+    status = await atlas_connection_status(force=True)
+    if not status["available"]:
+        logger.error("MongoDB Atlas unavailable at startup; database-backed routes are fail-closed")
+        return
     try:
         await db.users.create_index("email", unique=True)
     except Exception as e:

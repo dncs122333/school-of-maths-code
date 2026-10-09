@@ -13,7 +13,7 @@ a broken watermark must never make a material unreachable.
 import io
 from typing import Optional
 
-from config import logger
+from config import logger, ENABLE_WATERMARKING
 
 # Formats the mark can be burned into. docx/pptx cannot be marked reliably
 # (phase 3 converts them to PDF); txt has nowhere to put it.
@@ -175,9 +175,10 @@ def _watermark_image(data: bytes, text: str, ext: str) -> bytes:
 
 def apply_watermark(data: bytes, ext: str, name: Optional[str], email: Optional[str]) -> bytes:
     """Burn "name • email" into `data`. Best-effort: returns `data` untouched for
-    formats that cannot carry a mark, or if rendering fails."""
+    formats that cannot carry a mark, or if rendering fails.
+    Bypassed when ENABLE_WATERMARKING is False to minimize server resource utilization."""
     ext = (ext or "").lower()
-    if ext not in WATERMARKABLE_EXTS:
+    if not ENABLE_WATERMARKING or ext not in WATERMARKABLE_EXTS:
         return data
     text = display_text(name, email)
     try:
