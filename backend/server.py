@@ -24,7 +24,7 @@ from starlette.middleware.cors import CORSMiddleware
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
-from models import (RegisterInput, LoginInput, BatchInput, JoinInput, CreateNoteInput, GenerateTestInput,
+from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, CreateNoteInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
                   require_claim_role, user_from_token)
@@ -100,15 +100,114 @@ async def catalog():
 
 
 # ------------------------- Batches -------------------------
+DEFAULT_ACADEMIC_MONTHS = [
+    "April", "May", "June", "July", "August", "September",
+    "October", "November", "December", "January", "February", "March"
+]
+
+
+def get_batch_default_schedule(fee_amount: float = 0.0, monthly_fee: float = 0.0):
+    amt = 0.0
+    if monthly_fee and monthly_fee > 0:
+        amt = float(monthly_fee)
+    elif fee_amount and fee_amount > 0:
+        amt = round(float(fee_amount) / 12.0, 2)
+    return [{"month": m, "amount": amt} for m in DEFAULT_ACADEMIC_MONTHS]
+
+
+def get_proportional_schedule(base_schedule, target_total_fee: float):
+    target = round(float(target_total_fee or 0.0), 2)
+    if not base_schedule or len(base_schedule) == 0:
+        base_schedule = [{"month": m, "amount": 0.0} for m in DEFAULT_ACADEMIC_MONTHS]
+
+    base_sum = sum(float(item.get("amount", 0.0) or 0.0) for item in base_schedule)
+    n = len(base_schedule)
+    if n == 0:
+        return []
+
+    new_schedule = []
+    if base_sum > 0:
+        allocated = 0.0
+        for i, item in enumerate(base_schedule):
+            if i == n - 1:
+                amt = round(max(0.0, target - allocated), 2)
+            else:
+                ratio = float(item.get("amount", 0.0) or 0.0) / base_sum
+                amt = round(target * ratio, 2)
+                allocated += amt
+            new_schedule.append({
+                "month": item["month"],
+                "amount": amt
+            })
+    else:
+        even_amt = round(target / float(n), 2)
+        allocated = 0.0
+        for i, item in enumerate(base_schedule):
+            if i == n - 1:
+                amt = round(max(0.0, target - allocated), 2)
+            else:
+                amt = even_amt
+                allocated += amt
+            new_schedule.append({
+                "month": item["month"],
+                "amount": amt
+            })
+    return new_schedule
+
+
 @api_router.post("/batches")
 async def create_batch(body: BatchInput, user: dict = Depends(require_role("teacher", "admin"))):
     code = secrets.token_hex(3).upper()
-    doc = {"id": str(uuid.uuid4()), "name": body.name, "class_level": body.class_level,
-           "code": code, "teacher_id": user["id"], "teacher_name": user["name"],
-           "created_at": datetime.now(timezone.utc).isoformat()}
+    fee_amount = float(body.fee_amount) if body.fee_amount is not None else 0.0
+    monthly_fee = float(body.monthly_fee) if body.monthly_fee is not None else (round(fee_amount / 12.0, 2) if fee_amount > 0 else 0.0)
+    fee_schedule = body.fee_schedule if (body.fee_schedule and len(body.fee_schedule) > 0) else get_batch_default_schedule(fee_amount, monthly_fee)
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": body.name,
+        "class_level": body.class_level,
+        "fee_amount": fee_amount,
+        "monthly_fee": monthly_fee,
+        "fee_schedule": fee_schedule,
+        "code": code,
+        "teacher_id": user["id"],
+        "teacher_name": user["name"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
     await db.batches.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+
+@api_router.put("/batches/{batch_id}")
+async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+
+    update_fields = {}
+    if body.name is not None:
+        update_fields["name"] = body.name.strip()
+    if body.class_level is not None:
+        update_fields["class_level"] = body.class_level
+    if body.fee_amount is not None:
+        update_fields["fee_amount"] = float(body.fee_amount)
+    if body.monthly_fee is not None:
+        update_fields["monthly_fee"] = float(body.monthly_fee)
+    if body.fee_schedule is not None:
+        update_fields["fee_schedule"] = body.fee_schedule
+    elif (body.fee_amount is not None or body.monthly_fee is not None) and not batch.get("fee_schedule"):
+        f_amt = update_fields.get("fee_amount", batch.get("fee_amount", 0.0))
+        m_amt = update_fields.get("monthly_fee", batch.get("monthly_fee", 0.0))
+        update_fields["fee_schedule"] = get_batch_default_schedule(f_amt, m_amt)
+
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.batches.update_one({"id": batch_id}, {"$set": update_fields})
+
+    updated = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    return updated
 
 
 @api_router.get("/batches")
@@ -147,8 +246,17 @@ async def join_batch(body: JoinInput, user: dict = Depends(require_role("student
 class RecordPaymentInput(BaseModel):
     amount: Optional[float] = None
     total_fee: Optional[float] = None
+    paid_fee: Optional[float] = None
+    due_fee: Optional[float] = None
     mark_as_paid: Optional[bool] = False
     notes: Optional[str] = ""
+    month: Optional[str] = ""
+    months_paid: Optional[List[str]] = None
+    unmark_month: Optional[str] = None
+    payment_date: Optional[str] = None
+    fee_schedule: Optional[List[dict]] = None
+    is_partial: Optional[bool] = False
+    partial_amount: Optional[float] = None
 
 
 @api_router.get("/batches/{batch_id}/students")
@@ -159,7 +267,22 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="You do not own this batch")
 
-    batch_default_fee = float(batch.get("fee_amount", 5000))
+    batch_default_fee = float(batch.get("fee_amount", 0) or 0)
+    batch_monthly_fee = float(batch.get("monthly_fee", 0) or 0)
+    stored_schedule = batch.get("fee_schedule")
+
+    # Validate stored schedule: if it exists but all amounts match a stale default (5000)
+    # while monthly_fee is set to something different, recompute it from monthly_fee
+    if stored_schedule and batch_monthly_fee > 0:
+        stored_amounts = set(float(it.get("amount", 0)) for it in stored_schedule if it.get("amount") is not None)
+        # If all months have the same amount AND it doesn't match monthly_fee, recompute
+        if len(stored_amounts) == 1:
+            stored_single = next(iter(stored_amounts))
+            if abs(stored_single - batch_monthly_fee) > 0.01:
+                stored_schedule = get_batch_default_schedule(batch_default_fee, batch_monthly_fee)
+
+    schedule = stored_schedule or get_batch_default_schedule(batch_default_fee, batch_monthly_fee)
+
     students = await db.users.find({"role": "student", "batch_ids": batch_id}).sort("name", 1).to_list(500)
     student_ids = [str(s["_id"]) for s in students]
 
@@ -183,6 +306,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             status = fee.get("status", "due" if p_fee == 0 else "paid" if d_fee == 0 else "partial")
             payments = fee.get("payments", [])
             last_date = fee.get("last_payment_date")
+            paid_months_list = list(fee.get("paid_months", []))
+            custom_student_schedule = fee.get("fee_schedule")
         else:
             t_fee = batch_default_fee
             p_fee = 0.0
@@ -190,9 +315,104 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             status = "due"
             payments = []
             last_date = None
+            paid_months_list = []
+            custom_student_schedule = None
 
         total_collected += p_fee
         total_dues += d_fee
+
+        # Resolve student-specific schedule proportionally or from custom schedule
+        if custom_student_schedule and len(custom_student_schedule) > 0:
+            student_schedule = custom_student_schedule
+        elif abs(t_fee - batch_default_fee) > 0.01:
+            student_schedule = get_proportional_schedule(schedule, t_fee)
+        else:
+            student_schedule = schedule
+
+        # Compute set of paid months
+        if fee and "paid_months" in fee and fee["paid_months"] is not None:
+            paid_months_set = set(fee.get("paid_months", []))
+        else:
+            paid_months_set = set(paid_months_list)
+            for p in payments:
+                if p.get("month"):
+                    for m_part in p["month"].split(","):
+                        cleaned = m_part.strip()
+                        if cleaned:
+                            paid_months_set.add(cleaned)
+
+            if status == "paid" or (t_fee > 0 and p_fee >= t_fee):
+                for item in student_schedule:
+                    paid_months_set.add(item["month"])
+            elif p_fee > 0 and len(paid_months_set) == 0:
+                accum = 0.0
+                for item in student_schedule:
+                    m_amt = float(item.get("amount", 0.0))
+                    if m_amt > 0 and accum + m_amt <= p_fee + 0.01:
+                        paid_months_set.add(item["month"])
+                        accum += m_amt
+                    elif len(paid_months_set) == 0 and m_amt > 0:
+                        paid_months_set.add(item["month"])
+                        break
+
+        monthly_status = []
+        collected_months = []
+        partial_months = []
+        due_months = []
+
+        for item in student_schedule:
+            m_name = item["month"]
+            m_amt = float(item.get("amount", 0.0))
+            is_full_paid = m_name in paid_months_set or "All Months" in paid_months_set
+
+            # Check individual payments recorded for this month
+            m_payments = [p for p in payments if p.get("month") and m_name in p.get("month", "")]
+            m_paid_amt = sum(float(p.get("amount", 0.0)) for p in m_payments)
+
+            matching_p = m_payments[-1] if m_payments else None
+            coll_date = matching_p.get("date") if matching_p else (last_date if is_full_paid else None)
+            notes = matching_p.get("notes", "") if matching_p else ""
+
+            if is_full_paid:
+                is_m_paid = True
+                is_m_partial = False
+                paid_amt = m_amt
+                due_amt = 0.0
+            elif m_paid_amt >= m_amt - 0.01 and m_amt > 0:
+                is_m_paid = True
+                is_m_partial = False
+                paid_amt = m_amt
+                due_amt = 0.0
+                paid_months_set.add(m_name)
+            elif m_paid_amt > 0:
+                is_m_paid = False
+                is_m_partial = True
+                paid_amt = round(m_paid_amt, 2)
+                due_amt = round(max(0.0, m_amt - m_paid_amt), 2)
+            else:
+                is_m_paid = False
+                is_m_partial = False
+                paid_amt = 0.0
+                due_amt = m_amt
+
+            m_info = {
+                "month": m_name,
+                "amount": m_amt,
+                "paid_amount": paid_amt,
+                "due_amount": due_amt,
+                "is_paid": is_m_paid,
+                "is_partial": is_m_partial,
+                "collection_date": coll_date,
+                "notes": notes
+            }
+            monthly_status.append(m_info)
+            if is_m_paid:
+                collected_months.append(m_info)
+            elif is_m_partial:
+                partial_months.append(m_info)
+                due_months.append(m_info)
+            else:
+                due_months.append(m_info)
 
         results.append({
             "id": sid,
@@ -203,13 +423,23 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "paid_fee": p_fee,
             "due_fee": d_fee,
             "status": status,
+            "fee_schedule": student_schedule,
             "payments": payments,
-            "last_payment_date": last_date
+            "last_payment_date": last_date,
+            "monthly_status": monthly_status,
+            "collected_months": collected_months,
+            "partial_months": partial_months,
+            "due_months": due_months,
+            "paid_months": list(paid_months_set)
         })
 
     return {
         "batch_id": batch_id,
         "batch_name": batch.get("name"),
+        "class_level": batch.get("class_level"),
+        "fee_amount": batch_default_fee,
+        "monthly_fee": batch_monthly_fee,
+        "fee_schedule": schedule,
         "students": results,
         "summary": {
             "total_students": len(results),
@@ -234,8 +464,18 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    batch_default_fee = float(batch.get("fee_amount", 5000))
+    batch_default_fee = float(batch.get("fee_amount", 0) or 0)
+    batch_monthly_fee_val = float(batch.get("monthly_fee", 0) or 0)
+    stored_sched = batch.get("fee_schedule")
+    if stored_sched and batch_monthly_fee_val > 0:
+        stored_amts = set(float(it.get("amount", 0)) for it in stored_sched if it.get("amount") is not None)
+        if len(stored_amts) == 1:
+            stored_s = next(iter(stored_amts))
+            if abs(stored_s - batch_monthly_fee_val) > 0.01:
+                stored_sched = get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
+    schedule = stored_sched or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
     now_iso = datetime.now(timezone.utc).isoformat()
+    payment_date = body.payment_date or now_iso
 
     record = await db.batch_fees.find_one({"batch_id": batch_id, "student_id": student_id}, {"_id": 0})
     if not record:
@@ -246,41 +486,173 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
             "paid_fee": 0.0,
             "due_fee": batch_default_fee,
             "status": "due",
-            "payments": []
+            "payments": [],
+            "paid_months": []
         }
 
     total_fee = float(body.total_fee) if body.total_fee is not None else float(record.get("total_fee", batch_default_fee))
     current_paid = float(record.get("paid_fee", 0.0))
     payments = list(record.get("payments", []))
+    paid_months = list(record.get("paid_months", []))
     last_date = record.get("last_payment_date")
 
-    if body.mark_as_paid:
+    # Resolve student schedule (custom or proportional)
+    if body.fee_schedule and len(body.fee_schedule) > 0:
+        student_schedule = body.fee_schedule
+    elif record.get("fee_schedule"):
+        if body.total_fee is not None and abs(total_fee - float(record.get("total_fee", 0))) > 0.01:
+            student_schedule = get_proportional_schedule(record.get("fee_schedule"), total_fee)
+        else:
+            student_schedule = record.get("fee_schedule")
+    elif abs(total_fee - batch_default_fee) > 0.01:
+        student_schedule = get_proportional_schedule(schedule, total_fee)
+    else:
+        student_schedule = schedule
+
+    if body.unmark_month:
+        month_to_remove = body.unmark_month.strip()
+        month_item = next((it for it in student_schedule if it["month"] == month_to_remove), None)
+        # Check actual recorded payment for this month if available
+        m_payments = [p for p in payments if p.get("month") and month_to_remove in p.get("month", "")]
+        if m_payments:
+            deduct_amt = sum(float(p.get("amount", 0.0)) for p in m_payments)
+        elif month_item:
+            deduct_amt = float(month_item.get("amount", 0.0))
+        else:
+            deduct_amt = round(total_fee / 12.0, 2)
+
+        if "All Months" in paid_months:
+            paid_months = [it["month"] for it in student_schedule if it["month"] != month_to_remove]
+        else:
+            paid_months = [m for m in paid_months if m != month_to_remove]
+
+        current_paid = max(0.0, current_paid - deduct_amt)
+        new_due = max(0.0, total_fee - current_paid)
+        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+
+        new_payments = []
+        for p in payments:
+            p_month = p.get("month", "")
+            if p_month and month_to_remove in p_month:
+                if p_month.strip() == month_to_remove:
+                    continue
+                elif p_month == "All Months":
+                    p["amount"] = max(0.0, float(p.get("amount", 0.0)) - deduct_amt)
+                    p["month"] = ", ".join([it["month"] for it in student_schedule if it["month"] != month_to_remove])
+                    new_payments.append(p)
+                else:
+                    remaining_months = [m.strip() for m in p_month.split(",") if m.strip() != month_to_remove]
+                    p["month"] = ", ".join(remaining_months)
+                    p["amount"] = max(0.0, float(p.get("amount", 0.0)) - deduct_amt)
+                    new_payments.append(p)
+            else:
+                new_payments.append(p)
+        payments = new_payments
+    elif body.mark_as_paid:
         diff = max(0.0, total_fee - current_paid)
         current_paid = total_fee
         new_due = 0.0
         status = "paid"
-        if diff > 0:
+        all_months = [item["month"] for item in student_schedule]
+        paid_months = all_months
+        if diff > 0 or not payments:
             payments.append({
                 "id": str(uuid.uuid4()),
-                "amount": diff,
-                "date": now_iso,
+                "amount": diff if diff > 0 else total_fee,
+                "date": payment_date,
+                "month": "All Months",
                 "notes": body.notes.strip() if body.notes else "Marked as paid in full",
                 "recorded_by": user["name"]
             })
-            last_date = now_iso
+            last_date = payment_date
+    elif body.is_partial and (body.month or (body.months_paid and len(body.months_paid) > 0)):
+        target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
+        target_months = [m for m in target_months if m]
+        part_amt = float(body.partial_amount if body.partial_amount is not None else (body.amount or 0.0))
+        current_paid = current_paid + part_amt
+        new_due = max(0.0, total_fee - current_paid)
+        status = "paid" if new_due == 0 else "partial"
+
+        # Check if the partial payment now completes any target month
+        for tm in target_months:
+            sch_item = next((it for it in student_schedule if it["month"] == tm), None)
+            req_amt = float(sch_item.get("amount", 0.0)) if sch_item else round(total_fee / 12.0, 2)
+            past_paid_for_m = sum(float(p.get("amount", 0.0)) for p in payments if p.get("month") and tm in p.get("month", ""))
+            if past_paid_for_m + part_amt >= req_amt - 0.01:
+                if tm not in paid_months:
+                    paid_months.append(tm)
+
+        payments.append({
+            "id": str(uuid.uuid4()),
+            "amount": part_amt,
+            "date": payment_date,
+            "month": ", ".join(target_months),
+            "is_partial": True,
+            "notes": body.notes.strip() if body.notes else f"Partial payment for {', '.join(target_months)}",
+            "recorded_by": user["name"]
+        })
+        last_date = payment_date
+    elif body.paid_fee is not None:
+        current_paid = max(0.0, float(body.paid_fee))
+        new_due = max(0.0, total_fee - current_paid)
+        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+    elif body.due_fee is not None:
+        new_due = max(0.0, float(body.due_fee))
+        current_paid = max(0.0, total_fee - new_due)
+        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+    elif body.month or (body.months_paid and len(body.months_paid) > 0):
+        target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
+        target_months = [m for m in target_months if m]
+        added = 0.0
+        if body.amount is not None and body.amount > 0:
+            added = float(body.amount)
+        else:
+            for tm in target_months:
+                sch_item = next((it for it in student_schedule if it["month"] == tm), None)
+                if sch_item:
+                    added += float(sch_item.get("amount", 0.0))
+                else:
+                    added += round(total_fee / 12.0, 2)
+
+        for tm in target_months:
+            if tm not in paid_months:
+                paid_months.append(tm)
+
+        current_paid = current_paid + added
+        new_due = max(0.0, total_fee - current_paid)
+        status = "paid" if new_due == 0 else "partial"
+
+        payments.append({
+            "id": str(uuid.uuid4()),
+            "amount": added,
+            "date": payment_date,
+            "month": ", ".join(target_months),
+            "notes": body.notes.strip() if body.notes else f"Payment for {', '.join(target_months)}",
+            "recorded_by": user["name"]
+        })
+        last_date = payment_date
     elif body.amount is not None and body.amount > 0:
         added = float(body.amount)
         current_paid = current_paid + added
         new_due = max(0.0, total_fee - current_paid)
         status = "paid" if new_due == 0 else "partial"
+
+        accum = 0.0
+        for item in student_schedule:
+            m_amt = float(item.get("amount", 0.0))
+            if item["month"] not in paid_months and accum + m_amt <= current_paid + 0.01:
+                paid_months.append(item["month"])
+                accum += m_amt
+
         payments.append({
             "id": str(uuid.uuid4()),
             "amount": added,
-            "date": now_iso,
+            "date": payment_date,
+            "month": body.month or "",
             "notes": body.notes.strip() if body.notes else "Payment received",
             "recorded_by": user["name"]
         })
-        last_date = now_iso
+        last_date = payment_date
     else:
         new_due = max(0.0, total_fee - current_paid)
         status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
@@ -289,10 +661,12 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         "batch_id": batch_id,
         "student_id": student_id,
         "total_fee": total_fee,
+        "fee_schedule": student_schedule,
         "paid_fee": current_paid,
         "due_fee": new_due,
         "status": status,
         "payments": payments,
+        "paid_months": paid_months,
         "last_payment_date": last_date,
         "updated_at": now_iso
     }
@@ -308,10 +682,12 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         "name": student.get("name"),
         "email": student.get("email"),
         "total_fee": total_fee,
+        "fee_schedule": student_schedule,
         "paid_fee": current_paid,
         "due_fee": new_due,
         "status": status,
         "payments": payments,
+        "paid_months": paid_months,
         "last_payment_date": last_date
     }
 

@@ -17,6 +17,17 @@ class LoginInput(BaseModel):
 class BatchInput(BaseModel):
     name: str
     class_level: str
+    fee_amount: Optional[float] = 0.0
+    monthly_fee: Optional[float] = 0.0
+    fee_schedule: Optional[List[dict]] = None
+
+
+class BatchUpdateInput(BaseModel):
+    name: Optional[str] = None
+    class_level: Optional[str] = None
+    fee_amount: Optional[float] = None
+    monthly_fee: Optional[float] = None
+    fee_schedule: Optional[List[dict]] = None
 
 
 class JoinInput(BaseModel):
