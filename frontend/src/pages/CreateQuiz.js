@@ -32,7 +32,7 @@ export default function CreateQuiz({ kind }) {
       await api.post("/tests", { ...f, kind, batch_id: isDpp ? null : f.batch_id,
         question_count: Number(f.question_count), duration_minutes: Number(f.duration_minutes),
         valid_hours: Number(f.valid_hours) });
-      toast.success(isDpp ? "DPP published!" : "Test is building — it'll go live in a moment");
+      toast.success(isDpp ? "Chapterwise Test published!" : "Test is building — it'll go live in a moment");
       nav(isDpp ? "/dpp" : "/tests");
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); } finally { setBusy(false); }
   };
@@ -42,13 +42,13 @@ export default function CreateQuiz({ kind }) {
   return (
     <div className="max-w-3xl mx-auto">
       <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Teacher studio</span>
-      <h1 className="font-head text-3xl font-700 tracking-tight flex items-center gap-2 text-white">{isDpp ? "New Daily Practice" : "Launch a timed test"} <Wand2 className="h-6 w-6 text-[#06B6D4]" /></h1>
+      <h1 className="font-head text-3xl font-700 tracking-tight flex items-center gap-2 text-white">{isDpp ? "New Chapterwise Test" : "Launch a timed test"} <Wand2 className="h-6 w-6 text-[#06B6D4]" /></h1>
       <p className="text-[#94A3B8] mt-2">Pick a class, subject and chapter — we sample from your reviewed question bank ({isDpp ? "for open practice" : "and activate it for the window you set"}).</p>
 
       <div className="mt-6 space-y-5 rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
         <div>
           <Label className="font-600 text-[#94A3B8]">Title</Label>
-          <Input data-testid="quiz-title" className={inp} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder={isDpp ? "e.g. Motion — DPP 1" : "e.g. Weekly Test — Chemical Reactions"} />
+          <Input data-testid="quiz-title" className={inp} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder={isDpp ? "e.g. Real Numbers — Chapterwise Test" : "e.g. Weekly Test — Chemical Reactions"} />
         </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
@@ -109,7 +109,7 @@ export default function CreateQuiz({ kind }) {
         )}
 
         <Button data-testid="generate-quiz-btn" onClick={submit} disabled={busy} className="w-full rounded-full bg-[#3B82F6] text-white font-700 h-12 hover:bg-[#60A5FA] glow-blue">
-          {busy ? <><Sparkles className="h-5 w-5 mr-2 animate-spin" /> Building…</> : <><Sparkles className="h-5 w-5 mr-2" /> {isDpp ? "Publish DPP" : "Create & activate test"}</>}
+          {busy ? <><Sparkles className="h-5 w-5 mr-2 animate-spin" /> Building…</> : <><Sparkles className="h-5 w-5 mr-2" /> {isDpp ? "Publish Chapterwise Test" : "Create & activate test"}</>}
         </Button>
       </div>
     </div>

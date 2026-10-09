@@ -16,7 +16,7 @@ export default function Navbar() {
     { to: "/notes", label: "Notes", icon: BookOpen },
     { to: "/materials", label: "Materials", icon: FolderOpen },
     { to: "/tests", label: "Tests", icon: FileQuestion },
-    { to: "/dpp", label: "DPP", icon: Sparkles },
+    { to: "/dpp", label: "Chapterwise Test", icon: Sparkles },
     ...(isTeacher ? [{ to: "/reports", label: "Reports", icon: BarChart3 }, { to: "/batches", label: "Batches", icon: Users }] : [{ to: "/mastery", label: "Mastery", icon: Brain }]),
     ...(user.role === "admin" ? [{ to: "/admin/data-source", label: "Data Source", icon: Database }] : []),
   ];

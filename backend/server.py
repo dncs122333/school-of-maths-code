@@ -461,7 +461,7 @@ async def _build_test(test_id: str, body: GenerateTestInput):
     """Background task: sample ACTIVE questions from the bank, snapshot them, mark ready."""
     try:
         questions = await _sample_bank_questions(body.class_level, body.subject, body.chapter,
-                                                 body.topic or "", body.question_count)
+                                                 body.topic or "", body.question_count, kind=body.kind)
         if not questions:
             raise ValueError("No active questions available for this selection")
         await db.tests.update_one({"id": test_id}, {"$set": {
@@ -510,7 +510,31 @@ def _option_seed(test_id: str, student_id: str, q_index: int) -> int:
 
 
 async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
-                                 topic: str, count: int) -> list:
+                                 topic: str, count: int, kind: str = "test") -> list:
+    if kind == "dpp":
+        # Chapterwise test: return all questions for the chapter, sorted topicwise
+        q = {"class_level": class_level, "status": "active"}
+        if subject:
+            q["subject"] = subject
+        if chapter:
+            q["chapter"] = chapter
+        if topic:
+            q["topic"] = topic
+        chapter_questions = await db.question_bank.find(q, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
+        if not chapter_questions and topic:
+            q_no_topic = {"class_level": class_level, "status": "active"}
+            if subject:
+                q_no_topic["subject"] = subject
+            if chapter:
+                q_no_topic["chapter"] = chapter
+            chapter_questions = await db.question_bank.find(q_no_topic, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
+        if chapter_questions:
+            return [{"question": x["question"], "options": x["options"],
+                     "correct_index": x["correct_index"], "explanation": x.get("explanation", ""),
+                     "subject": x.get("subject", ""), "chapter": x.get("chapter", ""),
+                     "topic": x.get("topic", ""), "difficulty": x.get("difficulty", "medium")}
+                    for x in chapter_questions]
+
     q = {"class_level": class_level, "status": "active"}
     if subject:
         q["subject"] = subject

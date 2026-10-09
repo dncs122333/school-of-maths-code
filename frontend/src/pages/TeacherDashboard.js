@@ -163,7 +163,7 @@ export default function TeacherDashboard() {
                 className="rounded-2xl border-[#1E293B] bg-[#111827] text-white hover:bg-[#1E293B] font-700 text-xs h-11 px-4 transition-transform hover:scale-105"
               >
                 <Link to="/dpp/new" className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-[#FBBF24]" /> + Daily Practice
+                  <Sparkles className="h-4 w-4 text-[#FBBF24]" /> + Chapterwise Test
                 </Link>
               </Button>
               <Button
@@ -209,7 +209,7 @@ export default function TeacherDashboard() {
                 {(stats.tests || 0) + (stats.dpps || 0)}
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-[#06B6D4] font-mono mt-1">
-                <span>{stats.tests ?? 0} Timed Mocks • {stats.dpps ?? 0} DPPs</span>
+                <span>{stats.tests ?? 0} Timed Mocks • {stats.dpps ?? 0} Chapterwise Tests</span>
               </div>
             </div>
 
@@ -374,7 +374,7 @@ export default function TeacherDashboard() {
                           className="rounded-full bg-[#3B82F6]/20 hover:bg-[#3B82F6] text-[#60A5FA] hover:text-white border border-[#3B82F6]/40 text-xs h-9 px-3.5 font-700 transition-all"
                         >
                           <Link to="/dpp/new">
-                            <Plus className="h-3.5 w-3.5 mr-1" /> + Create DPP
+                            <Plus className="h-3.5 w-3.5 mr-1" /> + Chapterwise Test
                           </Link>
                         </Button>
                       </div>

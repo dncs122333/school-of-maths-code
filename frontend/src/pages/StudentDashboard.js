@@ -305,10 +305,10 @@ export default function StudentDashboard() {
             <Sparkles className="h-5 w-5 text-[#FBBF24]" />
           </div>
           <h4 className="font-head text-base font-700 text-white group-hover:text-[#FDE68A] transition-colors">
-            Daily Practice (DPP)
+            Chapterwise Tests
           </h4>
           <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
-            Untimed, repeatable question drills with step-by-step reasoning.
+            Chapterwise topic-level practice questions with step-by-step reasoning.
           </p>
         </Link>
 

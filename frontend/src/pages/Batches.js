@@ -567,7 +567,7 @@ export default function Batches() {
                           <div className="min-w-0 pr-2">
                             <span className="text-white font-700 block truncate">{tr.title || "Assessment"}</span>
                             <span className="text-[#94A3B8] text-[11px]">
-                              {tr.correct}/{tr.total} correct • {tr.kind === "dpp" ? "DPP Practice" : "Timed Test"}
+                              {tr.correct}/{tr.total} correct • {tr.kind === "dpp" ? "Chapterwise Practice" : "Timed Test"}
                             </span>
                           </div>
                           <span
@@ -601,7 +601,7 @@ export default function Batches() {
                     className="rounded-full bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700 glow-blue"
                   >
                     <Link to="/dpp/new">
-                      <Sparkles className="h-4 w-4 mr-1.5" /> Launch DPP for Cohort
+                      <Sparkles className="h-4 w-4 mr-1.5" /> Launch Chapterwise Test for Cohort
                     </Link>
                   </Button>
                 </div>
