@@ -5,9 +5,9 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import PdfCanvasViewer from "../components/PdfCanvasViewer";
-import { FolderOpen, Upload, FileText, Image as ImageIcon, Download, Trash2, Eye, User, Folder, Loader2, Info, ShieldCheck, AlertTriangle, RotateCw } from "lucide-react";
+import { FolderOpen, Upload, FileText, Image as ImageIcon, Download, Trash2, Eye, User, Folder, Loader2, Info, ShieldCheck, AlertTriangle, RotateCw, Pencil } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
@@ -36,6 +36,9 @@ export default function Materials() {
   const [file, setFile] = useState(null);
   const [viewer, setViewer] = useState({ open: false, kind: "", url: "", data: null, text: "", name: "", loading: false, error: "" });
   const [busyId, setBusyId] = useState(null);
+  const [editItem, setEditItem] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef();
   const viewSeqRef = useRef(0); // bumped on open AND close; in-flight fetches only commit if it still matches
   const viewerUrlRef = useRef("");
@@ -155,6 +158,44 @@ export default function Materials() {
     try { await api.delete(`/resources/${id}`); toast.success("Removed"); load(); }
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
+
+  /* ---- Edit Material ---- */
+  const openEdit = (item) => {
+    setEditItem(item);
+    setEditForm({
+      title: item.title || "",
+      class_level: item.class_level || "9",
+      subject: item.subject || "",
+      chapter: item.chapter || "",
+      topic: item.topic || "",
+      batch_id: item.batch_id || "",
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editItem) return;
+    if (!editForm.title?.trim()) {
+      toast.error("Please enter a title");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...editForm, title: editForm.title.trim() };
+      if (!payload.batch_id) payload.batch_id = null;
+      const res = await api.patch(`/resources/${editItem.id}`, payload);
+      toast.success("Material updated");
+      setItems((prev) => prev.map((item) => (item.id === editItem.id ? { ...item, ...res.data } : item)));
+      setEditItem(null);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Failed to update material");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editSubjects = editForm.class_level && catalog[editForm.class_level]
+    ? Object.keys(catalog[editForm.class_level])
+    : ["Science", "Maths", "Social Science", "English", "Hindi"];
 
   // Group by Class → Batch → Chapter
   const classGroups = items.reduce((acc, r) => {
@@ -305,7 +346,19 @@ export default function Materials() {
                                       const previewable = canPreview(r);
                                       return (
                                         <motion.div key={r.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                                          className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
+                                          className="relative group rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
+                                          {/* Teacher quick action buttons */}
+                                          {isTeacher && (
+                                            <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                              <button
+                                                data-testid={`edit-material-top-${r.id}`}
+                                                onClick={(e) => { e.preventDefault(); openEdit(r); }}
+                                                className="h-7 w-7 rounded-full bg-[#1E293B] hover:bg-[#3B82F6]/20 border border-[#3B82F6]/30 flex items-center justify-center text-[#3B82F6] transition-colors"
+                                                title="Edit material">
+                                                <Pencil className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                          )}
                                           <div className="flex items-start justify-between gap-3">
                                             <div className="h-11 w-11 rounded-2xl bg-[#0B0F19] border border-[#06B6D4]/30 flex items-center justify-center shrink-0"><Icon className="h-5 w-5 text-[#06B6D4]" /></div>
                                             <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#3B82F6]">{r.subject}</span>
@@ -336,9 +389,14 @@ export default function Materials() {
                                               {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Download className="h-4 w-4" />{!previewable && <span className="ml-1">Download</span>}</>}
                                             </Button>
                                             {isTeacher && (
-                                              <Button data-testid={`delete-material-${r.id}`} onClick={() => remove(r.id)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#F87171] hover:bg-[#F87171]/10">
-                                                <Trash2 className="h-4 w-4" />
-                                              </Button>
+                                              <>
+                                                <Button data-testid={`edit-material-${r.id}`} onClick={() => openEdit(r)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#3B82F6] hover:bg-[#3B82F6]/10" title="Edit material">
+                                                  <Pencil className="h-4 w-4" />
+                                                </Button>
+                                                <Button data-testid={`delete-material-${r.id}`} onClick={() => remove(r.id)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#F87171] hover:bg-[#F87171]/10" title="Delete material">
+                                                  <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                              </>
                                             )}
                                           </div>
                                           <div className="mt-3 flex items-center gap-1 text-xs text-[#94A3B8]/60"><User className="h-3 w-3" /> {r.teacher_name}</div>
@@ -399,6 +457,74 @@ export default function Materials() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* ---- Edit Dialog ---- */}
+      <Dialog open={!!editItem} onOpenChange={(o) => { if (!o) setEditItem(null); }}>
+        <DialogContent data-testid="edit-material-modal" className="bg-[#111827] border-[#1E293B] max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-white font-head text-xl">Edit shared material</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="font-600 text-[#94A3B8]">Title / Name</Label>
+              <Input
+                data-testid="edit-material-title"
+                className={inp}
+                value={editForm.title || ""}
+                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                placeholder="Material title"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="font-600 text-[#94A3B8]">Class</Label>
+                <Select value={editForm.class_level} onValueChange={(v) => setEditForm({ ...editForm, class_level: v, subject: "" })}>
+                  <SelectTrigger className={inp}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="9">Class 9</SelectItem>
+                    <SelectItem value="10">Class 10</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="font-600 text-[#94A3B8]">Subject</Label>
+                <Select value={editForm.subject} onValueChange={(v) => setEditForm({ ...editForm, subject: v })}>
+                  <SelectTrigger className={inp}><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{editSubjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="font-600 text-[#94A3B8]">Chapter <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+                <Input className={inp} value={editForm.chapter || ""} onChange={(e) => setEditForm({ ...editForm, chapter: e.target.value })} />
+              </div>
+              <div>
+                <Label className="font-600 text-[#94A3B8]">Topic <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+                <Input className={inp} value={editForm.topic || ""} onChange={(e) => setEditForm({ ...editForm, topic: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <Label className="font-600 text-[#94A3B8]">Batch</Label>
+              <Select value={editForm.batch_id || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, batch_id: v === "__none__" ? "" : v })}>
+                <SelectTrigger className={inp}><SelectValue placeholder="Select batch" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">General / All students</SelectItem>
+                  {batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="rounded-full border-[#1E293B] text-[#94A3B8]"
+              onClick={() => setEditItem(null)}>Cancel</Button>
+            <Button data-testid="save-material-btn" className="rounded-full bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700"
+              disabled={saving} onClick={saveEdit}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Save changes
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

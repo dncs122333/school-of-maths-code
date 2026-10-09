@@ -129,7 +129,7 @@ export default function TeacherDashboard() {
               </div>
 
               <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-800 tracking-tight text-white flex items-center gap-3">
-                {greeting}, sir{" "}<span className="text-gradient-cyan">{user?.name?.split(" ")[0]}</span>!{" "}
+                {greeting}, <span className="text-gradient-cyan">{user?.name?.split(" ")[0]}</span> sir!{" "}
                 <span className="animate-floaty inline-block">👨‍🏫</span>
               </h1>
 

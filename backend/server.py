@@ -385,6 +385,40 @@ async def delete_resource(res_id: str, user: dict = Depends(require_role("teache
     return {"ok": True}
 
 
+class UpdateResourceInput(BaseModel):
+    title: Optional[str] = None
+    class_level: Optional[str] = None
+    subject: Optional[str] = None
+    chapter: Optional[str] = None
+    topic: Optional[str] = None
+    batch_id: Optional[str] = None
+
+
+@api_router.patch("/resources/{res_id}")
+async def update_resource(res_id: str, body: UpdateResourceInput, user: dict = Depends(require_role("teacher", "admin"))):
+    res = await db.resources.find_one({"id": res_id, "is_deleted": False}, {"_id": 0})
+    if not res:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    if user["role"] != "admin" and res.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your resource")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if "batch_id" in updates:
+        if updates["batch_id"] in ("", "all", None):
+            updates["batch_id"] = None
+            updates["batch_name"] = None
+        else:
+            batch = await db.batches.find_one({"id": updates["batch_id"]}, {"_id": 0})
+            if not batch:
+                raise HTTPException(status_code=400, detail="Invalid batch")
+            if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+                raise HTTPException(status_code=403, detail="You do not own this batch")
+            updates["batch_name"] = batch.get("name")
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.resources.update_one({"id": res_id}, {"$set": updates})
+    updated = await db.resources.find_one({"id": res_id}, {"_id": 0, "storage_path": 0})
+    return updated
+
+
 @api_router.get("/resources/{res_id}/file")
 async def download_resource(res_id: str, authorization: str = Header(None), auth: Optional[str] = None):
     # Support both Bearer header and ?auth= query param (for direct links)
