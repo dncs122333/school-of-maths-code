@@ -129,12 +129,12 @@ export default function TeacherDashboard() {
               </div>
 
               <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-800 tracking-tight text-white flex items-center gap-3">
-                {greeting}, <span className="text-gradient-cyan">{user?.name?.split(" ")[0]}</span>!{" "}
+                {greeting}, sir{" "}<span className="text-gradient-cyan">{user?.name?.split(" ")[0]}</span>!{" "}
                 <span className="animate-floaty inline-block">👨‍🏫</span>
               </h1>
 
               <p className="text-[#94A3B8] text-sm sm:text-base max-w-xl leading-relaxed">
-                Live mastery telemetry across your coaching cohorts. Monitor weak concepts, generate AI study notes, and launch timed tests from verified question banks.
+                Live mastery telemetry across your coaching cohorts. Monitor weak concepts, share study notes, and launch timed tests from verified question banks.
               </p>
             </div>
 
@@ -144,8 +144,8 @@ export default function TeacherDashboard() {
                 asChild
                 className="rounded-2xl bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-800 text-xs h-11 px-4 glow-blue transition-transform hover:scale-105"
               >
-                <Link to="/notes/new" className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" /> + AI Study Note
+                <Link to="/materials" className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4" /> Study Notes
                 </Link>
               </Button>
               <Button

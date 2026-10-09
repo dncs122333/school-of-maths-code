@@ -156,13 +156,18 @@ export default function Materials() {
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
 
-  // group by chapter (folders)
-  const groups = items.reduce((acc, r) => {
-    const key = r.chapter?.trim() || "General";
-    (acc[key] = acc[key] || []).push(r);
+  // Group by Class → Batch → Chapter
+  const classGroups = items.reduce((acc, r) => {
+    const cl = `Class ${r.class_level || "?"}`;
+    const batch = r.batch_name?.trim() || "General";
+    const chapter = r.chapter?.trim() || "General";
+    if (!acc[cl]) acc[cl] = {};
+    if (!acc[cl][batch]) acc[cl][batch] = {};
+    if (!acc[cl][batch][chapter]) acc[cl][batch][chapter] = [];
+    acc[cl][batch][chapter].push(r);
     return acc;
   }, {});
-  const groupKeys = Object.keys(groups).sort((a, b) => (a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b)));
+  const sortedClasses = Object.keys(classGroups).sort();
 
   return (
     <div className="space-y-8">
@@ -255,69 +260,107 @@ export default function Materials() {
             <p className="mt-3 text-[#94A3B8]">No materials yet{!isTeacher && ". Join a batch to see files your teacher shares."}</p>
           </div>
         ) : (
-          <div className="space-y-8">
-            {groupKeys.map((gk) => (
-              <div key={gk} data-testid={`folder-${gk}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Folder className="h-4 w-4 text-[#FBBF24]" />
-                  <h3 className="font-head font-600 text-white">{gk}</h3>
-                  <span className="text-xs text-[#94A3B8] font-mono">{groups[gk].length}</span>
-                  <div className="flex-1 h-px bg-[#1E293B] ml-2" />
-                </div>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {groups[gk].map((r, i) => {
-                    const Icon = iconFor(r.content_type);
-                    const previewable = canPreview(r);
-                    return (
-                      <motion.div key={r.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                        className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="h-11 w-11 rounded-2xl bg-[#0B0F19] border border-[#06B6D4]/30 flex items-center justify-center shrink-0"><Icon className="h-5 w-5 text-[#06B6D4]" /></div>
-                          <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#3B82F6]">{r.subject}</span>
-                        </div>
-                        <h4 className="font-head text-lg font-600 mt-4 leading-snug text-white">{r.title}</h4>
-                        <div className="text-xs text-[#94A3B8] mt-1 font-500 truncate">{r.filename} • {fmtSize(r.size)}</div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#94A3B8]/80 font-mono">
-                          <span className="px-2 py-0.5 rounded-full bg-[#0B0F19] border border-[#1E293B]">Class {r.class_level}</span>
-                          <span className="px-2 py-0.5 rounded-full bg-[#0B0F19] border border-[#1E293B]">{r.batch_name}</span>
-                          {!isTeacher && isWatermarked(r) && (
-                            <span data-testid={`watermark-badge-${r.id}`} className="px-2 py-0.5 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/30 text-[#3B82F6] inline-flex items-center gap-1">
-                              <ShieldCheck className="h-3 w-3" /> watermarked
-                            </span>
-                          )}
-                        </div>
-                        {!previewable && (
-                          <div data-testid={`download-only-${r.id}`} className="mt-3 flex items-start gap-1.5 text-xs text-[#94A3B8]/80">
-                            <Info className="h-3.5 w-3.5 text-[#FBBF24] mt-0.5 shrink-0" />
-                            <span>Download only — {extOf(r.filename).toUpperCase()} files can&apos;t be previewed{!isTeacher && ENABLE_WATERMARKING && " or watermarked"}.</span>
+          <div className="space-y-10">
+            {sortedClasses.map((cl) => {
+              const batchMap = classGroups[cl];
+              const sortedBatches = Object.keys(batchMap).sort((a, b) => a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
+              return (
+                <div key={cl}>
+                  {/* Class header */}
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="h-7 w-7 rounded-xl bg-[#3B82F6]/15 border border-[#3B82F6]/30 flex items-center justify-center">
+                      <Folder className="h-4 w-4 text-[#3B82F6]" />
+                    </div>
+                    <h2 className="font-head text-xl font-700 text-white">{cl}</h2>
+                    <div className="flex-1 h-px bg-[#1E293B]" />
+                  </div>
+
+                  <div className="space-y-6 pl-2 border-l-2 border-[#1E293B]">
+                    {sortedBatches.map((batch) => {
+                      const chapterMap = batchMap[batch];
+                      const sortedChapters = Object.keys(chapterMap).sort((a, b) => a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
+                      return (
+                        <div key={batch}>
+                          {/* Batch sub-header */}
+                          <div className="flex items-center gap-2 mb-3 ml-4">
+                            <Folder className="h-3.5 w-3.5 text-[#FBBF24]" />
+                            <h3 className="font-head font-600 text-[#FBBF24] text-sm tracking-wide">{batch}</h3>
+                            <div className="flex-1 h-px bg-[#1E293B] ml-1" />
                           </div>
-                        )}
-                        <div className="mt-auto pt-5 flex items-center gap-2">
-                          {previewable && (
-                            <Button data-testid={`view-material-${r.id}`} onClick={() => openView(r)} variant="outline" className="flex-1 rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
-                              <Eye className="h-4 w-4 mr-1" /> View
-                            </Button>
-                          )}
-                          <Button data-testid={`download-material-${r.id}`} onClick={() => download(r)} disabled={busyId === r.id}
-                            className={`rounded-full bg-[#3B82F6] text-white font-600 hover:bg-[#60A5FA] ${previewable ? "" : "flex-1"}`}>
-                            {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Download className="h-4 w-4" />{!previewable && <span className="ml-1">Download</span>}</>}
-                          </Button>
-                          {isTeacher && (
-                            <Button data-testid={`delete-material-${r.id}`} onClick={() => remove(r.id)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#F87171] hover:bg-[#F87171]/10">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
+
+                          <div className="space-y-6 pl-4">
+                            {sortedChapters.map((chapter) => {
+                              const chapterItems = chapterMap[chapter];
+                              return (
+                                <div key={chapter} data-testid={`folder-${cl}-${batch}-${chapter}`}>
+                                  {/* Chapter label */}
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className="text-xs font-600 text-[#94A3B8] uppercase tracking-wider">{chapter}</span>
+                                    <span className="text-xs text-[#94A3B8]/50 font-mono">{chapterItems.length}</span>
+                                    <div className="flex-1 h-px bg-[#1E293B]/60 ml-1" />
+                                  </div>
+                                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {chapterItems.map((r, i) => {
+                                      const Icon = iconFor(r.content_type);
+                                      const previewable = canPreview(r);
+                                      return (
+                                        <motion.div key={r.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                                          className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="h-11 w-11 rounded-2xl bg-[#0B0F19] border border-[#06B6D4]/30 flex items-center justify-center shrink-0"><Icon className="h-5 w-5 text-[#06B6D4]" /></div>
+                                            <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#3B82F6]">{r.subject}</span>
+                                          </div>
+                                          <h4 className="font-head text-lg font-600 mt-4 leading-snug text-white">{r.title}</h4>
+                                          <div className="text-xs text-[#94A3B8] mt-1 font-500 truncate">{r.filename} • {fmtSize(r.size)}</div>
+                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#94A3B8]/80 font-mono">
+                                            {!isTeacher && isWatermarked(r) && (
+                                              <span data-testid={`watermark-badge-${r.id}`} className="px-2 py-0.5 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/30 text-[#3B82F6] inline-flex items-center gap-1">
+                                                <ShieldCheck className="h-3 w-3" /> watermarked
+                                              </span>
+                                            )}
+                                          </div>
+                                          {!previewable && (
+                                            <div data-testid={`download-only-${r.id}`} className="mt-3 flex items-start gap-1.5 text-xs text-[#94A3B8]/80">
+                                              <Info className="h-3.5 w-3.5 text-[#FBBF24] mt-0.5 shrink-0" />
+                                              <span>Download only — {extOf(r.filename).toUpperCase()} files can&apos;t be previewed{!isTeacher && ENABLE_WATERMARKING && " or watermarked"}.</span>
+                                            </div>
+                                          )}
+                                          <div className="mt-auto pt-5 flex items-center gap-2">
+                                            {previewable && (
+                                              <Button data-testid={`view-material-${r.id}`} onClick={() => openView(r)} variant="outline" className="flex-1 rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
+                                                <Eye className="h-4 w-4 mr-1" /> View
+                                              </Button>
+                                            )}
+                                            <Button data-testid={`download-material-${r.id}`} onClick={() => download(r)} disabled={busyId === r.id}
+                                              className={`rounded-full bg-[#3B82F6] text-white font-600 hover:bg-[#60A5FA] ${previewable ? "" : "flex-1"}`}>
+                                              {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Download className="h-4 w-4" />{!previewable && <span className="ml-1">Download</span>}</>}
+                                            </Button>
+                                            {isTeacher && (
+                                              <Button data-testid={`delete-material-${r.id}`} onClick={() => remove(r.id)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#F87171] hover:bg-[#F87171]/10">
+                                                <Trash2 className="h-4 w-4" />
+                                              </Button>
+                                            )}
+                                          </div>
+                                          <div className="mt-3 flex items-center gap-1 text-xs text-[#94A3B8]/60"><User className="h-3 w-3" /> {r.teacher_name}</div>
+                                        </motion.div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="mt-3 flex items-center gap-1 text-xs text-[#94A3B8]/60"><User className="h-3 w-3" /> {r.teacher_name}</div>
-                      </motion.div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
 
       <Dialog open={viewer.open} onOpenChange={(o) => { if (!o) closeViewer(); }}>
         <DialogContent data-testid="material-viewer" className="max-w-4xl w-[92vw] bg-[#111827] border-[#1E293B] p-0 overflow-hidden">
