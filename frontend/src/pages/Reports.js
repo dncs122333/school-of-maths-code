@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
-import { BarChart3, Loader2, TrendingDown, X } from "lucide-react";
+import { BarChart3, Loader2, TrendingDown, X, Users } from "lucide-react";
 import { toast } from "sonner";
 
 const BAND = {
@@ -65,6 +65,50 @@ export default function Reports() {
           </Select>
         </div>
       </div>
+
+      {/* Interactive Batch Selection Boxes */}
+      {batches.length > 0 && (
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-xs font-mono text-[#94A3B8]">
+            <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-[#3B82F6]" /> Select Batch:</span>
+            <span className="text-[11px] text-[#94A3B8]/60">Select from boxes or dropdown</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {batches.map((b) => {
+              const isSelected = batchId === b.id;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  data-testid={`report-batch-box-${b.id}`}
+                  onClick={() => setBatchId(b.id)}
+                  className={`text-left rounded-2xl p-4 transition-all duration-200 border relative overflow-hidden flex flex-col justify-between ${
+                    isSelected
+                      ? "bg-gradient-to-b from-[#172554]/90 to-[#0F172A] border-[#3B82F6] shadow-lg shadow-[#3B82F6]/20 ring-1 ring-[#3B82F6]"
+                      : "bg-[#111827]/80 hover:bg-[#1E293B]/60 border-[#1E293B] hover:border-[#3B82F6]/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono font-700 px-2 py-0.5 rounded-md bg-[#3B82F6]/15 text-[#60A5FA] border border-[#3B82F6]/30">
+                      Class {b.class_level}
+                    </span>
+                    {isSelected && (
+                      <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" />
+                    )}
+                  </div>
+                  <div className="mt-2.5 font-head font-700 text-sm sm:text-base text-white truncate">
+                    {b.name}
+                  </div>
+                  <div className="text-[11px] text-[#94A3B8] font-mono mt-1 flex items-center justify-between">
+                    <span>{b.student_count || 0} students</span>
+                    <span className="text-[10px] text-[#94A3B8]/60">#{b.code}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {!batchId ? (
         <div className="rounded-3xl bg-[#111827] border border-[#1E293B] p-10 text-center text-[#94A3B8]">Select a batch to see its mastery report.</div>

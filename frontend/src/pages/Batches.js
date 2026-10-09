@@ -27,6 +27,8 @@ import {
   AlertCircle,
   FileQuestion,
   Layers,
+  IndianRupee,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CircularProgress } from "../components/dashboard/WeakTopicCard";
@@ -45,6 +47,19 @@ export default function Batches() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentDrill, setStudentDrill] = useState(null);
   const [loadingDrill, setLoadingDrill] = useState(false);
+
+  // Batch Students & Fees State
+  const [batchStudentsData, setBatchStudentsData] = useState(null);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [activeTab, setActiveTab] = useState("roster"); // "roster" (Students & Fees) or "leaderboard"
+  const [feeModal, setFeeModal] = useState({
+    open: false,
+    student: null,
+    amount: "",
+    total_fee: "",
+    notes: "",
+    saving: false,
+  });
 
   // Load all batches
   const loadBatches = async () => {
@@ -67,10 +82,27 @@ export default function Batches() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadBatchStudents = async (bid) => {
+    if (!bid) {
+      setBatchStudentsData(null);
+      return;
+    }
+    setLoadingStudents(true);
+    try {
+      const res = await api.get(`/batches/${bid}/students`);
+      setBatchStudentsData(res.data);
+    } catch (err) {
+      // ignore
+    } finally {
+      setLoadingStudents(false);
+    }
+  };
+
   // Fetch student roster and mastery data for the selected batch
   useEffect(() => {
     if (!selectedBatchId) {
       setBatchDetails(null);
+      setBatchStudentsData(null);
       return;
     }
     setLoadingDetails(true);
@@ -83,7 +115,51 @@ export default function Batches() {
         setBatchDetails(null);
       })
       .finally(() => setLoadingDetails(false));
+
+    loadBatchStudents(selectedBatchId);
   }, [selectedBatchId]);
+
+  const handleOpenFeeModal = (student) => {
+    setFeeModal({
+      open: true,
+      student,
+      amount: "",
+      total_fee: student.total_fee || 5000,
+      notes: "",
+      saving: false,
+    });
+  };
+
+  const handleSaveFee = async (markAsPaid = false) => {
+    if (!feeModal.student || !selectedBatchId) return;
+    setFeeModal((prev) => ({ ...prev, saving: true }));
+    try {
+      const payload = {
+        amount: markAsPaid ? undefined : (feeModal.amount ? Number(feeModal.amount) : undefined),
+        total_fee: feeModal.total_fee ? Number(feeModal.total_fee) : undefined,
+        mark_as_paid: markAsPaid,
+        notes: feeModal.notes,
+      };
+      await api.post(`/batches/${selectedBatchId}/students/${feeModal.student.id}/fee`, payload);
+      toast.success(markAsPaid ? `Marked ${feeModal.student.name} as paid in full!` : `Payment recorded for ${feeModal.student.name}!`);
+      setFeeModal({ open: false, student: null, amount: "", total_fee: "", notes: "", saving: false });
+      await loadBatchStudents(selectedBatchId);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to update fee record");
+      setFeeModal((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleQuickMarkPaid = async (student) => {
+    if (!selectedBatchId) return;
+    try {
+      await api.post(`/batches/${selectedBatchId}/students/${student.id}/fee`, { mark_as_paid: true });
+      toast.success(`Marked ${student.name} as paid in full!`);
+      await loadBatchStudents(selectedBatchId);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to mark paid");
+    }
+  };
 
   // Create new batch
   const handleCreateBatch = async () => {
@@ -162,6 +238,16 @@ export default function Batches() {
       (st.name || "").toLowerCase().includes(studentSearch.toLowerCase().trim())
     );
   }, [rankedStudents, studentSearch]);
+
+  // Filter enrolled roster students for fee section
+  const rosterStudents = useMemo(() => {
+    const list = batchStudentsData?.students || [];
+    if (!studentSearch.trim()) return list;
+    const q = studentSearch.toLowerCase().trim();
+    return list.filter((st) =>
+      (st.name || "").toLowerCase().includes(q) || (st.email || "").toLowerCase().includes(q)
+    );
+  }, [batchStudentsData, studentSearch]);
 
   const inp = "rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B] text-white";
 
@@ -301,7 +387,7 @@ export default function Batches() {
         </div>
       )}
 
-      {/* 3. Batch Leaderboard & Enrolled Students Roster (Tier 2) */}
+      {/* 3. Batch Leaderboard & Enrolled Students Roster with Fee Status (Tier 2) */}
       {currentBatch && (
         <div className="rounded-3xl glass-panel p-6 sm:p-8 space-y-6 border border-[#1E293B] shadow-2xl">
           {/* Header of Selected Batch */}
@@ -316,7 +402,7 @@ export default function Batches() {
                 </span>
               </div>
               <h2 className="font-head text-2xl sm:text-3xl font-800 text-white mt-1">
-                {currentBatch.name} — Student Leaderboard
+                {currentBatch.name}
               </h2>
             </div>
 
@@ -332,119 +418,343 @@ export default function Batches() {
             </div>
           </div>
 
-          {/* Student Roster Table with Ranks */}
-          {loadingDetails ? (
-            <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-16 text-center text-[#94A3B8] flex items-center justify-center gap-2.5">
-              <span className="h-5 w-5 border-2 border-[#3B82F6] border-t-transparent rounded-full animate-spin" />
-              <span className="font-mono text-sm">Computing student rankings & topic metrics…</span>
-            </div>
-          ) : rankedStudents.length === 0 ? (
-            <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-12 text-center space-y-2 text-[#94A3B8]">
-              <Users className="h-9 w-9 mx-auto text-[#06B6D4] opacity-50" />
-              <h4 className="font-head text-lg font-700 text-white">No students enrolled yet</h4>
-              <p className="text-xs max-w-sm mx-auto leading-relaxed">
-                Give your students batch code <span className="font-mono text-white font-bold">{currentBatch.code}</span> to join. Once they submit tests, their ranks and concept analysis appear here.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="text-xs text-[#94A3B8] font-mono flex items-center justify-between px-2">
-                <span>Showing {filteredStudents.length} of {rankedStudents.length} students</span>
-                <span>Click any student to view detailed diagnostic analysis ➔</span>
+          {/* Quick Metrics Strip: Students & Fees */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B]">
+              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
+                <span className="font-mono uppercase tracking-wider text-[10px]">Enrolled Students</span>
+                <Users className="h-4 w-4 text-[#3B82F6]" />
               </div>
+              <div className="font-head text-2xl font-800 text-white mt-1">
+                {batchStudentsData?.summary?.total_students ?? currentBatch.student_count ?? 0}
+              </div>
+              <div className="text-[11px] text-[#94A3B8] font-mono mt-0.5">Active in this cohort</div>
+            </div>
 
-              <div className="space-y-2.5">
-                {filteredStudents.map((st) => {
-                  const isTop3 = st.rank <= 3;
-                  const rankColor =
-                    st.rank === 1
-                      ? "bg-[#FBBF24]/20 border-[#FBBF24]/40 text-[#FBBF24]"
-                      : st.rank === 2
-                      ? "bg-[#E2E8F0]/20 border-[#E2E8F0]/40 text-[#E2E8F0]"
-                      : st.rank === 3
-                      ? "bg-[#B45309]/20 border-[#B45309]/40 text-[#D97706]"
-                      : "bg-[#1E293B]/60 border-[#1E293B] text-[#94A3B8]";
+            <div className="p-4 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B]">
+              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
+                <span className="font-mono uppercase tracking-wider text-[10px]">Fees Collected</span>
+                <IndianRupee className="h-4 w-4 text-[#34D399]" />
+              </div>
+              <div className="font-head text-2xl font-800 text-[#34D399] mt-1">
+                ₹{(batchStudentsData?.summary?.total_collected ?? 0).toLocaleString()}
+              </div>
+              <div className="text-[11px] text-[#34D399] font-mono mt-0.5">
+                {batchStudentsData?.summary?.paid_count || 0} fully paid
+              </div>
+            </div>
 
-                  const scoreColor =
-                    st.overall >= 75
-                      ? "text-[#34D399] bg-[#34D399]/15 border-[#34D399]/30"
-                      : st.overall >= 55
-                      ? "text-[#FBBF24] bg-[#FBBF24]/15 border-[#FBBF24]/30"
-                      : "text-[#F87171] bg-[#F87171]/15 border-[#F87171]/30";
+            <div className="p-4 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B]">
+              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
+                <span className="font-mono uppercase tracking-wider text-[10px]">Total Dues</span>
+                <Clock className="h-4 w-4 text-[#F87171]" />
+              </div>
+              <div className="font-head text-2xl font-800 text-[#F87171] mt-1">
+                ₹{(batchStudentsData?.summary?.total_dues ?? 0).toLocaleString()}
+              </div>
+              <div className="text-[11px] text-[#F87171] font-mono mt-0.5">
+                {(batchStudentsData?.summary?.due_count || 0) + (batchStudentsData?.summary?.partial_count || 0)} pending
+              </div>
+            </div>
 
-                  return (
-                    <div
-                      key={st.id}
-                      onClick={() => handleOpenStudentAnalysis(st)}
-                      className="group cursor-pointer rounded-2xl p-4 sm:p-5 bg-[#0B0F19]/90 border border-[#1E293B] hover:border-[#3B82F6]/50 hover:bg-[#172033]/80 transition-all hover:translate-x-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
-                    >
-                      {/* Rank + Student Info */}
-                      <div className="flex items-center gap-4 min-w-0">
-                        {/* Rank Badge */}
-                        <div
-                          className={`h-11 w-11 rounded-2xl flex items-center justify-center font-head font-800 text-base shrink-0 border shadow-md ${rankColor}`}
-                        >
-                          {isTop3 ? (
-                            <Trophy className="h-5 w-5" />
-                          ) : (
-                            `#${st.rank}`
-                          )}
-                        </div>
+            <div className="p-4 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B]">
+              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
+                <span className="font-mono uppercase tracking-wider text-[10px]">Collection Status</span>
+                <CheckCircle2 className="h-4 w-4 text-[#FBBF24]" />
+              </div>
+              <div className="font-head text-lg font-700 text-white mt-1.5 flex items-center gap-1.5 flex-wrap">
+                <span className="text-[#34D399] text-sm font-bold">{batchStudentsData?.summary?.paid_count || 0} Paid</span>
+                <span className="text-[#94A3B8]">•</span>
+                <span className="text-[#FBBF24] text-sm font-bold">{batchStudentsData?.summary?.partial_count || 0} Part</span>
+                <span className="text-[#94A3B8]">•</span>
+                <span className="text-[#F87171] text-sm font-bold">{batchStudentsData?.summary?.due_count || 0} Due</span>
+              </div>
+              <div className="text-[11px] text-[#94A3B8] font-mono mt-0.5">Across cohort members</div>
+            </div>
+          </div>
 
-                        {/* Student Name & Meta */}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-head text-base sm:text-lg font-700 text-white truncate group-hover:text-[#60A5FA] transition-colors">
+          {/* Tab Selector */}
+          <div className="flex items-center gap-2 border-b border-[#1E293B] pb-3">
+            <button
+              type="button"
+              data-testid="tab-students-fees"
+              onClick={() => setActiveTab("roster")}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-700 transition-all ${
+                activeTab === "roster"
+                  ? "bg-[#3B82F6] text-white shadow-lg shadow-[#3B82F6]/25"
+                  : "bg-[#111827] text-[#94A3B8] hover:text-white hover:bg-[#1E293B] border border-[#1E293B]"
+              }`}
+            >
+              <Users className="h-4 w-4" />
+              <span>Students &amp; Fee Status</span>
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                activeTab === "roster" ? "bg-white/20 text-white" : "bg-[#1E293B] text-[#94A3B8]"
+              }`}>
+                {rosterStudents.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="tab-mastery-leaderboard"
+              onClick={() => setActiveTab("leaderboard")}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-700 transition-all ${
+                activeTab === "leaderboard"
+                  ? "bg-[#3B82F6] text-white shadow-lg shadow-[#3B82F6]/25"
+                  : "bg-[#111827] text-[#94A3B8] hover:text-white hover:bg-[#1E293B] border border-[#1E293B]"
+              }`}
+            >
+              <Trophy className="h-4 w-4 text-[#FBBF24]" />
+              <span>Academic Leaderboard</span>
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                activeTab === "leaderboard" ? "bg-white/20 text-white" : "bg-[#1E293B] text-[#94A3B8]"
+              }`}>
+                {filteredStudents.length}
+              </span>
+            </button>
+          </div>
+
+          {/* VIEW 1: STUDENTS & FEE ROSTER */}
+          {activeTab === "roster" && (
+            loadingStudents ? (
+              <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-16 text-center text-[#94A3B8] flex items-center justify-center gap-2.5">
+                <span className="h-5 w-5 border-2 border-[#3B82F6] border-t-transparent rounded-full animate-spin" />
+                <span className="font-mono text-sm">Loading enrolled students and fee records…</span>
+              </div>
+            ) : rosterStudents.length === 0 ? (
+              <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-12 text-center space-y-2 text-[#94A3B8]">
+                <Users className="h-9 w-9 mx-auto text-[#06B6D4] opacity-50" />
+                <h4 className="font-head text-lg font-700 text-white">No students enrolled yet</h4>
+                <p className="text-xs max-w-sm mx-auto leading-relaxed">
+                  Give your students batch code <span className="font-mono text-white font-bold">{currentBatch.code}</span> to join this cohort.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-xs text-[#94A3B8] font-mono flex items-center justify-between px-2">
+                  <span>Enrolled Roster: {rosterStudents.length} students</span>
+                  <span>Click Record Payment to update fees</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {rosterStudents.map((st) => {
+                    const isPaid = st.status === "paid" || st.due_fee === 0;
+                    const isPartial = st.status === "partial" || (st.paid_fee > 0 && st.due_fee > 0);
+
+                    return (
+                      <div
+                        key={st.id}
+                        data-testid={`student-fee-card-${st.id}`}
+                        className="rounded-2xl p-4 sm:p-5 bg-[#0B0F19]/90 border border-[#1E293B] hover:border-[#3B82F6]/50 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm"
+                      >
+                        {/* Student Info */}
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="h-11 w-11 rounded-2xl bg-[#1E293B]/80 border border-[#3B82F6]/30 flex items-center justify-center font-head font-800 text-base text-[#60A5FA] shrink-0">
+                            {st.name?.charAt(0)?.toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="font-head text-base font-700 text-white truncate">
                               {st.name}
                             </h4>
-                            {isTop3 && (
-                              <Badge className="bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30 text-[10px] font-700 font-mono">
-                                Top Tier
+                            <div className="text-xs text-[#94A3B8] font-mono truncate">
+                              {st.email}
+                            </div>
+                            {st.last_payment_date && (
+                              <div className="text-[10px] text-[#94A3B8]/70 font-mono mt-0.5">
+                                Last payment: {new Date(st.last_payment_date).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fee Status Breakdown & Actions */}
+                        <div className="flex flex-wrap items-center justify-between md:justify-end gap-3 sm:gap-6 pt-3 md:pt-0 border-t md:border-t-0 border-[#1E293B]">
+                          {/* Financials Numbers */}
+                          <div className="flex items-center gap-4 sm:gap-6 font-mono text-right">
+                            <div>
+                              <span className="text-[10px] text-[#94A3B8] uppercase block">Total Fee</span>
+                              <span className="text-xs sm:text-sm font-700 text-white">
+                                ₹{Number(st.total_fee || 0).toLocaleString()}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-[#94A3B8] uppercase block">Paid So Far</span>
+                              <span className="text-xs sm:text-sm font-800 text-[#34D399]">
+                                ₹{Number(st.paid_fee || 0).toLocaleString()}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-[#94A3B8] uppercase block">Dues</span>
+                              <span className={`text-xs sm:text-sm font-800 ${st.due_fee > 0 ? "text-[#F87171]" : "text-[#34D399]"}`}>
+                                ₹{Number(st.due_fee || 0).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Fee Status Pill */}
+                          <div className="shrink-0">
+                            {isPaid ? (
+                              <Badge className="bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30 text-xs font-mono font-700 px-3 py-1 flex items-center gap-1">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Fees Paid
+                              </Badge>
+                            ) : isPartial ? (
+                              <Badge className="bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30 text-xs font-mono font-700 px-3 py-1 flex items-center gap-1">
+                                <Clock className="h-3.5 w-3.5" /> Partial Paid
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30 text-xs font-mono font-700 px-3 py-1 flex items-center gap-1">
+                                <AlertCircle className="h-3.5 w-3.5" /> Fees Due
                               </Badge>
                             )}
                           </div>
-                          <div className="text-xs text-[#94A3B8] font-mono mt-0.5 flex items-center gap-2 flex-wrap">
-                            <span>{st.topicCount} topics tested</span>
-                            <span>•</span>
-                            <span className="text-[#34D399] font-600">{st.strongCount} strong</span>
-                            <span>•</span>
-                            <span className="text-[#F87171] font-600">{st.weakCount} weak</span>
-                            {st.weakestTopicName && (
-                              <>
-                                <span>•</span>
-                                <span className="text-[#F87171] truncate max-w-[200px]">
-                                  Needs help in {st.weakestTopicName}
-                                </span>
-                              </>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {!isPaid && (
+                              <Button
+                                size="sm"
+                                data-testid={`quick-mark-paid-${st.id}`}
+                                onClick={() => handleQuickMarkPaid(st)}
+                                variant="outline"
+                                className="h-8 px-2.5 rounded-xl border-[#34D399]/40 text-[#34D399] hover:bg-[#34D399]/10 text-xs font-700"
+                                title="Mark full payment completed"
+                              >
+                                Mark Paid
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              data-testid={`record-fee-btn-${st.id}`}
+                              onClick={() => handleOpenFeeModal(st)}
+                              className="h-8 px-3 rounded-xl bg-[#3B82F6] hover:bg-[#60A5FA] text-white text-xs font-700 glow-blue flex items-center gap-1"
+                            >
+                              <IndianRupee className="h-3.5 w-3.5" /> Record Payment
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )
+          )}
+
+          {/* VIEW 2: ACADEMIC LEADERBOARD */}
+          {activeTab === "leaderboard" && (
+            loadingDetails ? (
+              <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-16 text-center text-[#94A3B8] flex items-center justify-center gap-2.5">
+                <span className="h-5 w-5 border-2 border-[#3B82F6] border-t-transparent rounded-full animate-spin" />
+                <span className="font-mono text-sm">Computing student rankings & topic metrics…</span>
+              </div>
+            ) : rankedStudents.length === 0 ? (
+              <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-12 text-center space-y-2 text-[#94A3B8]">
+                <Users className="h-9 w-9 mx-auto text-[#06B6D4] opacity-50" />
+                <h4 className="font-head text-lg font-700 text-white">No test submissions yet</h4>
+                <p className="text-xs max-w-sm mx-auto leading-relaxed">
+                  Once enrolled students submit tests, their ranks and concept analysis appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-xs text-[#94A3B8] font-mono flex items-center justify-between px-2">
+                  <span>Showing {filteredStudents.length} of {rankedStudents.length} students</span>
+                  <span>Click any student to view detailed diagnostic analysis ➔</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {filteredStudents.map((st) => {
+                    const isTop3 = st.rank <= 3;
+                    const rankColor =
+                      st.rank === 1
+                        ? "bg-[#FBBF24]/20 border-[#FBBF24]/40 text-[#FBBF24]"
+                        : st.rank === 2
+                        ? "bg-[#E2E8F0]/20 border-[#E2E8F0]/40 text-[#E2E8F0]"
+                        : st.rank === 3
+                        ? "bg-[#B45309]/20 border-[#B45309]/40 text-[#D97706]"
+                        : "bg-[#1E293B]/60 border-[#1E293B] text-[#94A3B8]";
+
+                    const scoreColor =
+                      st.overall >= 75
+                        ? "text-[#34D399] bg-[#34D399]/15 border-[#34D399]/30"
+                        : st.overall >= 55
+                        ? "text-[#FBBF24] bg-[#FBBF24]/15 border-[#FBBF24]/30"
+                        : "text-[#F87171] bg-[#F87171]/15 border-[#F87171]/30";
+
+                    return (
+                      <div
+                        key={st.id}
+                        onClick={() => handleOpenStudentAnalysis(st)}
+                        className="group cursor-pointer rounded-2xl p-4 sm:p-5 bg-[#0B0F19]/90 border border-[#1E293B] hover:border-[#3B82F6]/50 hover:bg-[#172033]/80 transition-all hover:translate-x-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
+                      >
+                        {/* Rank + Student Info */}
+                        <div className="flex items-center gap-4 min-w-0">
+                          {/* Rank Badge */}
+                          <div
+                            className={`h-11 w-11 rounded-2xl flex items-center justify-center font-head font-800 text-base shrink-0 border shadow-md ${rankColor}`}
+                          >
+                            {isTop3 ? (
+                              <Trophy className="h-5 w-5" />
+                            ) : (
+                              `#${st.rank}`
                             )}
                           </div>
-                        </div>
-                      </div>
 
-                      {/* Accuracy Score Pill & Drilldown Arrow */}
-                      <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#1E293B]">
-                        <div className="text-right font-mono">
-                          <div className="flex items-center gap-2">
-                            <div className={`px-3 py-1.5 rounded-xl font-mono text-sm font-800 border ${scoreColor}`}>
-                              {st.overall}%
+                          {/* Student Name & Meta */}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-head text-base sm:text-lg font-700 text-white truncate group-hover:text-[#60A5FA] transition-colors">
+                                {st.name}
+                              </h4>
+                              {isTop3 && (
+                                <Badge className="bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30 text-[10px] font-700 font-mono">
+                                  Top Tier
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-[#94A3B8] font-mono mt-0.5 flex items-center gap-2 flex-wrap">
+                              <span>{st.topicCount} topics tested</span>
+                              <span>•</span>
+                              <span className="text-[#34D399] font-600">{st.strongCount} strong</span>
+                              <span>•</span>
+                              <span className="text-[#F87171] font-600">{st.weakCount} weak</span>
+                              {st.weakestTopicName && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-[#F87171] truncate max-w-[200px]">
+                                    Needs help in {st.weakestTopicName}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
-                          <span className="text-[10px] text-[#94A3B8] uppercase block mt-0.5">Overall Accuracy</span>
                         </div>
 
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-9 px-3 rounded-xl text-[#3B82F6] group-hover:bg-[#3B82F6]/10 text-xs font-700 flex items-center gap-1"
-                        >
-                          Analysis <ChevronRight className="h-4 w-4" />
-                        </Button>
+                        {/* Accuracy Score Pill & Drilldown Arrow */}
+                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#1E293B]">
+                          <div className="text-right font-mono">
+                            <div className="flex items-center gap-2">
+                              <div className={`px-3 py-1.5 rounded-xl font-mono text-sm font-800 border ${scoreColor}`}>
+                                {st.overall}%
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-[#94A3B8] uppercase block mt-0.5">Overall Accuracy</span>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-9 px-3 rounded-xl text-[#3B82F6] group-hover:bg-[#3B82F6]/10 text-xs font-700 flex items-center gap-1"
+                          >
+                            Analysis <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )
           )}
         </div>
       )}
@@ -607,6 +917,168 @@ export default function Batches() {
                 </div>
               </div>
             ) : null}
+          </DialogContent>
+        )}
+      </Dialog>
+
+      {/* 5. Record / Update Fee Payment Modal */}
+      <Dialog open={feeModal.open} onOpenChange={(open) => !open && setFeeModal((prev) => ({ ...prev, open: false }))}>
+        {feeModal.student && (
+          <DialogContent data-testid="fee-modal-content" className="bg-[#111827] border border-[#1E293B] text-white max-w-md rounded-3xl p-6 sm:p-7">
+            <DialogHeader>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-[#3B82F6]/20 border border-[#3B82F6]/40 flex items-center justify-center text-[#60A5FA]">
+                  <IndianRupee className="h-5 w-5" />
+                </div>
+                <div>
+                  <DialogTitle className="font-head text-xl font-800 text-white">
+                    Record Fee Payment
+                  </DialogTitle>
+                  <p className="text-xs text-[#94A3B8] font-mono mt-0.5 truncate max-w-[280px]">
+                    {feeModal.student.name} • {feeModal.student.email}
+                  </p>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              {/* Snapshot Numbers */}
+              <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-[#0B0F19] border border-[#1E293B] text-center font-mono">
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Total Fee</span>
+                  <span className="text-sm font-800 text-white">₹{Number(feeModal.total_fee || feeModal.student.total_fee || 0).toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Paid So Far</span>
+                  <span className="text-sm font-800 text-[#34D399]">₹{Number(feeModal.student.paid_fee || 0).toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#94A3B8] uppercase block">Current Due</span>
+                  <span className="text-sm font-800 text-[#F87171]">₹{Number(feeModal.student.due_fee || 0).toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Amount Receiving */}
+              <div>
+                <Label className="text-xs font-600 text-[#94A3B8]">Payment Amount Receiving (₹)</Label>
+                <div className="relative mt-1.5">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-[#94A3B8] font-mono">₹</span>
+                  <Input
+                    data-testid="fee-amount-input"
+                    type="number"
+                    min={0}
+                    value={feeModal.amount}
+                    onChange={(e) => setFeeModal((prev) => ({ ...prev, amount: e.target.value }))}
+                    placeholder={`e.g. ${feeModal.student.due_fee > 0 ? feeModal.student.due_fee : 1000}`}
+                    className="pl-8 rounded-xl bg-[#0B0F19] border-[#1E293B] text-white font-mono text-sm"
+                  />
+                </div>
+                {/* Quick suggestion buttons */}
+                {feeModal.student.due_fee > 0 && (
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setFeeModal((prev) => ({ ...prev, amount: String(feeModal.student.due_fee) }))}
+                      className="px-2.5 py-1 rounded-lg bg-[#3B82F6]/15 hover:bg-[#3B82F6]/30 text-[#60A5FA] border border-[#3B82F6]/30 text-[11px] font-mono transition-colors"
+                    >
+                      Clear Due: ₹{feeModal.student.due_fee}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFeeModal((prev) => ({ ...prev, amount: "1000" }))}
+                      className="px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-[#94A3B8] text-[11px] font-mono transition-colors"
+                    >
+                      +₹1,000
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFeeModal((prev) => ({ ...prev, amount: "2000" }))}
+                      className="px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-[#94A3B8] text-[11px] font-mono transition-colors"
+                    >
+                      +₹2,000
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Total Fee Adjuster */}
+              <div>
+                <Label className="text-xs font-600 text-[#94A3B8]">
+                  Total Batch Fee (₹) <span className="text-[#94A3B8]/50 font-normal">(change if discount or revised)</span>
+                </Label>
+                <div className="relative mt-1.5">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-[#94A3B8] font-mono">₹</span>
+                  <Input
+                    data-testid="fee-total-input"
+                    type="number"
+                    min={0}
+                    value={feeModal.total_fee}
+                    onChange={(e) => setFeeModal((prev) => ({ ...prev, total_fee: e.target.value }))}
+                    className="pl-8 rounded-xl bg-[#0B0F19] border-[#1E293B] text-white font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <Label className="text-xs font-600 text-[#94A3B8]">
+                  Payment Notes / Reference <span className="text-[#94A3B8]/50 font-normal">(optional)</span>
+                </Label>
+                <Input
+                  data-testid="fee-notes-input"
+                  value={feeModal.notes}
+                  onChange={(e) => setFeeModal((prev) => ({ ...prev, notes: e.target.value }))}
+                  placeholder="e.g. Cash, UPI #78392, or October Tuition"
+                  className="mt-1.5 rounded-xl bg-[#0B0F19] border-[#1E293B] text-white text-xs"
+                />
+              </div>
+
+              {/* Previous Payments History */}
+              {feeModal.student.payments?.length > 0 && (
+                <div className="pt-1">
+                  <span className="text-[10px] uppercase font-mono text-[#94A3B8] block mb-1">Payment History:</span>
+                  <div className="max-h-20 overflow-y-auto space-y-1 rounded-xl bg-[#0B0F19] p-2 border border-[#1E293B]">
+                    {feeModal.student.payments.map((p, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs font-mono text-[#94A3B8]">
+                        <span>₹{Number(p.amount || 0).toLocaleString()} — {p.notes || "Received"}</span>
+                        <span className="text-[10px] text-[#94A3B8]/60">{new Date(p.date).toLocaleDateString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2 pt-2 border-t border-[#1E293B]">
+              <Button
+                variant="outline"
+                onClick={() => setFeeModal((prev) => ({ ...prev, open: false }))}
+                className="rounded-full border-[#1E293B] text-[#94A3B8] hover:text-white"
+              >
+                Cancel
+              </Button>
+              {feeModal.student.due_fee > 0 && (
+                <Button
+                  type="button"
+                  data-testid="mark-paid-full-btn"
+                  onClick={() => handleSaveFee(true)}
+                  disabled={feeModal.saving}
+                  className="rounded-full bg-[#10B981] hover:bg-[#059669] text-white font-700 text-xs"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" /> Mark Paid in Full
+                </Button>
+              )}
+              <Button
+                type="button"
+                data-testid="save-fee-payment-btn"
+                onClick={() => handleSaveFee(false)}
+                disabled={feeModal.saving || (!feeModal.amount && feeModal.total_fee === feeModal.student.total_fee)}
+                className="rounded-full bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700 glow-blue text-xs"
+              >
+                {feeModal.saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <IndianRupee className="h-4 w-4 mr-1" />}
+                Save Payment
+              </Button>
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>

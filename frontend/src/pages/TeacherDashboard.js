@@ -145,7 +145,7 @@ export default function TeacherDashboard() {
                 className="rounded-2xl bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-800 text-xs h-11 px-4 glow-blue transition-transform hover:scale-105"
               >
                 <Link to="/materials" className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" /> Study Notes
+                  <BookOpen className="h-4 w-4" /> Class Notes
                 </Link>
               </Button>
               <Button
@@ -154,7 +154,7 @@ export default function TeacherDashboard() {
                 className="rounded-2xl border-[#1E293B] bg-[#111827] text-white hover:bg-[#1E293B] font-700 text-xs h-11 px-4 transition-transform hover:scale-105"
               >
                 <Link to="/tests/new" className="flex items-center gap-2">
-                  <FileQuestion className="h-4 w-4 text-[#06B6D4]" /> + Timed Test
+                  <FileQuestion className="h-4 w-4 text-[#06B6D4]" /> + Class Test
                 </Link>
               </Button>
               <Button
@@ -209,7 +209,7 @@ export default function TeacherDashboard() {
                 {(stats.tests || 0) + (stats.dpps || 0)}
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-[#06B6D4] font-mono mt-1">
-                <span>{stats.tests ?? 0} Timed Mocks • {stats.dpps ?? 0} Chapterwise Tests</span>
+                <span>{stats.tests ?? 0} Class Tests • {stats.dpps ?? 0} Chapterwise Tests</span>
               </div>
             </div>
 

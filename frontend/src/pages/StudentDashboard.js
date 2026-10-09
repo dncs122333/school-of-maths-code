@@ -321,7 +321,7 @@ export default function StudentDashboard() {
             <FileQuestion className="h-5 w-5 text-[#06B6D4]" />
           </div>
           <h4 className="font-head text-base font-700 text-white group-hover:text-[#67E8F9] transition-colors">
-            Timed Board Mocks
+            Class Tests
           </h4>
           <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
             Real examination simulations with strict timers and leaderboards.
@@ -353,10 +353,10 @@ export default function StudentDashboard() {
             <FolderOpen className="h-5 w-5 text-[#34D399]" />
           </div>
           <h4 className="font-head text-base font-700 text-white group-hover:text-[#86EFAC] transition-colors">
-            Batch Resources
+            Class Notes
           </h4>
           <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
-            Teacher-shared PDFs, assignment sheets & solved question papers.
+            Teacher-shared PDFs, notes & solved class material.
           </p>
         </Link>
       </div>

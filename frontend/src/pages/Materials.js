@@ -213,9 +213,9 @@ export default function Materials() {
   return (
     <div className="space-y-8">
       <div>
-        <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Class materials</span>
-        <h1 className="font-head text-3xl font-700 tracking-tight text-white">Shared Files</h1>
-        <p className="text-[#94A3B8] mt-1">Original notes &amp; documents shared with a batch — exactly as uploaded, no changes.</p>
+        <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Resources</span>
+        <h1 className="font-head text-3xl font-700 tracking-tight text-white">Class Notes</h1>
+        <p className="text-[#94A3B8] mt-1">Class notes &amp; documents shared with a batch — exactly as uploaded.</p>
       </div>
 
       {!isTeacher && ENABLE_WATERMARKING && (
@@ -294,11 +294,11 @@ export default function Materials() {
       )}
 
       <div>
-        <h2 className="font-head text-xl font-600 mb-4 text-white">{isTeacher ? "Your shared files" : "Available materials"}</h2>
+        <h2 className="font-head text-xl font-600 mb-4 text-white">{isTeacher ? "Your shared class notes" : "Available class notes"}</h2>
         {items.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-[#1E293B] p-16 text-center">
             <FolderOpen className="h-10 w-10 mx-auto text-[#94A3B8]/40" />
-            <p className="mt-3 text-[#94A3B8]">No materials yet{!isTeacher && ". Join a batch to see files your teacher shares."}</p>
+            <p className="mt-3 text-[#94A3B8]">No class notes yet{!isTeacher && ". Join a batch to see notes your teacher shares."}</p>
           </div>
         ) : (
           <div className="space-y-10">

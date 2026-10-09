@@ -144,6 +144,178 @@ async def join_batch(body: JoinInput, user: dict = Depends(require_role("student
     return batch
 
 
+class RecordPaymentInput(BaseModel):
+    amount: Optional[float] = None
+    total_fee: Optional[float] = None
+    mark_as_paid: Optional[bool] = False
+    notes: Optional[str] = ""
+
+
+@api_router.get("/batches/{batch_id}/students")
+async def list_batch_students(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+
+    batch_default_fee = float(batch.get("fee_amount", 5000))
+    students = await db.users.find({"role": "student", "batch_ids": batch_id}).sort("name", 1).to_list(500)
+    student_ids = [str(s["_id"]) for s in students]
+
+    fee_records = {}
+    if student_ids:
+        records = await db.batch_fees.find({"batch_id": batch_id, "student_id": {"$in": student_ids}}, {"_id": 0}).to_list(1000)
+        for r in records:
+            fee_records[r["student_id"]] = r
+
+    results = []
+    total_collected = 0.0
+    total_dues = 0.0
+
+    for s in students:
+        sid = str(s["_id"])
+        fee = fee_records.get(sid)
+        if fee:
+            t_fee = float(fee.get("total_fee", batch_default_fee))
+            p_fee = float(fee.get("paid_fee", 0.0))
+            d_fee = max(0.0, float(fee.get("due_fee", t_fee - p_fee)))
+            status = fee.get("status", "due" if p_fee == 0 else "paid" if d_fee == 0 else "partial")
+            payments = fee.get("payments", [])
+            last_date = fee.get("last_payment_date")
+        else:
+            t_fee = batch_default_fee
+            p_fee = 0.0
+            d_fee = batch_default_fee
+            status = "due"
+            payments = []
+            last_date = None
+
+        total_collected += p_fee
+        total_dues += d_fee
+
+        results.append({
+            "id": sid,
+            "name": s.get("name", "Unnamed Student"),
+            "email": s.get("email", ""),
+            "joined_at": s.get("created_at"),
+            "total_fee": t_fee,
+            "paid_fee": p_fee,
+            "due_fee": d_fee,
+            "status": status,
+            "payments": payments,
+            "last_payment_date": last_date
+        })
+
+    return {
+        "batch_id": batch_id,
+        "batch_name": batch.get("name"),
+        "students": results,
+        "summary": {
+            "total_students": len(results),
+            "total_collected": total_collected,
+            "total_dues": total_dues,
+            "paid_count": sum(1 for r in results if r["status"] == "paid"),
+            "partial_count": sum(1 for r in results if r["status"] == "partial"),
+            "due_count": sum(1 for r in results if r["status"] == "due"),
+        }
+    }
+
+
+@api_router.post("/batches/{batch_id}/students/{student_id}/fee")
+async def record_student_fee(batch_id: str, student_id: str, body: RecordPaymentInput, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+
+    student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    batch_default_fee = float(batch.get("fee_amount", 5000))
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    record = await db.batch_fees.find_one({"batch_id": batch_id, "student_id": student_id}, {"_id": 0})
+    if not record:
+        record = {
+            "batch_id": batch_id,
+            "student_id": student_id,
+            "total_fee": batch_default_fee,
+            "paid_fee": 0.0,
+            "due_fee": batch_default_fee,
+            "status": "due",
+            "payments": []
+        }
+
+    total_fee = float(body.total_fee) if body.total_fee is not None else float(record.get("total_fee", batch_default_fee))
+    current_paid = float(record.get("paid_fee", 0.0))
+    payments = list(record.get("payments", []))
+    last_date = record.get("last_payment_date")
+
+    if body.mark_as_paid:
+        diff = max(0.0, total_fee - current_paid)
+        current_paid = total_fee
+        new_due = 0.0
+        status = "paid"
+        if diff > 0:
+            payments.append({
+                "id": str(uuid.uuid4()),
+                "amount": diff,
+                "date": now_iso,
+                "notes": body.notes.strip() if body.notes else "Marked as paid in full",
+                "recorded_by": user["name"]
+            })
+            last_date = now_iso
+    elif body.amount is not None and body.amount > 0:
+        added = float(body.amount)
+        current_paid = current_paid + added
+        new_due = max(0.0, total_fee - current_paid)
+        status = "paid" if new_due == 0 else "partial"
+        payments.append({
+            "id": str(uuid.uuid4()),
+            "amount": added,
+            "date": now_iso,
+            "notes": body.notes.strip() if body.notes else "Payment received",
+            "recorded_by": user["name"]
+        })
+        last_date = now_iso
+    else:
+        new_due = max(0.0, total_fee - current_paid)
+        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+
+    update_doc = {
+        "batch_id": batch_id,
+        "student_id": student_id,
+        "total_fee": total_fee,
+        "paid_fee": current_paid,
+        "due_fee": new_due,
+        "status": status,
+        "payments": payments,
+        "last_payment_date": last_date,
+        "updated_at": now_iso
+    }
+
+    await db.batch_fees.update_one(
+        {"batch_id": batch_id, "student_id": student_id},
+        {"$set": update_doc},
+        upsert=True
+    )
+
+    return {
+        "id": student_id,
+        "name": student.get("name"),
+        "email": student.get("email"),
+        "total_fee": total_fee,
+        "paid_fee": current_paid,
+        "due_fee": new_due,
+        "status": status,
+        "payments": payments,
+        "last_payment_date": last_date
+    }
+
+
 # ------------------------- Notes -------------------------
 @api_router.post("/extract")
 async def extract(file: UploadFile = File(...), user: dict = Depends(require_role("teacher", "admin"))):

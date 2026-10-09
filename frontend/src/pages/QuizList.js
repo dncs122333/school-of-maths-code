@@ -202,11 +202,11 @@ export default function QuizList({ kind }) {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">{isDpp ? "Chapterwise Practice" : "Assessments"}</span>
-          <h1 className="font-head text-3xl font-700 tracking-tight text-white">{isDpp ? "Chapterwise Tests" : "Timed Tests"}</h1>
+          <h1 className="font-head text-3xl font-700 tracking-tight text-white">{isDpp ? "Chapterwise Tests" : "Class Tests"}</h1>
         </div>
         {isTeacher && (
           <Button data-testid="new-quiz-btn" asChild className="rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA]">
-            <Link to={isDpp ? "/dpp/new" : "/tests/new"}><Plus className="h-4 w-4 mr-1" /> New {isDpp ? "Chapterwise test" : "test"}</Link>
+            <Link to={isDpp ? "/dpp/new" : "/tests/new"}><Plus className="h-4 w-4 mr-1" /> New {isDpp ? "Chapterwise test" : "Class Test"}</Link>
           </Button>
         )}
       </div>
