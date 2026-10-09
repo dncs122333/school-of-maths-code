@@ -1,10 +1,17 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { api } from "../lib/api";
+import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
-import { Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock, PlayCircle, Trophy, ChevronDown, Folder } from "lucide-react";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import {
+  Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock,
+  PlayCircle, Trophy, ChevronDown, Folder, Pencil, Trash2, Loader2,
+} from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 function timeLeft(iso) {
   const diff = new Date(iso) - new Date();
@@ -46,13 +53,35 @@ function Leaderboard({ testId }) {
   );
 }
 
-function TestCard({ t, isTeacher, isDpp, i }) {
+function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting }) {
   const active = isTeacher ? true : t.is_active;
   const done = t.submitted;
   return (
-    <motion.div key={t.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-      className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
-      <div className="flex items-center justify-between mb-3">
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+      className="relative group rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
+
+      {/* Teacher action buttons */}
+      {isTeacher && (
+        <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <button
+            data-testid={`edit-test-${t.id}`}
+            onClick={() => onEdit(t)}
+            className="h-7 w-7 rounded-full bg-[#1E293B] hover:bg-[#3B82F6]/20 border border-[#3B82F6]/30 flex items-center justify-center text-[#3B82F6] transition-colors"
+            title="Edit test">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            data-testid={`delete-test-${t.id}`}
+            onClick={() => onDelete(t)}
+            disabled={deleting === t.id}
+            className="h-7 w-7 rounded-full bg-[#1E293B] hover:bg-[#F87171]/20 border border-[#F87171]/30 flex items-center justify-center text-[#F87171] transition-colors disabled:opacity-50"
+            title="Delete test">
+            {deleting === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-3 pr-16">
         <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#06B6D4]/40 bg-[#06B6D4]/10 text-[#06B6D4]">{t.subject}</span>
         {!isTeacher && (done
           ? <span className="flex items-center gap-1 text-xs font-700 text-[#34D399]"><CheckCircle2 className="h-4 w-4" /> {t.score}%</span>
@@ -94,6 +123,8 @@ function TestCard({ t, isTeacher, isDpp, i }) {
   );
 }
 
+const inp = "rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]";
+
 export default function QuizList({ kind }) {
   const { user } = useAuth();
   const isTeacher = user.role === "teacher" || user.role === "admin";
@@ -101,10 +132,21 @@ export default function QuizList({ kind }) {
   const [loading, setLoading] = useState(true);
   const isDpp = kind === "dpp";
 
-  useEffect(() => {
+  // Delete state
+  const [deleting, setDeleting] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  // Edit state
+  const [editTest, setEditTest] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
     setLoading(true);
     api.get("/tests", { params: { kind } }).then((r) => setItems(r.data)).finally(() => setLoading(false));
-  }, [kind]);
+  };
+
+  useEffect(() => { load(); }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Group by Class → Batch
   const classGroups = useMemo(() => {
@@ -118,6 +160,42 @@ export default function QuizList({ kind }) {
     }, {});
   }, [items]);
   const sortedClasses = useMemo(() => Object.keys(classGroups).sort(), [classGroups]);
+
+  /* ---- Delete ---- */
+  const handleDelete = async (test) => {
+    setDeleting(test.id);
+    try {
+      await api.delete(`/tests/${test.id}`);
+      toast.success("Test deleted");
+      setItems((prev) => prev.filter((t) => t.id !== test.id));
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Delete failed");
+    } finally {
+      setDeleting(null);
+      setDeleteConfirm(null);
+    }
+  };
+
+  /* ---- Edit ---- */
+  const openEdit = (test) => {
+    setEditTest(test);
+    setEditForm({ title: test.title, valid_hours: test.valid_hours || 24 });
+  };
+
+  const saveEdit = async () => {
+    if (!editTest) return;
+    setSaving(true);
+    try {
+      const res = await api.patch(`/tests/${editTest.id}`, editForm);
+      toast.success("Test updated");
+      setItems((prev) => prev.map((t) => (t.id === editTest.id ? { ...t, ...res.data } : t)));
+      setEditTest(null);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -168,7 +246,10 @@ export default function QuizList({ kind }) {
                         </div>
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 pl-4">
                           {batchItems.map((t, i) => (
-                            <TestCard key={t.id} t={t} isTeacher={isTeacher} isDpp={isDpp} i={i} />
+                            <TestCard
+                              key={t.id} t={t} isTeacher={isTeacher} isDpp={isDpp} i={i}
+                              onEdit={openEdit} onDelete={setDeleteConfirm} deleting={deleting}
+                            />
                           ))}
                         </div>
                       </div>
@@ -180,6 +261,72 @@ export default function QuizList({ kind }) {
           })}
         </div>
       )}
+
+      {/* ---- Delete confirmation ---- */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(o) => { if (!o) setDeleteConfirm(null); }}>
+        <DialogContent className="bg-[#111827] border-[#1E293B] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white font-head text-xl">Delete test?</DialogTitle>
+          </DialogHeader>
+          <p className="text-[#94A3B8] text-sm leading-relaxed">
+            <span className="font-600 text-white">"{deleteConfirm?.title}"</span> will be permanently removed.
+            Students who haven't taken it yet will lose access. Existing submissions are not affected.
+          </p>
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="outline" className="rounded-full border-[#1E293B] text-[#94A3B8]"
+              onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button
+              className="rounded-full bg-[#F87171] hover:bg-[#EF4444] text-white font-700"
+              disabled={!!deleting}
+              onClick={() => handleDelete(deleteConfirm)}>
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Edit dialog ---- */}
+      <Dialog open={!!editTest} onOpenChange={(o) => { if (!o) setEditTest(null); }}>
+        <DialogContent className="bg-[#111827] border-[#1E293B] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white font-head text-xl">Edit test</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="font-600 text-[#94A3B8]">Title</Label>
+              <Input className={inp} value={editForm.title || ""}
+                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+            </div>
+            {!isDpp && (
+              <div>
+                <Label className="font-600 text-[#94A3B8]">
+                  Active window <span className="text-[#94A3B8]/50 font-400">(hours from start)</span>
+                </Label>
+                <Input
+                  className={inp}
+                  type="number" min={1} max={720}
+                  value={editForm.valid_hours || ""}
+                  onChange={(e) => setEditForm({ ...editForm, valid_hours: parseInt(e.target.value, 10) || 24 })}
+                />
+                <p className="text-xs text-[#94A3B8]/70 mt-1.5">
+                  Current window: {editTest?.valid_hours ?? "–"} h.
+                  Changing this recalculates the expiry from the original start time.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="rounded-full border-[#1E293B] text-[#94A3B8]"
+              onClick={() => setEditTest(null)}>Cancel</Button>
+            <Button className="rounded-full bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700"
+              disabled={saving} onClick={saveEdit}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

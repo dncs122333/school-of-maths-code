@@ -258,6 +258,39 @@ async def delete_note(note_id: str, user: dict = Depends(require_role("teacher",
     return {"status": "deleted", "id": note_id}
 
 
+class UpdateNoteInput(BaseModel):
+    title: Optional[str] = None
+    class_level: Optional[str] = None
+    subject: Optional[str] = None
+    chapter: Optional[str] = None
+    topic: Optional[str] = None
+    batch_id: Optional[str] = None
+
+
+@api_router.patch("/notes/{note_id}")
+async def update_note(note_id: str, body: UpdateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
+    note = await db.notes.find_one({"id": note_id})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if user["role"] != "admin" and note.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    # Resolve batch_name when batch_id is being updated
+    if "batch_id" in updates:
+        if updates["batch_id"] in ("", "all", None):
+            updates["batch_id"] = None
+            updates["batch_name"] = None
+        else:
+            batch = await db.batches.find_one({"id": updates["batch_id"]}, {"_id": 0})
+            if not batch:
+                raise HTTPException(status_code=400, detail="Invalid batch")
+            updates["batch_name"] = batch.get("name")
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.notes.update_one({"id": note_id}, {"$set": updates})
+    updated = await db.notes.find_one({"id": note_id}, {"_id": 0, "sections": 0})
+    return updated
+
+
 # ------------------------- Materials (direct uploads, no AI) -------------------------
 _MIME = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
          "webp": "image/webp", "gif": "image/gif", "txt": "text/plain",
@@ -640,7 +673,45 @@ async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
     return subs
 
 
-# ------------------------- Question bank -------------------------
+class UpdateTestInput(BaseModel):
+    title: Optional[str] = None
+    valid_hours: Optional[int] = None  # extend / shrink window from now
+    is_active: Optional[bool] = None   # manual toggle
+
+
+@api_router.delete("/tests/{test_id}")
+async def delete_test(test_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    test = await db.tests.find_one({"id": test_id})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    if user["role"] != "admin" and test.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.tests.delete_one({"id": test_id})
+    return {"status": "deleted", "id": test_id}
+
+
+@api_router.patch("/tests/{test_id}")
+async def update_test(test_id: str, body: UpdateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
+    test = await db.tests.find_one({"id": test_id})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    if user["role"] != "admin" and test.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    updates = {}
+    if body.title is not None:
+        updates["title"] = body.title
+    if body.is_active is not None:
+        updates["is_active"] = body.is_active
+    if body.valid_hours is not None:
+        valid_from = datetime.fromisoformat(test["valid_from"])
+        updates["valid_until"] = (valid_from + timedelta(hours=body.valid_hours)).isoformat()
+        updates["valid_hours"] = body.valid_hours
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.tests.update_one({"id": test_id}, {"$set": updates})
+    updated = await db.tests.find_one({"id": test_id}, {"_id": 0, "questions": 0})
+    return updated
+
+
 DIFFICULTIES = ("easy", "medium", "hard")
 _VALID_STATUSES = ("active", "pending_review", "inactive")
 
