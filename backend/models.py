@@ -34,6 +34,12 @@ class JoinInput(BaseModel):
     code: str
 
 
+class StudentStatusInput(BaseModel):
+    action: Optional[str] = None  # "disable", "enable", "block", "unblock"
+    is_disabled: Optional[bool] = None
+    is_blocked: Optional[bool] = None
+
+
 class NoteSection(BaseModel):
     heading: str
     content: str  # plain text or markdown — teacher writes it directly

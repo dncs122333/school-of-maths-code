@@ -24,7 +24,7 @@ from starlette.middleware.cors import CORSMiddleware
 from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
-from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, CreateNoteInput, GenerateTestInput,
+from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, CreateNoteInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
                   require_claim_role, user_from_token)
@@ -82,10 +82,16 @@ async def login(body: LoginInput):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("is_blocked"):
+        raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
+    if user.get("is_disabled"):
+        raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
     uid = str(user["_id"])
     token = create_access_token(uid, email, user["role"])
     return {"token": token, "user": {"id": uid, "name": user["name"], "email": email,
-                                     "role": user["role"], "batch_ids": user.get("batch_ids", [])}}
+                                     "role": user["role"], "batch_ids": user.get("batch_ids", []),
+                                     "is_disabled": bool(user.get("is_disabled", False)),
+                                     "is_blocked": bool(user.get("is_blocked", False))}}
 
 
 @api_router.get("/auth/me")
@@ -418,6 +424,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "id": sid,
             "name": s.get("name", "Unnamed Student"),
             "email": s.get("email", ""),
+            "is_disabled": bool(s.get("is_disabled", False)),
+            "is_blocked": bool(s.get("is_blocked", False)),
             "joined_at": s.get("created_at"),
             "total_fee": t_fee,
             "paid_fee": p_fee,
@@ -448,6 +456,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "paid_count": sum(1 for r in results if r["status"] == "paid"),
             "partial_count": sum(1 for r in results if r["status"] == "partial"),
             "due_count": sum(1 for r in results if r["status"] == "due"),
+            "disabled_count": sum(1 for r in results if r.get("is_disabled")),
+            "blocked_count": sum(1 for r in results if r.get("is_blocked")),
         }
     }
 
@@ -689,6 +699,103 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         "payments": payments,
         "paid_months": paid_months,
         "last_payment_date": last_date
+    }
+
+
+@api_router.post("/batches/{batch_id}/students/{student_id}/status")
+@api_router.put("/batches/{batch_id}/students/{student_id}/status")
+async def update_student_status(
+    batch_id: str,
+    student_id: str,
+    body: StudentStatusInput,
+    user: dict = Depends(require_role("teacher", "admin"))
+):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+
+    if not ObjectId.is_valid(student_id):
+        raise HTTPException(status_code=400, detail="Invalid student id")
+    student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student_batch_ids = student.get("batch_ids", [])
+    if batch_id not in student_batch_ids:
+        raise HTTPException(status_code=400, detail="Student is not enrolled in this batch")
+
+    curr_disabled = bool(student.get("is_disabled", False))
+    curr_blocked = bool(student.get("is_blocked", False))
+
+    new_disabled = curr_disabled
+    new_blocked = curr_blocked
+    regenerate_batch_code = False
+
+    action = (body.action or "").lower().strip()
+    if action == "disable":
+        new_disabled = True
+    elif action == "enable":
+        new_disabled = False
+    elif action == "block":
+        new_blocked = True
+        regenerate_batch_code = True
+    elif action == "unblock":
+        new_blocked = False
+    else:
+        if body.is_disabled is not None:
+            new_disabled = bool(body.is_disabled)
+        if body.is_blocked is not None:
+            new_blocked = bool(body.is_blocked)
+            if new_blocked and not curr_blocked:
+                regenerate_batch_code = True
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_batch_code = None
+    updated_batches = []
+
+    # If blocking the account, regenerate the batch code in which that student was there
+    if regenerate_batch_code or (action == "block"):
+        new_batch_code = secrets.token_hex(3).upper()
+        await db.batches.update_one(
+            {"id": batch_id},
+            {"$set": {"code": new_batch_code, "updated_at": now_iso}}
+        )
+        updated_batches.append({"batch_id": batch_id, "new_code": new_batch_code})
+
+        # Also regenerate any other batches of this teacher that the student was enrolled in
+        other_batch_query = {"id": {"$in": student_batch_ids, "$ne": batch_id}}
+        if user["role"] != "admin":
+            other_batch_query["teacher_id"] = user["id"]
+        other_batches = await db.batches.find(other_batch_query, {"_id": 0}).to_list(100)
+        for ob in other_batches:
+            ob_code = secrets.token_hex(3).upper()
+            await db.batches.update_one(
+                {"id": ob["id"]},
+                {"$set": {"code": ob_code, "updated_at": now_iso}}
+            )
+            updated_batches.append({"batch_id": ob["id"], "new_code": ob_code})
+
+    await db.users.update_one(
+        {"_id": ObjectId(student_id)},
+        {"$set": {
+            "is_disabled": new_disabled,
+            "is_blocked": new_blocked,
+            "updated_at": now_iso
+        }}
+    )
+
+    return {
+        "success": True,
+        "student_id": student_id,
+        "student_name": student.get("name"),
+        "is_disabled": new_disabled,
+        "is_blocked": new_blocked,
+        "batch_id": batch_id,
+        "new_batch_code": new_batch_code,
+        "updated_batches": updated_batches,
+        "message": f"Student {student.get('name')} status updated successfully."
     }
 
 
@@ -1530,7 +1637,9 @@ async def my_mastery(user: dict = Depends(require_role("student"))):
 @api_router.get("/mastery/teacher")
 async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
     students_raw = await db.users.find({"role": "student", "batch_ids": batch_id}).to_list(500)
-    students = [{"id": str(s["_id"]), "name": s["name"]} for s in students_raw]
+    students = [{"id": str(s["_id"]), "name": s["name"],
+                 "is_disabled": bool(s.get("is_disabled", False)),
+                 "is_blocked": bool(s.get("is_blocked", False))} for s in students_raw]
     student_ids = [s["id"] for s in students]
     subs = await db.submissions.find({"student_id": {"$in": student_ids}}, {"_id": 0}).to_list(3000) if student_ids else []
     per_student = {}
@@ -1551,6 +1660,8 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     weak_topics.sort(key=lambda x: x["class_avg"])  # weakest first
 
     return {"students": [{"id": s["id"], "name": s["name"],
+                          "is_disabled": s.get("is_disabled", False),
+                          "is_blocked": s.get("is_blocked", False),
                           "topics": list(student_topics.get(s["id"], {}).values())}
                          for s in students],
             "weak_topics": weak_topics}

@@ -38,6 +38,10 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("is_blocked"):
+            raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
+        if user.get("is_disabled"):
+            raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)
@@ -88,6 +92,10 @@ async def user_from_token(token: str) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("is_blocked"):
+            raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
+        if user.get("is_disabled"):
+            raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)

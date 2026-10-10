@@ -36,6 +36,10 @@ import {
   SlidersHorizontal,
   Check,
   RotateCcw,
+  ShieldAlert,
+  ShieldCheck,
+  UserX,
+  UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CircularProgress } from "../components/dashboard/WeakTopicCard";
@@ -120,6 +124,12 @@ export default function Batches() {
     notes: "",
     saving: false,
   });
+  const [blockModal, setBlockModal] = useState({
+    open: false,
+    student: null,
+    saving: false,
+  });
+  const [statusBusyId, setStatusBusyId] = useState(null);
 
   // Load all batches
   const loadBatches = async () => {
@@ -611,6 +621,99 @@ export default function Batches() {
   const copyCode = (code) => {
     navigator.clipboard.writeText(code);
     toast.success(`Batch code "${code}" copied to clipboard!`);
+  };
+
+  // Toggle Disable / Enable Student
+  const handleToggleDisable = async (student) => {
+    const willDisable = !student.is_disabled;
+    const action = willDisable ? "disable" : "enable";
+    setStatusBusyId(student.id);
+    try {
+      await api.post(`/batches/${selectedBatchId}/students/${student.id}/status`, { action });
+      toast.success(
+        willDisable
+          ? `Student "${student.name}" has been disabled.`
+          : `Student "${student.name}" has been enabled.`
+      );
+      setBatchStudentsData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          students: (prev.students || []).map((s) =>
+            s.id === student.id ? { ...s, is_disabled: willDisable } : s
+          ),
+        };
+      });
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to update student status.");
+    } finally {
+      setStatusBusyId(null);
+    }
+  };
+
+  // Open Block Confirmation Modal
+  const handleOpenBlockModal = (student) => {
+    setBlockModal({
+      open: true,
+      student,
+      saving: false,
+    });
+  };
+
+  // Confirm Block Student Account
+  const handleConfirmBlock = async () => {
+    if (!blockModal.student) return;
+    const student = blockModal.student;
+    setBlockModal((prev) => ({ ...prev, saving: true }));
+    try {
+      const res = await api.post(`/batches/${selectedBatchId}/students/${student.id}/status`, { action: "block" });
+      const newCode = res.data?.new_batch_code;
+      toast.success(
+        newCode
+          ? `Student "${student.name}" blocked! Batch code regenerated to: ${newCode}`
+          : `Student "${student.name}" blocked.`
+      );
+      if (newCode) {
+        setBatches((prev) =>
+          prev.map((b) => (b.id === selectedBatchId ? { ...b, code: newCode } : b))
+        );
+      }
+      setBatchStudentsData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          students: (prev.students || []).map((s) =>
+            s.id === student.id ? { ...s, is_blocked: true } : s
+          ),
+        };
+      });
+      setBlockModal({ open: false, student: null, saving: false });
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to block student account.");
+      setBlockModal((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
+  // Unblock Student Account
+  const handleUnblock = async (student) => {
+    setStatusBusyId(student.id);
+    try {
+      await api.post(`/batches/${selectedBatchId}/students/${student.id}/status`, { action: "unblock" });
+      toast.success(`Student "${student.name}" account unblocked.`);
+      setBatchStudentsData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          students: (prev.students || []).map((s) =>
+            s.id === student.id ? { ...s, is_blocked: false } : s
+          ),
+        };
+      });
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to unblock student account.");
+    } finally {
+      setStatusBusyId(null);
+    }
   };
 
   // Open detailed analysis modal for a student
@@ -1171,6 +1274,30 @@ export default function Batches() {
                               <div className="text-xs text-[#94A3B8] font-mono truncate">
                                 {st.email}
                               </div>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {st.is_blocked ? (
+                                  <Badge
+                                    data-testid={`badge-blocked-${st.id}`}
+                                    className="bg-[#EF4444]/20 text-[#F87171] border-[#EF4444]/40 font-mono text-[10px] font-700 px-2 py-0.5 flex items-center gap-1 shadow-sm"
+                                  >
+                                    <ShieldAlert className="h-3 w-3" /> Account Blocked
+                                  </Badge>
+                                ) : st.is_disabled ? (
+                                  <Badge
+                                    data-testid={`badge-disabled-${st.id}`}
+                                    className="bg-[#F59E0B]/20 text-[#FBBF24] border-[#F59E0B]/40 font-mono text-[10px] font-700 px-2 py-0.5 flex items-center gap-1 shadow-sm"
+                                  >
+                                    <UserX className="h-3 w-3" /> Disabled
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    data-testid={`badge-active-${st.id}`}
+                                    className="bg-[#10B981]/15 text-[#34D399] border-[#10B981]/30 font-mono text-[10px] font-600 px-2 py-0.5 flex items-center gap-1"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3" /> Active
+                                  </Badge>
+                                )}
+                              </div>
                               {st.last_payment_date && (
                                 <div className="text-[10px] text-[#94A3B8]/70 font-mono mt-0.5">
                                   Last payment: {new Date(st.last_payment_date).toLocaleDateString()}
@@ -1225,7 +1352,7 @@ export default function Batches() {
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
                               {(selectedMonthsMap[st.id] || []).length > 0 && (
                                 <>
                                   <Button
@@ -1268,6 +1395,68 @@ export default function Batches() {
                               >
                                 <IndianRupee className="h-3.5 w-3.5" /> Manage Fees
                               </Button>
+
+                              {/* Student Account Controls: Disable/Enable and Block/Unblock */}
+                              <div className="flex items-center gap-1.5 border-l border-[#1E293B] pl-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  data-testid={`toggle-disable-btn-${st.id}`}
+                                  disabled={statusBusyId === st.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleDisable(st);
+                                  }}
+                                  className={`h-8 px-2.5 rounded-xl text-xs font-700 flex items-center gap-1 transition-all ${
+                                    st.is_disabled
+                                      ? "border-[#10B981]/40 text-[#34D399] hover:bg-[#10B981]/15"
+                                      : "border-[#F59E0B]/40 text-[#FBBF24] hover:bg-[#F59E0B]/15"
+                                  }`}
+                                  title={st.is_disabled ? "Click to re-enable student login" : "Click to disable student login"}
+                                >
+                                  {st.is_disabled ? (
+                                    <>
+                                      <UserCheck className="h-3.5 w-3.5" /> Enable
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserX className="h-3.5 w-3.5" /> Disable
+                                    </>
+                                  )}
+                                </Button>
+
+                                {st.is_blocked ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    data-testid={`unblock-btn-${st.id}`}
+                                    disabled={statusBusyId === st.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleUnblock(st);
+                                    }}
+                                    className="h-8 px-2.5 rounded-xl border-[#60A5FA]/40 text-[#60A5FA] hover:bg-[#60A5FA]/15 text-xs font-700 flex items-center gap-1 transition-all"
+                                    title="Click to unblock student account"
+                                  >
+                                    <ShieldCheck className="h-3.5 w-3.5" /> Unblock
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    data-testid={`block-btn-${st.id}`}
+                                    disabled={statusBusyId === st.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenBlockModal(st);
+                                    }}
+                                    className="h-8 px-2.5 rounded-xl border-[#EF4444]/40 text-[#F87171] hover:bg-[#EF4444]/15 text-xs font-700 flex items-center gap-1 transition-all"
+                                    title="Block student account and regenerate batch code"
+                                  >
+                                    <ShieldAlert className="h-3.5 w-3.5" /> Block
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1556,6 +1745,15 @@ export default function Batches() {
                                   Top Tier
                                 </Badge>
                               )}
+                              {st.is_blocked ? (
+                                <Badge className="bg-[#EF4444]/20 text-[#F87171] border-[#EF4444]/40 text-[10px] font-700 font-mono flex items-center gap-1">
+                                  <ShieldAlert className="h-2.5 w-2.5" /> Blocked
+                                </Badge>
+                              ) : st.is_disabled ? (
+                                <Badge className="bg-[#F59E0B]/20 text-[#FBBF24] border-[#F59E0B]/40 text-[10px] font-700 font-mono flex items-center gap-1">
+                                  <UserX className="h-2.5 w-2.5" /> Disabled
+                                </Badge>
+                              ) : null}
                             </div>
                             <div className="text-xs text-[#94A3B8] font-mono mt-0.5 flex items-center gap-2 flex-wrap">
                               <span>{st.topicCount} topics tested</span>
@@ -2341,6 +2539,77 @@ export default function Batches() {
             >
               {partialModal.saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <IndianRupee className="h-4 w-4 mr-1" />}
               Record Partial Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Block Student Account & Regenerate Batch Code Confirmation Dialog */}
+      <Dialog
+        open={blockModal.open}
+        onOpenChange={(open) => {
+          if (!blockModal.saving) {
+            setBlockModal({ open, student: null, saving: false });
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md bg-[#111827] border-[#1E293B] text-white">
+          <DialogHeader>
+            <DialogTitle className="font-head text-lg font-700 text-[#F87171] flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5" /> Block Student Account
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-[#94A3B8] leading-relaxed">
+              Are you sure you want to block{" "}
+              <strong className="text-white font-600">{blockModal.student?.name}</strong>{" "}
+              (<span className="font-mono text-xs text-[#CBD5E1]">{blockModal.student?.email}</span>)?
+            </p>
+
+            <div className="rounded-xl p-3.5 bg-[#EF4444]/10 border border-[#EF4444]/30 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-4 w-4 text-[#F87171] shrink-0 mt-0.5" />
+                <div className="text-xs text-[#FCA5A5] leading-relaxed space-y-1.5">
+                  <p className="font-700">Security Actions on Blocking:</p>
+                  <ul className="list-disc list-inside space-y-1 text-[11px] text-[#FECACA]">
+                    <li>The student will be blocked and <strong>will not be able to log in</strong>.</li>
+                    <li>
+                      The <strong>batch code</strong> for <span className="font-semibold text-white">{currentBatch?.name}</span> (currently <span className="font-mono font-bold text-white bg-[#0B0F19] px-1 py-0.5 rounded border border-[#EF4444]/30">{currentBatch?.code}</span>) will be <strong>automatically regenerated</strong>.
+                    </li>
+                    <li>Existing students already enrolled remain unaffected, but the old batch code is permanently invalidated.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBlockModal({ open: false, student: null, saving: false })}
+              disabled={blockModal.saving}
+              className="rounded-full border-[#1E293B] bg-[#0B0F19] text-[#94A3B8] hover:bg-[#1E293B] hover:text-white text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              data-testid="confirm-block-btn"
+              onClick={handleConfirmBlock}
+              disabled={blockModal.saving}
+              className="rounded-full bg-[#EF4444] hover:bg-[#DC2626] text-white font-700 text-xs flex items-center gap-1.5 shadow-lg shadow-[#EF4444]/25"
+            >
+              {blockModal.saving ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> Blocking…
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="h-3.5 w-3.5 mr-1" /> Confirm & Regenerate Code
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

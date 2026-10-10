@@ -45,7 +45,10 @@ api.interceptors.response.use(
     if (res?.status === 503 && res?.data?.detail === DATABASE_UNAVAILABLE_MESSAGE) {
       notifyDatabaseAvailability("vidya:database-unavailable");
     }
-    if (res?.status === 401 && !isAuthAttempt && window.location.pathname !== "/auth") {
+    const isBlockedOrDisabled = res?.status === 403 && typeof res?.data?.detail === "string" && (
+      res.data.detail.toLowerCase().includes("disabled") || res.data.detail.toLowerCase().includes("blocked")
+    );
+    if ((res?.status === 401 || isBlockedOrDisabled) && !isAuthAttempt && window.location.pathname !== "/auth") {
       localStorage.removeItem("vidya_token");
       window.location.href = "/auth"; // the app's login route is /auth (see App.js)
     }
