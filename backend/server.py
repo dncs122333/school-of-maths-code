@@ -161,6 +161,119 @@ def get_proportional_schedule(base_schedule, target_total_fee: float):
     return new_schedule
 
 
+def _derive_fee_allocation(payments: list, schedule: list) -> dict:
+    """
+    Allocates payment amounts sequentially against the fee schedule (waterfall).
+    Payments list is the single source of truth.
+    Returns:
+    {
+        "paid_months": [list of fully paid month names],
+        "monthly_status": [list of dicts per month],
+        "collected_months": [list of fully paid month dicts],
+        "partial_months": [list of partial month dicts],
+        "due_months": [list of unpaid or partial month dicts]
+    }
+    """
+    if not schedule:
+        return {
+            "paid_months": [],
+            "monthly_status": [],
+            "collected_months": [],
+            "partial_months": [],
+            "due_months": []
+        }
+
+    schedule_months = [item["month"] for item in schedule]
+    schedule_map = {item["month"]: float(item.get("amount", 0.0) or 0.0) for item in schedule}
+    allocations = {m: 0.0 for m in schedule_months}
+    collection_dates = {m: None for m in schedule_months}
+    month_notes = {m: "" for m in schedule_months}
+
+    for p in (payments or []):
+        amt = float(p.get("amount", 0.0) or 0.0)
+        if amt <= 0.0001:
+            continue
+        p_month = (p.get("month") or "").strip()
+        p_date = p.get("date")
+        p_note = p.get("notes") or ""
+
+        if p_month and p_month != "All Months":
+            raw_targets = [m.strip() for m in p_month.split(",") if m.strip()]
+            targets = [m for m in schedule_months if m in raw_targets]
+            remaining = [m for m in schedule_months if m not in raw_targets]
+            month_order = targets + remaining
+        else:
+            month_order = list(schedule_months)
+
+        rem = amt
+        for m in month_order:
+            m_req = schedule_map.get(m, 0.0)
+            already = allocations[m]
+            needed = max(0.0, round(m_req - already, 2))
+            if needed > 0:
+                alloc = min(rem, needed)
+                allocations[m] = round(allocations[m] + alloc, 2)
+                rem = round(rem - alloc, 2)
+                if p_date:
+                    collection_dates[m] = p_date
+                if p_note:
+                    month_notes[m] = p_note
+                if rem <= 0.001:
+                    break
+
+        if rem > 0.001 and month_order:
+            last_m = targets[-1] if (p_month and p_month != "All Months" and targets) else schedule_months[-1]
+            allocations[last_m] = round(allocations[last_m] + rem, 2)
+
+    monthly_status = []
+    collected_months = []
+    partial_months = []
+    due_months = []
+    paid_months = []
+
+    for item in schedule:
+        m_name = item["month"]
+        m_amt = float(item.get("amount", 0.0) or 0.0)
+        alloc = allocations.get(m_name, 0.0)
+
+        is_paid = (alloc >= m_amt - 0.01 and m_amt > 0)
+        is_partial = (alloc > 0.009 and not is_paid)
+        paid_amt = m_amt if is_paid else alloc
+        due_amt = 0.0 if is_paid else max(0.0, round(m_amt - alloc, 2))
+
+        m_info = {
+            "month": m_name,
+            "amount": m_amt,
+            "paid_amount": round(paid_amt, 2),
+            "due_amount": round(due_amt, 2),
+            "is_paid": is_paid,
+            "is_partial": is_partial,
+            "collection_date": collection_dates.get(m_name),
+            "notes": month_notes.get(m_name, "")
+        }
+        monthly_status.append(m_info)
+        if is_paid:
+            paid_months.append(m_name)
+            collected_months.append(m_info)
+        elif is_partial:
+            partial_months.append(m_info)
+            due_months.append(m_info)
+        else:
+            due_months.append(m_info)
+
+    return {
+        "paid_months": paid_months,
+        "monthly_status": monthly_status,
+        "collected_months": collected_months,
+        "partial_months": partial_months,
+        "due_months": due_months
+    }
+
+
+def _derive_paid_months(payments: list, schedule: list) -> list:
+    return _derive_fee_allocation(payments, schedule)["paid_months"]
+
+
 @api_router.post("/batches")
 async def create_batch(body: BatchInput, user: dict = Depends(require_role("teacher", "admin"))):
     code = secrets.token_hex(3).upper()
@@ -307,12 +420,23 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
         fee = fee_records.get(sid)
         if fee:
             t_fee = float(fee.get("total_fee", batch_default_fee))
-            p_fee = float(fee.get("paid_fee", 0.0))
-            d_fee = max(0.0, float(fee.get("due_fee", t_fee - p_fee)))
-            status = fee.get("status", "due" if p_fee == 0 else "paid" if d_fee == 0 else "partial")
             payments = fee.get("payments", [])
-            last_date = fee.get("last_payment_date")
-            paid_months_list = list(fee.get("paid_months", []))
+            p_fee = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+            if not payments and float(fee.get("paid_fee", 0.0)) > 0:
+                legacy_paid = float(fee.get("paid_fee", 0.0))
+                p_fee = legacy_paid
+                payments = [{
+                    "id": "legacy",
+                    "amount": legacy_paid,
+                    "date": fee.get("last_payment_date"),
+                    "month": "All Months" if legacy_paid >= t_fee else "",
+                    "notes": "Imported payment"
+                }]
+            d_fee = max(0.0, round(t_fee - p_fee, 2))
+            status = "paid" if d_fee == 0 and t_fee > 0 else "partial" if p_fee > 0 else "due"
+            if t_fee == 0 and p_fee == 0:
+                status = "paid"
+            last_date = payments[-1].get("date") if payments else fee.get("last_payment_date")
             custom_student_schedule = fee.get("fee_schedule")
         else:
             t_fee = batch_default_fee
@@ -321,7 +445,6 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             status = "due"
             payments = []
             last_date = None
-            paid_months_list = []
             custom_student_schedule = None
 
         total_collected += p_fee
@@ -335,90 +458,13 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
         else:
             student_schedule = schedule
 
-        # Compute set of paid months
-        if fee and "paid_months" in fee and fee["paid_months"] is not None:
-            paid_months_set = set(fee.get("paid_months", []))
-        else:
-            paid_months_set = set(paid_months_list)
-            for p in payments:
-                if p.get("month"):
-                    for m_part in p["month"].split(","):
-                        cleaned = m_part.strip()
-                        if cleaned:
-                            paid_months_set.add(cleaned)
-
-            if status == "paid" or (t_fee > 0 and p_fee >= t_fee):
-                for item in student_schedule:
-                    paid_months_set.add(item["month"])
-            elif p_fee > 0 and len(paid_months_set) == 0:
-                accum = 0.0
-                for item in student_schedule:
-                    m_amt = float(item.get("amount", 0.0))
-                    if m_amt > 0 and accum + m_amt <= p_fee + 0.01:
-                        paid_months_set.add(item["month"])
-                        accum += m_amt
-                    elif len(paid_months_set) == 0 and m_amt > 0:
-                        paid_months_set.add(item["month"])
-                        break
-
-        monthly_status = []
-        collected_months = []
-        partial_months = []
-        due_months = []
-
-        for item in student_schedule:
-            m_name = item["month"]
-            m_amt = float(item.get("amount", 0.0))
-            is_full_paid = m_name in paid_months_set or "All Months" in paid_months_set
-
-            # Check individual payments recorded for this month
-            m_payments = [p for p in payments if p.get("month") and m_name in p.get("month", "")]
-            m_paid_amt = sum(float(p.get("amount", 0.0)) for p in m_payments)
-
-            matching_p = m_payments[-1] if m_payments else None
-            coll_date = matching_p.get("date") if matching_p else (last_date if is_full_paid else None)
-            notes = matching_p.get("notes", "") if matching_p else ""
-
-            if is_full_paid:
-                is_m_paid = True
-                is_m_partial = False
-                paid_amt = m_amt
-                due_amt = 0.0
-            elif m_paid_amt >= m_amt - 0.01 and m_amt > 0:
-                is_m_paid = True
-                is_m_partial = False
-                paid_amt = m_amt
-                due_amt = 0.0
-                paid_months_set.add(m_name)
-            elif m_paid_amt > 0:
-                is_m_paid = False
-                is_m_partial = True
-                paid_amt = round(m_paid_amt, 2)
-                due_amt = round(max(0.0, m_amt - m_paid_amt), 2)
-            else:
-                is_m_paid = False
-                is_m_partial = False
-                paid_amt = 0.0
-                due_amt = m_amt
-
-            m_info = {
-                "month": m_name,
-                "amount": m_amt,
-                "paid_amount": paid_amt,
-                "due_amount": due_amt,
-                "is_paid": is_m_paid,
-                "is_partial": is_m_partial,
-                "collection_date": coll_date,
-                "notes": notes
-            }
-            monthly_status.append(m_info)
-            if is_m_paid:
-                collected_months.append(m_info)
-            elif is_m_partial:
-                partial_months.append(m_info)
-                due_months.append(m_info)
-            else:
-                due_months.append(m_info)
+        # Recompute allocations, paid_months, monthly_status purely from payments + schedule
+        derived = _derive_fee_allocation(payments, student_schedule)
+        monthly_status = derived["monthly_status"]
+        collected_months = derived["collected_months"]
+        partial_months = derived["partial_months"]
+        due_months = derived["due_months"]
+        paid_months_list = derived["paid_months"]
 
         results.append({
             "id": sid,
@@ -438,7 +484,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "collected_months": collected_months,
             "partial_months": partial_months,
             "due_months": due_months,
-            "paid_months": list(paid_months_set)
+            "paid_months": paid_months_list
         })
 
     return {
@@ -501,10 +547,19 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         }
 
     total_fee = float(body.total_fee) if body.total_fee is not None else float(record.get("total_fee", batch_default_fee))
-    current_paid = float(record.get("paid_fee", 0.0))
     payments = list(record.get("payments", []))
-    paid_months = list(record.get("paid_months", []))
     last_date = record.get("last_payment_date")
+
+    # If legacy fee record had paid_fee > 0 but payments was empty, initialize payment
+    if not payments and float(record.get("paid_fee", 0.0)) > 0:
+        legacy_paid = float(record.get("paid_fee", 0.0))
+        payments = [{
+            "id": "legacy",
+            "amount": legacy_paid,
+            "date": record.get("last_payment_date"),
+            "month": "All Months" if legacy_paid >= total_fee else "",
+            "notes": "Imported payment"
+        }]
 
     # Resolve student schedule (custom or proportional)
     if body.fee_schedule and len(body.fee_schedule) > 0:
@@ -522,49 +577,55 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
     if body.unmark_month:
         month_to_remove = body.unmark_month.strip()
         month_item = next((it for it in student_schedule if it["month"] == month_to_remove), None)
-        # Check actual recorded payment for this month if available
-        m_payments = [p for p in payments if p.get("month") and month_to_remove in p.get("month", "")]
-        if m_payments:
-            deduct_amt = sum(float(p.get("amount", 0.0)) for p in m_payments)
-        elif month_item:
-            deduct_amt = float(month_item.get("amount", 0.0))
-        else:
-            deduct_amt = round(total_fee / 12.0, 2)
+        sched_amt = float(month_item.get("amount", 0.0)) if month_item else round(total_fee / 12.0, 2)
 
-        if "All Months" in paid_months:
-            paid_months = [it["month"] for it in student_schedule if it["month"] != month_to_remove]
-        else:
-            paid_months = [m for m in paid_months if m != month_to_remove]
-
-        current_paid = max(0.0, current_paid - deduct_amt)
-        new_due = max(0.0, total_fee - current_paid)
-        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
-
+        rem_deduct = sched_amt
         new_payments = []
-        for p in payments:
-            p_month = p.get("month", "")
-            if p_month and month_to_remove in p_month:
-                if p_month.strip() == month_to_remove:
-                    continue
-                elif p_month == "All Months":
-                    p["amount"] = max(0.0, float(p.get("amount", 0.0)) - deduct_amt)
-                    p["month"] = ", ".join([it["month"] for it in student_schedule if it["month"] != month_to_remove])
-                    new_payments.append(p)
+
+        has_covering_payment = any(
+            (p.get("month") == "All Months" or month_to_remove in [m.strip() for m in (p.get("month") or "").split(",") if m.strip()])
+            for p in payments
+        )
+
+        if has_covering_payment:
+            for p in payments:
+                p_month = (p.get("month") or "").strip()
+                p_amt = float(p.get("amount", 0.0))
+                is_all = (p_month == "All Months")
+                p_months_list = [it["month"] for it in student_schedule] if is_all else [m.strip() for m in p_month.split(",") if m.strip()]
+
+                if month_to_remove in p_months_list and rem_deduct > 0.001:
+                    deduct_this = min(rem_deduct, p_amt)
+                    new_amt = round(p_amt - deduct_this, 2)
+                    rem_deduct = round(rem_deduct - deduct_this, 2)
+                    remaining_months = [m for m in p_months_list if m != month_to_remove]
+                    if new_amt > 0.001 and remaining_months:
+                        p["amount"] = new_amt
+                        p["month"] = ", ".join(remaining_months)
+                        new_payments.append(p)
+                    elif new_amt > 0.001:
+                        p["amount"] = new_amt
+                        p["month"] = ""
+                        new_payments.append(p)
+                    # If new_amt <= 0.001, payment is dropped
                 else:
-                    remaining_months = [m.strip() for m in p_month.split(",") if m.strip() != month_to_remove]
-                    p["month"] = ", ".join(remaining_months)
-                    p["amount"] = max(0.0, float(p.get("amount", 0.0)) - deduct_amt)
                     new_payments.append(p)
-            else:
-                new_payments.append(p)
+        else:
+            for p in reversed(payments):
+                p_amt = float(p.get("amount", 0.0))
+                if rem_deduct > 0.001:
+                    deduct_this = min(rem_deduct, p_amt)
+                    new_amt = round(p_amt - deduct_this, 2)
+                    rem_deduct = round(rem_deduct - deduct_this, 2)
+                    p["amount"] = new_amt
+                if float(p.get("amount", 0.0)) > 0.001:
+                    new_payments.append(p)
+            new_payments.reverse()
+
         payments = new_payments
     elif body.mark_as_paid:
-        diff = max(0.0, total_fee - current_paid)
-        current_paid = total_fee
-        new_due = 0.0
-        status = "paid"
-        all_months = [item["month"] for item in student_schedule]
-        paid_months = all_months
+        current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+        diff = max(0.0, round(total_fee - current_sum, 2))
         if diff > 0 or not payments:
             payments.append({
                 "id": str(uuid.uuid4()),
@@ -579,19 +640,7 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
         target_months = [m for m in target_months if m]
         part_amt = float(body.partial_amount if body.partial_amount is not None else (body.amount or 0.0))
-        current_paid = current_paid + part_amt
-        new_due = max(0.0, total_fee - current_paid)
-        status = "paid" if new_due == 0 else "partial"
-
-        # Check if the partial payment now completes any target month
-        for tm in target_months:
-            sch_item = next((it for it in student_schedule if it["month"] == tm), None)
-            req_amt = float(sch_item.get("amount", 0.0)) if sch_item else round(total_fee / 12.0, 2)
-            past_paid_for_m = sum(float(p.get("amount", 0.0)) for p in payments if p.get("month") and tm in p.get("month", ""))
-            if past_paid_for_m + part_amt >= req_amt - 0.01:
-                if tm not in paid_months:
-                    paid_months.append(tm)
-
+        part_amt = round(part_amt, 2)
         payments.append({
             "id": str(uuid.uuid4()),
             "amount": part_amt,
@@ -603,13 +652,64 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         })
         last_date = payment_date
     elif body.paid_fee is not None:
-        current_paid = max(0.0, float(body.paid_fee))
-        new_due = max(0.0, total_fee - current_paid)
-        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+        target_paid = max(0.0, round(float(body.paid_fee), 2))
+        if target_paid <= 0.001:
+            payments = []
+        else:
+            current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+            diff = round(target_paid - current_sum, 2)
+            if diff > 0.001:
+                payments.append({
+                    "id": str(uuid.uuid4()),
+                    "amount": diff,
+                    "date": payment_date,
+                    "month": "All Months" if target_paid >= total_fee else "",
+                    "notes": body.notes.strip() if body.notes else "Direct paid fee adjustment",
+                    "recorded_by": user["name"]
+                })
+                last_date = payment_date
+            elif diff < -0.001:
+                to_remove = abs(diff)
+                for p in reversed(payments):
+                    p_amt = float(p.get("amount", 0.0))
+                    if p_amt <= to_remove:
+                        to_remove = round(to_remove - p_amt, 2)
+                        p["amount"] = 0.0
+                    else:
+                        p["amount"] = round(p_amt - to_remove, 2)
+                        to_remove = 0.0
+                        break
+                payments = [p for p in payments if float(p.get("amount", 0.0)) > 0.001]
     elif body.due_fee is not None:
-        new_due = max(0.0, float(body.due_fee))
-        current_paid = max(0.0, total_fee - new_due)
-        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+        target_due = max(0.0, round(float(body.due_fee), 2))
+        target_paid = max(0.0, round(total_fee - target_due, 2))
+        if target_paid <= 0.001:
+            payments = []
+        else:
+            current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+            diff = round(target_paid - current_sum, 2)
+            if diff > 0.001:
+                payments.append({
+                    "id": str(uuid.uuid4()),
+                    "amount": diff,
+                    "date": payment_date,
+                    "month": "All Months" if target_paid >= total_fee else "",
+                    "notes": body.notes.strip() if body.notes else "Direct due fee adjustment",
+                    "recorded_by": user["name"]
+                })
+                last_date = payment_date
+            elif diff < -0.001:
+                to_remove = abs(diff)
+                for p in reversed(payments):
+                    p_amt = float(p.get("amount", 0.0))
+                    if p_amt <= to_remove:
+                        to_remove = round(to_remove - p_amt, 2)
+                        p["amount"] = 0.0
+                    else:
+                        p["amount"] = round(p_amt - to_remove, 2)
+                        to_remove = 0.0
+                        break
+                payments = [p for p in payments if float(p.get("amount", 0.0)) > 0.001]
     elif body.month or (body.months_paid and len(body.months_paid) > 0):
         target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
         target_months = [m for m in target_months if m]
@@ -623,15 +723,7 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
                     added += float(sch_item.get("amount", 0.0))
                 else:
                     added += round(total_fee / 12.0, 2)
-
-        for tm in target_months:
-            if tm not in paid_months:
-                paid_months.append(tm)
-
-        current_paid = current_paid + added
-        new_due = max(0.0, total_fee - current_paid)
-        status = "paid" if new_due == 0 else "partial"
-
+        added = round(added, 2)
         payments.append({
             "id": str(uuid.uuid4()),
             "amount": added,
@@ -642,18 +734,7 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
         })
         last_date = payment_date
     elif body.amount is not None and body.amount > 0:
-        added = float(body.amount)
-        current_paid = current_paid + added
-        new_due = max(0.0, total_fee - current_paid)
-        status = "paid" if new_due == 0 else "partial"
-
-        accum = 0.0
-        for item in student_schedule:
-            m_amt = float(item.get("amount", 0.0))
-            if item["month"] not in paid_months and accum + m_amt <= current_paid + 0.01:
-                paid_months.append(item["month"])
-                accum += m_amt
-
+        added = round(float(body.amount), 2)
         payments.append({
             "id": str(uuid.uuid4()),
             "amount": added,
@@ -663,9 +744,17 @@ async def record_student_fee(batch_id: str, student_id: str, body: RecordPayment
             "recorded_by": user["name"]
         })
         last_date = payment_date
-    else:
-        new_due = max(0.0, total_fee - current_paid)
-        status = "paid" if new_due == 0 else "partial" if current_paid > 0 else "due"
+
+    # Invariant: paid_fee == sum(p.amount for p in payments)
+    current_paid = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+    new_due = max(0.0, round(total_fee - current_paid, 2))
+    status = "paid" if new_due == 0 and total_fee > 0 else "partial" if current_paid > 0 else "due"
+    if total_fee == 0 and current_paid == 0:
+        status = "paid"
+
+    # Derive paid_months from payments list + schedule
+    derived = _derive_fee_allocation(payments, student_schedule)
+    paid_months = derived["paid_months"]
 
     update_doc = {
         "batch_id": batch_id,
