@@ -66,6 +66,7 @@
     "start": "craco start",
     "build": "craco build",
     "test": "craco test",
+    "lint": "eslint src",
     "dev": "BROWSER=none craco start"
   },
   "proxy": "http://localhost:8001",

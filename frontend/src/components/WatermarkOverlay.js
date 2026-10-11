@@ -84,18 +84,18 @@ export default function WatermarkOverlay({
         <>
           <div
             aria-hidden="true"
-            className="flex sm:hidden fixed bottom-3 right-3 z-30 pointer-events-none select-none items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0B0F19]/80 backdrop-blur-md border border-white/10 shadow-lg text-xs font-mono text-[#94A3B8]/75 max-w-[200px]"
+            className="flex sm:hidden fixed bottom-3 right-3 z-30 pointer-events-none select-none items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-mono text-[#1E293B] max-w-[200px]"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-[#3B82F6] shrink-0" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[#2F8A5F] shrink-0" />
             <span className="truncate">
-              Protected Copy: <span className="text-white font-medium">{displayText}</span>
+              Protected Copy: <span className="text-[#1E293B] font-bold">{displayText}</span>
             </span>
           </div>
 
           {/* Desktop: dynamic floating / slowly-rotating security token */}
           <motion.div
             aria-hidden="true"
-            className="hidden sm:flex fixed bottom-6 right-6 z-30 pointer-events-none select-none items-center gap-2 px-3 py-1.5 rounded-full bg-[#0B0F19]/80 backdrop-blur-md border border-white/10 shadow-2xl text-[11px] font-mono text-[#94A3B8]/75 print:hidden"
+            className="hidden sm:flex fixed bottom-6 right-6 z-30 pointer-events-none select-none items-center gap-2 px-3 py-1.5 rounded-full bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] text-[11px] font-mono text-[#1E293B] print:hidden"
             animate={{
               y: [0, -10, 0, 8, 0],
               rotate: [-2, 2, -1, 3, -2],
@@ -106,9 +106,9 @@ export default function WatermarkOverlay({
               ease: "easeInOut",
             }}
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-[#3B82F6] animate-pulse" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[#2F8A5F] animate-pulse" />
             <span className="truncate max-w-[260px]">
-              Protected Copy: <span className="text-white font-medium">{displayText}</span>
+              Protected Copy: <span className="text-[#1E293B] font-bold">{displayText}</span>
             </span>
           </motion.div>
         </>

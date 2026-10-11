@@ -3,15 +3,15 @@ import { Link } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Sparkles, Target, Compass, Clock, Activity, Zap, ArrowUpRight } from "lucide-react";
+import { Sparkles, Compass, Clock, Activity, Zap, ArrowUpRight } from "lucide-react";
 import { CircularProgress } from "./WeakTopicCard";
 
 const BAND_CONFIG = {
   weak: {
     label: "Weak",
-    glow: "border-[#FF6B5E] bg-[#FF6B5E]/10 text-[#FF6B5E]",
-    barColor: "bg-[#FF6B5E]",
-    badgeCls: "bg-[#FF6B5E] text-white border-2 border-[#1E293B]",
+    glow: "border-[#E04A3C] bg-[#E04A3C]/10 text-[#E04A3C]",
+    barColor: "bg-[#E04A3C]",
+    badgeCls: "bg-[#E04A3C] text-white border-2 border-[#1E293B]",
     dot: "bg-white",
   },
   developing: {
@@ -23,9 +23,9 @@ const BAND_CONFIG = {
   },
   strong: {
     label: "Strong",
-    glow: "border-[#4CAF7D] bg-[#4CAF7D]/10 text-[#4CAF7D]",
-    barColor: "bg-[#4CAF7D]",
-    badgeCls: "bg-[#4CAF7D] text-white border-2 border-[#1E293B]",
+    glow: "border-[#2F8A5F] bg-[#2F8A5F]/10 text-[#2F8A5F]",
+    barColor: "bg-[#2F8A5F]",
+    badgeCls: "bg-[#2F8A5F] text-white border-2 border-[#1E293B]",
     dot: "bg-white",
   },
 };
@@ -52,13 +52,13 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-widest text-[#5B9BD5] font-head font-bold">
+            <span className="text-xs uppercase tracking-widest text-[#3E7CB1] font-head font-bold">
               Knowledge Topology
             </span>
-            <span className="h-2 w-2 rounded-full bg-[#4CAF7D]" />
+            <span className="h-2 w-2 rounded-full bg-[#2F8A5F]" />
             <span className="text-xs text-[#64748B] font-mono font-bold">{topics.length} concepts indexed</span>
           </div>
-          <h2 className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B] mt-1">
+          <h2 className="font-head text-2xl sm:text-3xl font-black text-[#1E293B] mt-1">
             Mastery Radar
           </h2>
         </div>
@@ -105,13 +105,13 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                 <span className="text-xs text-[#64748B] font-mono font-bold">{focusTopic.subject} • {focusTopic.chapter}</span>
               </div>
 
-              <h3 className="font-head text-2xl sm:text-3xl font-800 text-[#1E293B] tracking-tight">
+              <h3 className="font-head text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
                 {focusTopic.topic}
               </h3>
 
               <p className="text-xs sm:text-sm text-[#1E293B]/80 max-w-xl leading-relaxed">
                 Practicing this concept yields the highest accuracy gain on upcoming mock exams. Current calibration:{" "}
-                <span className={`font-bold ${focusTopic.band === "weak" ? "text-[#FF6B5E]" : "text-[#1E293B]"}`}>
+                <span className={`font-bold ${focusTopic.band === "weak" ? "text-[#E04A3C]" : "text-[#1E293B]"}`}>
                   {focusTopic.score}% ({focusTopic.band})
                 </span>.
               </p>
@@ -119,14 +119,14 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
 
             <div className="flex items-center gap-4 shrink-0">
               <div className="text-right hidden sm:block">
-                <div className="font-head text-3xl font-900 text-[#1E293B]">{focusTopic.score}%</div>
+                <div className="font-head text-3xl font-black text-[#1E293B]">{focusTopic.score}%</div>
                 <div className="text-[10px] uppercase tracking-wider text-[#64748B] font-mono font-bold">Current Score</div>
               </div>
 
               <Button
                 onClick={() => onPracticeTopic ? onPracticeTopic(focusTopic) : null}
                 asChild={!onPracticeTopic}
-                className="rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-bold text-sm h-11 px-6 active:translate-x-[2px] active:translate-y-[2px]"
+                className="rounded-full bg-[#3E7CB1] hover:bg-[#316491] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-bold text-sm h-11 px-6 active:translate-x-[2px] active:translate-y-[2px]"
               >
                 {onPracticeTopic ? (
                   <span className="flex items-center gap-2">
@@ -146,8 +146,8 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
       {/* 3. Interactive Topic Matrix Grid */}
       {filteredTopics.length === 0 ? (
         <div className="rounded-3xl bg-white p-12 text-center space-y-3 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
-          <Compass className="h-12 w-12 text-[#5B9BD5] mx-auto" />
-          <h4 className="font-head text-lg font-800 text-[#1E293B]">No concept calibration yet</h4>
+          <Compass className="h-12 w-12 text-[#3E7CB1] mx-auto" />
+          <h4 className="font-head text-lg font-extrabold text-[#1E293B]">No concept calibration yet</h4>
           <p className="text-xs text-[#64748B] max-w-md mx-auto leading-relaxed">
             Take a quick 10-question diagnostic test to populate your personal mastery heatmap.
           </p>
@@ -168,14 +168,14 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
               <div
                 key={`${t.subject}|${t.chapter}|${t.topic}`}
                 onClick={() => setSelectedTopic(t)}
-                className="group cursor-pointer rounded-3xl p-5 bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all"
+                className="group cursor-pointer rounded-3xl p-5 bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <span className="text-[11px] font-mono font-bold text-[#64748B] truncate block">
                       {t.subject} • {t.chapter}
                     </span>
-                    <h4 className="font-head text-base font-800 text-[#1E293B] truncate mt-1">
+                    <h4 className="font-head text-base font-extrabold text-[#1E293B] truncate mt-1">
                       {t.topic}
                     </h4>
                   </div>
@@ -192,12 +192,12 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                       style={{ width: `${Math.min(100, Math.max(8, t.score || 0))}%` }}
                     />
                   </div>
-                  <span className="font-mono text-xs font-900 text-[#1E293B] w-10 text-right">{t.score}%</span>
+                  <span className="font-mono text-xs font-black text-[#1E293B] w-10 text-right">{t.score}%</span>
                 </div>
 
                 <div className="mt-3 pt-2.5 flex items-center justify-between text-[11px] text-[#64748B] border-t-2 border-[#1E293B]/15 font-mono font-bold">
                   <span>{t.attempts || 0} questions attempted</span>
-                  <span className="text-[#5B9BD5] flex items-center gap-0.5 font-head font-bold">
+                  <span className="text-[#3E7CB1] flex items-center gap-0.5 font-head font-bold">
                     Drilldown <ArrowUpRight className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -218,7 +218,7 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                 </Badge>
                 <span className="text-xs text-[#64748B] font-mono font-bold">{selectedTopic.subject}</span>
               </div>
-              <DialogTitle className="font-head text-2xl font-900 mt-2 text-[#1E293B]">
+              <DialogTitle className="font-head text-2xl font-black mt-2 text-[#1E293B]">
                 {selectedTopic.topic}
               </DialogTitle>
               <p className="text-xs text-[#64748B] font-bold">{selectedTopic.chapter}</p>
@@ -232,15 +232,15 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                   strokeWidth={6}
                   color={
                     selectedTopic.band === "weak"
-                      ? "#FF6B5E"
+                      ? "#E04A3C"
                       : selectedTopic.band === "strong"
-                      ? "#4CAF7D"
+                      ? "#2F8A5F"
                       : "#F5C842"
                   }
                 />
                 <div className="space-y-1 text-left">
                   <div className="text-xs text-[#64748B] font-mono font-bold">Mastery Index</div>
-                  <div className="font-head text-3xl font-900 text-[#1E293B]">{selectedTopic.score}%</div>
+                  <div className="font-head text-3xl font-black text-[#1E293B]">{selectedTopic.score}%</div>
                   <div className="text-[11px] text-[#64748B] font-semibold">
                     {selectedTopic.band === "weak"
                       ? "High-priority practice topic"
@@ -254,15 +254,15 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
               <div className="grid grid-cols-2 gap-3 text-xs font-mono">
                 <div className="p-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] space-y-1">
                   <div className="text-[#64748B] flex items-center gap-1 font-bold">
-                    <Activity className="h-3.5 w-3.5 text-[#5B9BD5]" /> Attempts
+                    <Activity className="h-3.5 w-3.5 text-[#3E7CB1]" /> Attempts
                   </div>
-                  <div className="text-base font-900 text-[#1E293B]">{selectedTopic.attempts || 0} Qs</div>
+                  <div className="text-base font-black text-[#1E293B]">{selectedTopic.attempts || 0} Qs</div>
                 </div>
                 <div className="p-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] space-y-1">
                   <div className="text-[#64748B] flex items-center gap-1 font-bold">
-                    <Clock className="h-3.5 w-3.5 text-[#4CAF7D]" /> Average Pace
+                    <Clock className="h-3.5 w-3.5 text-[#2F8A5F]" /> Average Pace
                   </div>
-                  <div className="text-base font-900 text-[#1E293B]">{selectedTopic.avg_time_s ? `${selectedTopic.avg_time_s}s` : "Untimed"}</div>
+                  <div className="text-base font-black text-[#1E293B]">{selectedTopic.avg_time_s ? `${selectedTopic.avg_time_s}s` : "Untimed"}</div>
                 </div>
               </div>
 
@@ -281,7 +281,7 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                     if (onPracticeTopic) onPracticeTopic(top);
                   }}
                   asChild={!onPracticeTopic}
-                  className="rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold"
+                  className="rounded-full bg-[#3E7CB1] hover:bg-[#316491] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold"
                 >
                   {onPracticeTopic ? (
                     <span className="flex items-center gap-1.5">

@@ -31,25 +31,22 @@ h1, h2, h3, h4, h5, h6, .font-head {
         --popover-foreground: 222 47% 18%;
         --primary: 44 90% 61%; /* #F5C842 */
         --primary-foreground: 222 47% 18%; /* #1E293B */
-        --secondary: 208 58% 60%; /* #5B9BD5 */
+        --secondary: 208 48% 47%; /* #3E7CB1 (WCAG AA) */
         --secondary-foreground: 0 0% 100%;
         --muted: 44 60% 92%;
         --muted-foreground: 215 16% 47%; /* #64748B */
-        --accent: 149 39% 49%; /* #4CAF7D */
+        --accent: 151 49% 36%; /* #2F8A5F (WCAG AA) */
         --accent-foreground: 0 0% 100%;
-        --destructive: 5 100% 68%; /* #FF6B5E */
+        --destructive: 5 73% 56%; /* #E04A3C (WCAG AA) */
         --destructive-foreground: 0 0% 100%;
         --border: 222 47% 18%; /* #1E293B */
-        --input: 44 100% 95%; /* #FFF9E8 */
+        --input: 0 0% 100%; /* #FFFFFF */
         --ring: 44 90% 61%; /* #F5C842 */
         --radius: 1.25rem;
     }
 }
 
 @layer base {
-    * { 
-        border-color: #1E293B; 
-    }
     body { 
         @apply bg-[#FFF9E8] text-[#1E293B]; 
     }
@@ -71,54 +68,18 @@ h1, h2, h3, h4, h5, h6, .font-head {
     color: #1E293B;
 }
 
-.hub-card-lg {
-    background: #FFFFFF;
-    border: 3px solid #1E293B;
-    border-radius: 2rem;
-    box-shadow: 6px 6px 0px #1E293B;
-    color: #1E293B;
-}
-
 .hub-card-interactive {
     background: #FFFFFF;
     border: 2.5px solid #1E293B;
     border-radius: 1.5rem;
     box-shadow: 4px 4px 0px #1E293B;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
     color: #1E293B;
 }
 
 .hub-card-interactive:hover {
     transform: translate(-2px, -2px);
     box-shadow: 6px 6px 0px #1E293B;
-}
-
-/* Backward compatibility for .glass-panel to ensure zero dark leftovers */
-.glass-panel {
-    background: #FFFFFF !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border: 2.5px solid #1E293B !important;
-    border-radius: 1.5rem !important;
-    box-shadow: 4px 4px 0px #1E293B !important;
-    color: #1E293B !important;
-}
-
-.glass-panel-interactive {
-    background: #FFFFFF !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border: 2.5px solid #1E293B !important;
-    border-radius: 1.5rem !important;
-    box-shadow: 4px 4px 0px #1E293B !important;
-    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
-    color: #1E293B !important;
-}
-
-.glass-panel-interactive:hover {
-    background: #FFFFFF !important;
-    transform: translate(-2px, -2px) !important;
-    box-shadow: 6px 6px 0px #1E293B !important;
 }
 
 /* Chunky Classroom Buttons */
@@ -132,13 +93,13 @@ h1, h2, h3, h4, h5, h6, .font-head {
     border: 2.5px solid #1E293B;
     border-radius: 9999px;
     box-shadow: 3px 3px 0px #1E293B;
-    transition: all 0.1s ease;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
     cursor: pointer;
 }
 
 .hub-btn:active {
     transform: translate(2px, 2px);
-    box-shadow: 1px 1px 0px #1E293B !important;
+    box-shadow: 1px 1px 0px #1E293B;
 }
 
 .hub-btn-yellow {
@@ -148,28 +109,28 @@ h1, h2, h3, h4, h5, h6, .font-head {
 .hub-btn-yellow:hover { background-color: #E6B935; }
 
 .hub-btn-green {
-    background-color: #4CAF7D;
+    background-color: #2F8A5F;
     color: #FFFFFF;
 }
-.hub-btn-green:hover { background-color: #429E6F; }
+.hub-btn-green:hover { background-color: #26734E; }
 
 .hub-btn-blue {
-    background-color: #5B9BD5;
+    background-color: #3E7CB1;
     color: #FFFFFF;
 }
-.hub-btn-blue:hover { background-color: #4D8BC4; }
+.hub-btn-blue:hover { background-color: #336894; }
 
 .hub-btn-purple {
-    background-color: #9B7EDE;
+    background-color: #7A5CC0;
     color: #FFFFFF;
 }
-.hub-btn-purple:hover { background-color: #8C6FD0; }
+.hub-btn-purple:hover { background-color: #664BA7; }
 
 .hub-btn-red {
-    background-color: #FF6B5E;
+    background-color: #E04A3C;
     color: #FFFFFF;
 }
-.hub-btn-red:hover { background-color: #EE594B; }
+.hub-btn-red:hover { background-color: #C93B2E; }
 
 .hub-btn-white {
     background-color: #FFFFFF;
@@ -177,30 +138,10 @@ h1, h2, h3, h4, h5, h6, .font-head {
 }
 .hub-btn-white:hover { background-color: #FFF9E8; }
 
-/* Dashed Notice & Inner Panels */
-.hub-dashed {
-    border: 2.5px dashed #1E293B !important;
-}
-
 .note-content {
     line-height: 1.95;
     white-space: pre-wrap;
     color: #1E293B;
-}
-
-/* Remove glow effects and replace with solid retro sticker shadows */
-.glow-blue { box-shadow: 3px 3px 0px #1E293B; }
-.glow-cyan { box-shadow: 3px 3px 0px #1E293B; }
-.glow-amber { box-shadow: 3px 3px 0px #1E293B; }
-.glow-green { box-shadow: 3px 3px 0px #1E293B; }
-.glow-red { box-shadow: 3px 3px 0px #1E293B; }
-
-/* Replace text gradients with crisp solid flat dark text */
-.text-gradient-cyan, .text-gradient-blue, .text-gradient-amber {
-    background: none !important;
-    -webkit-background-clip: unset !important;
-    -webkit-text-fill-color: #1E293B !important;
-    color: #1E293B !important;
 }
 
 /* Chunky Scrollbar */
@@ -218,7 +159,7 @@ h1, h2, h3, h4, h5, h6, .font-head {
     border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #FF6B5E;
+    background: #E04A3C;
 }
 
 /* Floating animation */
@@ -231,26 +172,13 @@ h1, h2, h3, h4, h5, h6, .font-head {
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 30s linear infinite; }
 
-/* Classroom Hub container & text overrides to prevent any dark-theme bleed */
-.bg-\[\#111827\], .bg-\[\#111827\]\/80, .bg-\[\#111827\]\/90 {
-    background-color: #FFFFFF !important;
-    border-color: #1E293B !important;
-    color: #1E293B !important;
+/* Reduced motion & cross-browser scrollbar */
+@media (prefers-reduced-motion: reduce) {
+    .animate-floaty, .animate-spin-slow, .animate-bounce, .animate-ping, .animate-pulse {
+        animation: none !important;
+    }
 }
-
-.bg-\[\#0B0F19\], .bg-\[\#0B0F19\]\/90, .bg-\[\#0B0F19\]\/80, .bg-\[\#0B0F19\]\/60 {
-    background-color: #FFF9E8 !important;
-    border-color: #1E293B !important;
-    color: #1E293B !important;
-}
-
-.bg-\[\#172033\], .bg-\[\#172554\]\/90, .bg-\[\#0F172A\] {
-    background-color: #FFF9E8 !important;
-    border-color: #1E293B !important;
-    color: #1E293B !important;
-}
-
-.bg-\[\#111827\] h1, .bg-\[\#111827\] h2, .bg-\[\#111827\] h3, .bg-\[\#111827\] h4,
-.bg-\[\#0B0F19\] h1, .bg-\[\#0B0F19\] h2, .bg-\[\#0B0F19\] h3, .bg-\[\#0B0F19\] h4 {
-    color: #1E293B !important;
+html {
+    scrollbar-color: #F5C842 #FFF9E8;
+    scrollbar-width: thin;
 }

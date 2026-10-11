@@ -12,15 +12,15 @@ const buttonVariants = cva(
         default:
           "bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#E6B935] active:shadow-none",
         destructive:
-          "bg-[#FF6B5E] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#EE594B] active:shadow-none",
+          "bg-[#E04A3C] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#C93B2E] active:shadow-none",
         outline:
           "bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#FFF9E8] active:shadow-none",
         secondary:
-          "bg-[#5B9BD5] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#4D8BC4] active:shadow-none",
+          "bg-[#3E7CB1] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#336894] active:shadow-none",
         accent:
-          "bg-[#4CAF7D] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#429E6F] active:shadow-none",
+          "bg-[#2F8A5F] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#26734E] active:shadow-none",
         purple:
-          "bg-[#9B7EDE] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#8C6FD0] active:shadow-none",
+          "bg-[#7A5CC0] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#664BA7] active:shadow-none",
         dark:
           "bg-[#1E293B] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:bg-[#2A374A] active:shadow-none",
         ghost: "hover:bg-[#F5C842]/20 text-[#1E293B]",

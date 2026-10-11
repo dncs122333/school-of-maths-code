@@ -95,13 +95,13 @@ export default function PdfCanvasViewer({ data, onRetry }) {
 
   if (error) {
     return (
-      <div data-testid="pdf-viewer-error" className="py-20 text-center text-[#94A3B8]">
-        <AlertTriangle className="h-10 w-10 mx-auto text-[#FBBF24]" />
-        <p className="mt-3 font-600 text-white">{error}</p>
+      <div data-testid="pdf-viewer-error" className="py-20 text-center text-[#64748B]">
+        <AlertTriangle className="h-10 w-10 mx-auto text-[#E04A3C]" />
+        <p className="mt-3 font-semibold text-[#1E293B]">{error}</p>
         <p className="mt-1 text-sm">The file may be damaged or in an unsupported format.</p>
         {onRetry && (
           <Button data-testid="pdf-viewer-retry" onClick={onRetry} variant="outline"
-            className="mt-4 rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
+            className="mt-4 rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-semibold shadow-[2px_2px_0_#1E293B]">
             <RotateCw className="h-4 w-4 mr-1" /> Try again
           </Button>
         )}
@@ -112,18 +112,18 @@ export default function PdfCanvasViewer({ data, onRetry }) {
   return (
     <div className="w-full flex flex-col items-center gap-3">
       {/* sticky so paging and zoom stay reachable however long the page is */}
-      <div className="sticky top-0 z-10 w-full flex items-center justify-center gap-2 flex-wrap rounded-full bg-[#0B0F19]/95 backdrop-blur-sm py-2">
+      <div className="sticky top-0 z-10 w-full flex items-center justify-center gap-2 flex-wrap rounded-full bg-white/95 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] py-2">
         <Button data-testid="pdf-prev-page" onClick={() => setPageNum((p) => Math.max(1, p - 1))}
           disabled={pageNum <= 1} variant="outline" size="icon"
-          className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 h-8 w-8">
+          className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] h-8 w-8">
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span data-testid="pdf-page-indicator" className="text-xs font-mono text-[#94A3B8] min-w-[92px] text-center">
+        <span data-testid="pdf-page-indicator" className="text-xs font-mono font-bold text-[#1E293B] min-w-[92px] text-center">
           {numPages ? `Page ${pageNum} of ${numPages}` : "Loading…"}
         </span>
         <Button data-testid="pdf-next-page" onClick={() => setPageNum((p) => Math.min(numPages, p + 1))}
           disabled={!numPages || pageNum >= numPages} variant="outline" size="icon"
-          className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 h-8 w-8">
+          className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] h-8 w-8">
           <ChevronRight className="h-4 w-4" />
         </Button>
 
@@ -131,15 +131,15 @@ export default function PdfCanvasViewer({ data, onRetry }) {
 
         <Button data-testid="pdf-zoom-out" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
           disabled={zoom <= ZOOM_MIN} variant="outline" size="icon"
-          className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 h-8 w-8">
+          className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] h-8 w-8">
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <span data-testid="pdf-zoom-level" className="text-xs font-mono text-[#94A3B8] min-w-[44px] text-center">
+        <span data-testid="pdf-zoom-level" className="text-xs font-mono font-bold text-[#1E293B] min-w-[44px] text-center">
           {Math.round(zoom * 100)}%
         </span>
         <Button data-testid="pdf-zoom-in" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
           disabled={zoom >= ZOOM_MAX} variant="outline" size="icon"
-          className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 h-8 w-8">
+          className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] h-8 w-8">
           <ZoomIn className="h-4 w-4" />
         </Button>
       </div>

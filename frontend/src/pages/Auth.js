@@ -41,8 +41,8 @@ export default function Auth() {
             <span className="text-2xl">📐</span>
           </div>
           <div className="flex flex-col">
-            <span className="font-head font-900 text-2xl tracking-tight text-[#1E293B] uppercase leading-none">
-              School <span className="text-[#FF6B5E]">of</span> Maths
+            <span className="font-head font-black text-2xl tracking-tight text-[#1E293B] uppercase leading-none">
+              School <span className="text-[#E04A3C]">of</span> Maths
             </span>
             <span className="text-[11px] font-head font-bold uppercase tracking-wider text-[#64748B] mt-0.5">
               Classroom Hub Portal
@@ -84,7 +84,7 @@ export default function Auth() {
                         onClick={() => setRole(r.v)}
                         className={`flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-[#1E293B] font-head font-bold text-xs transition-all ${
                           role === r.v
-                            ? "bg-[#5B9BD5] text-white shadow-[2px_2px_0_#1E293B]"
+                            ? "bg-[#3E7CB1] text-white shadow-[2px_2px_0_#1E293B]"
                             : "bg-[#FFF9E8] text-[#1E293B] hover:bg-white"
                         }`}
                       >
@@ -137,12 +137,12 @@ export default function Auth() {
               data-testid="auth-submit"
               type="submit"
               disabled={busy}
-              className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-900 text-sm h-11 uppercase tracking-wider mt-2"
+              className="hub-btn hub-btn-yellow w-full h-11 text-sm uppercase tracking-wider mt-2 font-black active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
             >
               {busy ? "Please wait…" : mode === "login" ? "Log in to Hub" : "Create Account"}
             </Button>
           </form>
-          {mode === "login" && (
+          {mode === "login" && process.env.NODE_ENV === "development" && (
             <p className="text-xs text-[#64748B] text-center mt-4 font-mono font-bold">
               Teacher Demo: admin@vidya.com / admin123
             </p>

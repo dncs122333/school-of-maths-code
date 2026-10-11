@@ -1,12 +1,16 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-    darkMode: ["class"],
-    content: [
+  darkMode: ["class"],
+  content: [
     "./src/**/*.{js,jsx,ts,tsx}",
     "./public/index.html"
   ],
   theme: {
     extend: {
+      fontWeight: {
+        800: '800',
+        900: '900',
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
@@ -18,12 +22,40 @@ module.exports = {
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
+        green: {
+          DEFAULT: '#4CAF7D',
+          deep: '#2F8A5F',
+        },
+        red: {
+          DEFAULT: '#FF6B5E',
+          deep: '#E04A3C',
+        },
+        blue: {
+          DEFAULT: '#5B9BD5',
+          deep: '#3E7CB1',
+        },
+        purple: {
+          DEFAULT: '#9B7EDE',
+          deep: '#7A5CC0',
+        },
         hub: {
           yellow: '#F5C842',
-          green: '#4CAF7D',
-          blue: '#5B9BD5',
-          purple: '#9B7EDE',
-          red: '#FF6B5E',
+          green: {
+            DEFAULT: '#4CAF7D',
+            deep: '#2F8A5F',
+          },
+          blue: {
+            DEFAULT: '#5B9BD5',
+            deep: '#3E7CB1',
+          },
+          purple: {
+            DEFAULT: '#9B7EDE',
+            deep: '#7A5CC0',
+          },
+          red: {
+            DEFAULT: '#FF6B5E',
+            deep: '#E04A3C',
+          },
           cream: '#FFF9E8',
           dark: '#1E293B',
           white: '#FFFFFF',

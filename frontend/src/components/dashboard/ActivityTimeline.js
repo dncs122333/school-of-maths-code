@@ -22,10 +22,10 @@ export default function ActivityTimeline({ submissions = [] }) {
     <div className="rounded-3xl bg-white p-6 sm:p-7 space-y-5 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-2xl bg-[#5B9BD5] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+          <div className="h-9 w-9 rounded-2xl bg-[#3E7CB1] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
             <Activity className="h-4 w-4 text-white" />
           </div>
-          <h3 className="font-head text-lg font-900 text-[#1E293B]">Recent Activity</h3>
+          <h3 className="font-head text-lg font-black text-[#1E293B]">Recent Activity</h3>
         </div>
         <Badge className="bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] font-mono text-[11px] px-3 py-0.5">
           {submissions.length} Total Attempts
@@ -46,26 +46,26 @@ export default function ActivityTimeline({ submissions = [] }) {
             const isDpp = sub.kind === "dpp";
             const scoreColor =
               sub.score >= 75
-                ? "bg-[#4CAF7D] text-white"
+                ? "bg-[#2F8A5F] text-white"
                 : sub.score >= 55
                 ? "bg-[#F5C842] text-[#1E293B]"
-                : "bg-[#FF6B5E] text-white";
+                : "bg-[#E04A3C] text-white";
 
             return (
               <div
                 key={sub.id || sub.test_id || i}
-                className="group flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-all"
+                className="group flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-[transform,box-shadow] duration-150 ease-out"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="h-9 w-9 rounded-xl bg-white border-2 border-[#1E293B] flex items-center justify-center shrink-0">
                     {isDpp ? (
                       <Sparkles className="h-4 w-4 text-[#F5C842]" />
                     ) : (
-                      <FileQuestion className="h-4 w-4 text-[#5B9BD5]" />
+                      <FileQuestion className="h-4 w-4 text-[#3E7CB1]" />
                     )}
                   </div>
                   <div className="min-w-0">
-                    <h4 className="font-head text-sm font-800 text-[#1E293B] truncate">
+                    <h4 className="font-head text-sm font-extrabold text-[#1E293B] truncate">
                       {sub.title || (isDpp ? "Daily Practice Problem" : "Timed Test Assessment")}
                     </h4>
                     <div className="flex items-center gap-2 text-[11px] text-[#64748B] font-mono font-bold mt-0.5">

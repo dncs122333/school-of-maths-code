@@ -17,20 +17,17 @@ import {
   Loader2,
   ChevronRight,
   ShieldCheck,
-  Zap,
   FolderOpen,
-  Award,
   Calendar,
   Clock,
   Pin,
-  FileText,
-  Star,
-  Compass,
 } from "lucide-react";
 import { toast } from "sonner";
 import MasteryMap from "../components/dashboard/MasteryMap";
 import WeakTopicCard from "../components/dashboard/WeakTopicCard";
 import ActivityTimeline from "../components/dashboard/ActivityTimeline";
+import SpotlightCard from "../components/SpotlightCard";
+import WeeklyTimetable from "../components/WeeklyTimetable";
 
 export default function StudentDashboard() {
   const { user, refreshUser } = useAuth();
@@ -43,10 +40,18 @@ export default function StudentDashboard() {
   const [activeTests, setActiveTests] = useState([]);
   const [notes, setNotes] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [topper, setTopper] = useState(null);
   const [joinCode, setJoinCode] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
+  const [reminderDismissed, setReminderDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("vidya_weekly_reminder_dismissed") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   // Time-of-day greeting
   const greeting = useMemo(() => {
@@ -88,6 +93,23 @@ export default function StudentDashboard() {
         if (notesRes.status === "fulfilled") setNotes(notesRes.value.data || []);
         if (matRes.status === "fulfilled") setMaterials(matRes.value.data || []);
 
+        // Fetch batch topper if student has a batch enrolled
+        const studentBatchId = user?.batch_id || (user?.batch_ids && user.batch_ids[0]);
+        if (studentBatchId) {
+          try {
+            const topperRes = await api.get(`/batches/${studentBatchId}/topper`);
+            if (topperRes.data && topperRes.data.topper) {
+              setTopper(topperRes.data.topper);
+            } else {
+              setTopper(null);
+            }
+          } catch {
+            setTopper(null);
+          }
+        } else {
+          setTopper(null);
+        }
+
         // Fetch recent test submissions for activity timeline
         try {
           const testList = testsRes.status === "fulfilled" ? (testsRes.value.data || []) : [];
@@ -110,7 +132,7 @@ export default function StudentDashboard() {
     };
 
     fetchData();
-  }, []);
+  }, [user]);
 
   // Top 3 Weak Topics
   const weakTopics = useMemo(() => {
@@ -156,9 +178,18 @@ export default function StudentDashboard() {
     }
   };
 
+  const handleDismissReminder = () => {
+    try {
+      localStorage.setItem("vidya_weekly_reminder_dismissed", "true");
+    } catch {}
+    setReminderDismissed(true);
+    toast.success("Weekly reminder marked done!");
+  };
+
   // Streak days indicator
   const streakDays = ["M", "T", "W", "T", "F", "S", "S"];
-  const activeDayIndex = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+  const streakCount = stats.streak_days || 0;
+  const activeWeekDays = stats.active_week_days || [];
 
   return (
     <div className="space-y-10 pb-16">
@@ -169,18 +200,18 @@ export default function StudentDashboard() {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-black tracking-wider uppercase">
                 🏫 CLASSROOM HUB
               </span>
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#5B9BD5] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#3E7CB1] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
                 {formattedDate}
               </span>
-              <Badge className="bg-[#4CAF7D] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
+              <Badge className="bg-[#2F8A5F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
                 CBSE Class 9 & 10
               </Badge>
             </div>
 
-            <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-900 tracking-tight text-[#1E293B] uppercase">
+            <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-[#1E293B] uppercase">
               {greeting}, {user?.name?.split(" ")[0]}!{" "}
               <span className="inline-block animate-floaty">🎒</span>
             </h1>
@@ -195,18 +226,22 @@ export default function StudentDashboard() {
           {/* Quick Streak & Metrics Capsule */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 bg-white border-[2.5px] border-[#1E293B] p-4 rounded-3xl shrink-0 shadow-[4px_4px_0_#1E293B]">
             {/* Streak Counter with weekly mini dots */}
-            <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex flex-col justify-center text-center min-w-[120px]">
-              <div className="flex items-center justify-center gap-1.5 text-sm font-head font-900 text-[#1E293B]">
-                <Flame className="h-5 w-5 text-[#FF6B5E] fill-[#FF6B5E]" /> 7-Day Streak
+            <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex flex-col justify-center text-center min-w-[130px]">
+              <div className="flex items-center justify-center gap-1.5 text-sm font-head font-black text-[#1E293B]">
+                <Flame className="h-5 w-5 text-[#E04A3C] fill-[#E04A3C]" />
+                {streakCount > 0 ? `${streakCount}-Day Streak` : "0"}
               </div>
-              {/* Day Dots */}
+              <div className="text-[10px] text-[#64748B] font-head font-bold uppercase tracking-wider mt-0.5">
+                {streakCount > 0 ? "Daily Practice" : "Start a practice streak today"}
+              </div>
+              {/* Day Dots - only marked for days with actual activity */}
               <div className="flex items-center justify-center gap-1 mt-1.5">
                 {streakDays.map((d, i) => (
                   <span
                     key={i}
                     title={d}
                     className={`h-2.5 w-2.5 rounded-full border border-[#1E293B] transition-all ${
-                      i <= activeDayIndex
+                      activeWeekDays.includes(i)
                         ? "bg-[#F5C842]"
                         : "bg-white"
                     }`}
@@ -217,13 +252,13 @@ export default function StudentDashboard() {
 
             {/* Total Tests Metric */}
             <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] text-center min-w-[95px]">
-              <div className="font-head font-900 text-xl text-[#1E293B]">{stats.tests_taken ?? 0}</div>
+              <div className="font-head font-black text-xl text-[#1E293B]">{stats.tests_taken ?? 0}</div>
               <div className="text-[10px] text-[#64748B] font-head font-bold uppercase tracking-wider mt-0.5">Tests Taken</div>
             </div>
 
             {/* Accuracy Rate */}
             <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] text-center min-w-[95px]">
-              <div className="font-head font-900 text-xl text-[#4CAF7D]">{stats.avg_score ?? 0}%</div>
+              <div className="font-head font-black text-xl text-[#2F8A5F]">{stats.avg_score ?? 0}%</div>
               <div className="text-[10px] text-[#64748B] font-head font-bold uppercase tracking-wider mt-0.5">Accuracy</div>
             </div>
 
@@ -232,7 +267,7 @@ export default function StudentDashboard() {
               size="sm"
               onClick={handleStartDiagnostic}
               disabled={diagnosticBusy}
-              className="rounded-2xl bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-4 h-12 transition-transform active:translate-x-[2px] active:translate-y-[2px] shrink-0"
+              className="rounded-2xl bg-[#2F8A5F] hover:bg-[#256e4c] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-4 h-12 transition-transform active:translate-x-[2px] active:translate-y-[2px] shrink-0"
             >
               {diagnosticBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -250,14 +285,14 @@ export default function StudentDashboard() {
 
         {/* Live Test Alert Banner if any */}
         {activeTests.length > 0 && (
-          <div className="mt-6 rounded-2xl bg-[#FF6B5E] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-white">
+          <div className="mt-6 rounded-2xl bg-[#E04A3C] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-white">
             <div className="flex items-center gap-3">
               <span className="h-3 w-3 rounded-full bg-white animate-ping" />
               <div>
-                <span className="text-xs font-head font-black uppercase tracking-wider bg-white text-[#FF6B5E] px-2 py-0.5 rounded-full border border-[#1E293B]">
+                <span className="text-xs font-head font-black uppercase tracking-wider bg-white text-[#E04A3C] px-2 py-0.5 rounded-full border border-[#1E293B]">
                   LIVE TEST ACTIVE
                 </span>
-                <h4 className="font-head text-base sm:text-lg font-900 mt-1">{activeTests[0].title}</h4>
+                <h4 className="font-head text-base sm:text-lg font-black mt-1">{activeTests[0].title}</h4>
               </div>
             </div>
             <Button
@@ -273,7 +308,7 @@ export default function StudentDashboard() {
       </div>
 
       {/* ======================================================== */}
-      {/* 2. TODAY'S AGENDA SECTION (Yellow Pill Items + Purple Reminder) */}
+      {/* 2. TODAY'S AGENDA SECTION (Yellow Pill Items + Bulletin) */}
       {/* ======================================================== */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
@@ -281,7 +316,7 @@ export default function StudentDashboard() {
             <div className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
               <Calendar className="h-4 w-4 text-[#1E293B]" />
             </div>
-            <h2 className="font-head text-2xl sm:text-3xl font-900 uppercase tracking-tight text-[#1E293B]">
+            <h2 className="font-head text-2xl sm:text-3xl font-black uppercase tracking-tight text-[#1E293B]">
               Today's Agenda
             </h2>
           </div>
@@ -291,12 +326,12 @@ export default function StudentDashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-          {/* Agenda Items (Yellow Pill Buttons / Action Blocks - 7 cols) */}
-          <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Agenda Items */}
+          <div className={`${reminderDismissed ? "lg:col-span-12" : "lg:col-span-8"} grid grid-cols-1 sm:grid-cols-2 gap-4`}>
             {/* Agenda Item 1: DPP */}
             <Link
               to="/dpp"
-              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -307,7 +342,7 @@ export default function StudentDashboard() {
                     Sprint #1
                   </span>
                 </div>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                <h3 className="font-head text-lg font-black text-[#1E293B] uppercase">
                   Daily Chapter Practice (DPP)
                 </h3>
                 <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
@@ -323,7 +358,7 @@ export default function StudentDashboard() {
             {/* Agenda Item 2: Class Tests */}
             <Link
               to="/tests"
-              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -334,7 +369,7 @@ export default function StudentDashboard() {
                     Sprint #2
                   </span>
                 </div>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                <h3 className="font-head text-lg font-black text-[#1E293B] uppercase">
                   Timed Class Tests
                 </h3>
                 <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
@@ -350,7 +385,7 @@ export default function StudentDashboard() {
             {/* Agenda Item 3: AI Notes */}
             <Link
               to="/notes"
-              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -361,7 +396,7 @@ export default function StudentDashboard() {
                     Sprint #3
                   </span>
                 </div>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                <h3 className="font-head text-lg font-black text-[#1E293B] uppercase">
                   Concept Study Notes
                 </h3>
                 <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
@@ -377,7 +412,7 @@ export default function StudentDashboard() {
             {/* Agenda Item 4: Materials */}
             <Link
               to="/materials"
-              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -388,7 +423,7 @@ export default function StudentDashboard() {
                     Sprint #4
                   </span>
                 </div>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                <h3 className="font-head text-lg font-black text-[#1E293B] uppercase">
                   Teacher Class Notes
                 </h3>
                 <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
@@ -402,242 +437,224 @@ export default function StudentDashboard() {
             </Link>
           </div>
 
-          {/* Purple Reminder Card with Dashed Border (5 cols) */}
-          <div className="lg:col-span-4 rounded-3xl bg-[#9B7EDE] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] p-6 text-[#1E293B] flex flex-col justify-between relative overflow-hidden">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
-                  <Pin className="h-3.5 w-3.5 text-[#FF6B5E]" /> BULLETIN NOTE
+          {/* Bulletin Reminder Card (Dismissible) */}
+          {!reminderDismissed && (
+            <div className="lg:col-span-4 rounded-3xl bg-[#7A5CC0] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] p-6 text-white flex flex-col justify-between relative overflow-hidden">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-black uppercase">
+                    <Pin className="h-3.5 w-3.5 text-[#E04A3C]" /> BULLETIN NOTE
+                  </div>
+                  <span className="text-xs font-head font-bold uppercase tracking-wider text-white bg-black/20 px-2 py-0.5 rounded-full">
+                    IMPORTANT
+                  </span>
                 </div>
-                <span className="text-xs font-head font-bold uppercase tracking-wider text-white">
-                  IMPORTANT
-                </span>
+
+                <div className="rounded-2xl border-2 border-dashed border-[#1E293B] bg-white/10 p-4 space-y-2.5">
+                  <h4 className="font-head text-lg font-black uppercase text-white">
+                    Weekly Practice Reminder
+                  </h4>
+                  <p className="text-xs sm:text-sm font-medium leading-relaxed text-white/90">
+                    Complete at least 5 chapter practice DPP questions before this week's mock exam. Revision logs sync automatically with your syllabus mastery radar.
+                  </p>
+                </div>
+
+                <div className="space-y-2 text-xs font-head font-bold text-white">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-white" />
+                    <span>Board Formula Sheet review</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-white" />
+                    <span>Complete active test modules</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="rounded-2xl border-2 border-dashed border-[#1E293B] bg-white/40 p-4 space-y-2.5">
-                <h4 className="font-head text-lg font-900 uppercase text-[#1E293B]">
-                  Weekly Reminder!
-                </h4>
-                <p className="text-xs sm:text-sm font-medium leading-relaxed text-[#1E293B]">
-                  "Complete at least 5 Quadratic Equations and Triangle theorems DPP questions before Friday's weekly mock exam. Revision logs sync automatically with your teacher's radar."
-                </p>
-              </div>
-
-              <div className="space-y-2 text-xs font-head font-bold text-[#1E293B]">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[#1E293B]" />
-                  <span>Class 10 Board Formula Sheet review: Pending</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-[#1E293B]" />
-                  <span>Next Timed Mock window opens Friday 5:00 PM</span>
-                </div>
+              <div className="mt-6 pt-3 border-t-2 border-white/20 flex items-center justify-between">
+                <span className="text-[11px] font-mono font-bold text-white/80">VidyaLab Desk</span>
+                <Button
+                  size="sm"
+                  onClick={handleDismissReminder}
+                  className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-8 px-3"
+                >
+                  Mark Done
+                </Button>
               </div>
             </div>
-
-            <div className="mt-6 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between">
-              <span className="text-[11px] font-mono font-bold text-[#1E293B]/80">VidyaLab Desk</span>
-              <Button
-                size="sm"
-                onClick={() => nav("/dpp")}
-                className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-8 px-3"
-              >
-                Mark Done
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
       </section>
 
       {/* ======================================================== */}
-      {/* 3. CLASS NEWS SECTION (GREEN BACKGROUND + 3 WHITE CARDS) */}
+      {/* 3. CLASS NEWS / RESOURCES (REAL CONTENT) */}
       {/* ======================================================== */}
-      <section className="rounded-3xl bg-[#4CAF7D] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
-              📢 NOTICE BOARD
-            </div>
-            <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-white">
-              Class News & Updates
-            </h2>
-          </div>
-          <p className="text-white/90 text-xs sm:text-sm max-w-sm font-medium">
-            Stay updated with curriculum announcements, topper strategies, and syllabus benchmarks.
-          </p>
-        </div>
-
-        {/* 3 White Cards Side by Side with Rounded Corners & Top Banner */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* News Card 1 */}
-          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+      {(notes.length > 0 || activeTests.length > 0 || materials.length > 0) && (
+        <section className="rounded-3xl bg-[#2F8A5F] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              {/* Illustration Header with dashed inner border */}
-              <div className="bg-[#F5C842] border-b-2 border-[#1E293B] p-5 text-center relative">
-                <span className="text-4xl block animate-floaty">📐</span>
-                <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-900 uppercase text-[#1E293B]">
-                  Mathematics Core
-                </span>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-black tracking-wider uppercase mb-2">
+                📢 NOTICE BOARD
               </div>
-              <div className="p-5 space-y-2">
-                <span className="text-[11px] font-mono font-bold text-[#64748B]">Oct 11, 2026</span>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] leading-snug">
-                  Triangles & Similarity Theorems Cheat Sheet
-                </h3>
-                <p className="text-xs text-[#64748B] font-medium leading-relaxed">
-                  New high-yield concept breakdowns with proof mnemonics and common board pitfalls added to Notes.
-                </p>
-              </div>
+              <h2 className="font-head text-3xl sm:text-4xl font-black uppercase tracking-tight text-white">
+                Class News & Updates
+              </h2>
             </div>
-            <div className="p-5 pt-0">
-              <Button
-                asChild
-                className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
-              >
-                <Link to="/notes">
-                  Read Study Notes <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          {/* News Card 2 */}
-          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
-            <div>
-              <div className="bg-[#5B9BD5] border-b-2 border-[#1E293B] p-5 text-center relative">
-                <span className="text-4xl block animate-floaty">⚡</span>
-                <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-900 uppercase text-[#1E293B]">
-                  Mock Assessment
-                </span>
-              </div>
-              <div className="p-5 space-y-2">
-                <span className="text-[11px] font-mono font-bold text-[#64748B]">Upcoming Friday</span>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] leading-snug">
-                  All-India CBSE Mock Test #4 Live Window
-                </h3>
-                <p className="text-xs text-[#64748B] font-medium leading-relaxed">
-                  Timed 60-minute test covering Real Numbers, Polynomials & Linear Equations. Real percentile rankings.
-                </p>
-              </div>
-            </div>
-            <div className="p-5 pt-0">
-              <Button
-                asChild
-                className="w-full rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
-              >
-                <Link to="/tests">
-                  View Test Schedule <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          {/* News Card 3 */}
-          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
-            <div>
-              <div className="bg-[#FF6B5E] border-b-2 border-[#1E293B] p-5 text-center relative">
-                <span className="text-4xl block animate-floaty">📚</span>
-                <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-900 uppercase text-[#1E293B]">
-                  Resource Center
-                </span>
-              </div>
-              <div className="p-5 space-y-2">
-                <span className="text-[11px] font-mono font-bold text-[#64748B]">New Handouts</span>
-                <h3 className="font-head text-lg font-900 text-[#1E293B] leading-snug">
-                  Solved CBSE Exemplar PDFs Uploaded
-                </h3>
-                <p className="text-xs text-[#64748B] font-medium leading-relaxed">
-                  Your teachers have uploaded solved classroom handwritten notes and standard CBSE exemplar questions.
-                </p>
-              </div>
-            </div>
-            <div className="p-5 pt-0">
-              <Button
-                asChild
-                className="w-full rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
-              >
-                <Link to="/materials">
-                  Browse Materials <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ======================================================== */}
-      {/* 4. STUDENT OF THE WEEK SECTION (BLUE BACKGROUND) */}
-      {/* ======================================================== */}
-      <section className="rounded-3xl bg-[#5B9BD5] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
-              ⭐ HALL OF FAME
-            </div>
-            <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-white flex items-center gap-2">
-              Student of the Week <span>✨</span>
-            </h2>
-          </div>
-          <span className="text-white font-head font-bold text-xs bg-white/25 px-3 py-1.5 rounded-full border border-white/40">
-            CBSE Academic Sprint Week 4
-          </span>
-        </div>
-
-        {/* Spotlight Card */}
-        <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] p-6 sm:p-8 flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
-          {/* Circular Photo with Sparkle Decorations */}
-          <div className="relative shrink-0">
-            {/* Sparkle Badges Around Circle */}
-            <span className="absolute -top-3 -right-2 text-2xl select-none animate-bounce">✨</span>
-            <span className="absolute -bottom-2 -left-2 text-xl select-none">🌟</span>
-            <span className="absolute top-1/2 -left-4 text-lg select-none">⭐</span>
-
-            <div className="h-28 w-28 sm:h-36 sm:w-36 rounded-full border-[3px] border-[#1E293B] bg-[#F5C842] shadow-[4px_4px_0_#1E293B] flex items-center justify-center text-5xl sm:text-6xl overflow-hidden relative">
-              <span>🎓</span>
-            </div>
-          </div>
-
-          <div className="space-y-3 text-center sm:text-left flex-1">
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <span className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full bg-[#FF6B5E] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
-                <Award className="h-3.5 w-3.5" /> CBSE Class 10 Topper
-              </span>
-              <span className="text-xs font-mono font-bold text-[#64748B]">Batch: Alpha Olympiad</span>
-            </div>
-
-            <h3 className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B]">
-              {user?.name || "Aarav Sharma"}
-            </h3>
-
-            <p className="text-xs sm:text-sm text-[#1E293B] font-medium leading-relaxed max-w-xl">
-              "Completed 48 chapterwise practice questions this week with 96% accuracy on first attempt. Consistent daily practice transforms hard board concepts into easy marks!"
+            <p className="text-white/90 text-xs sm:text-sm max-w-sm font-medium">
+              Real-time curriculum materials, active tests, and study notes published for your batch.
             </p>
+          </div>
 
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2">
-              <span className="px-3 py-1 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B] text-xs font-head font-bold text-[#1E293B] shadow-[2px_2px_0_#1E293B]">
-                🔥 7-Day Active Streak
-              </span>
-              <span className="px-3 py-1 rounded-full bg-[#4CAF7D] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
-                🎯 94% Class Accuracy
-              </span>
-              <span className="px-3 py-1 rounded-full bg-[#9B7EDE] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
-                ⭐ 12 DPPs Mastered
-              </span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Card 1: Real Note */}
+            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out">
+              <div>
+                <div className="bg-[#F5C842] border-b-2 border-[#1E293B] p-5 text-center relative">
+                  <span className="text-4xl block">📐</span>
+                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-black uppercase text-[#1E293B]">
+                    {notes[0]?.subject || "Mathematics Core"}
+                  </span>
+                </div>
+                <div className="p-5 space-y-2">
+                  <span className="text-[11px] font-mono font-bold text-[#64748B]">
+                    {notes[0]?.created_at ? new Date(notes[0].created_at).toLocaleDateString() : "Active Study Note"}
+                  </span>
+                  <h3 className="font-head text-lg font-black text-[#1E293B] leading-snug">
+                    {notes[0]?.title || "Concept Study Notes"}
+                  </h3>
+                  <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                    {notes[0]?.chapter
+                      ? `Chapter: ${notes[0].chapter}. High-yield board concepts with proof steps.`
+                      : "High-yield concept breakdowns with proof mnemonics and common board pitfalls."}
+                  </p>
+                </div>
+              </div>
+              <div className="p-5 pt-0">
+                <Button
+                  asChild
+                  className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
+                >
+                  <Link to={notes[0]?.id ? `/notes/${notes[0].id}` : "/notes"}>
+                    Read Study Notes <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            {/* Card 2: Real Active Test or Tests Portal */}
+            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out">
+              <div>
+                <div className="bg-[#3E7CB1] border-b-2 border-[#1E293B] p-5 text-center relative">
+                  <span className="text-4xl block">⚡</span>
+                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-black uppercase text-[#1E293B]">
+                    {activeTests.length > 0 ? "Active Test" : "Class Tests"}
+                  </span>
+                </div>
+                <div className="p-5 space-y-2">
+                  <span className="text-[11px] font-mono font-bold text-[#64748B]">
+                    {activeTests[0]?.duration_mins ? `${activeTests[0].duration_mins} Minutes` : "Examination Portal"}
+                  </span>
+                  <h3 className="font-head text-lg font-black text-[#1E293B] leading-snug">
+                    {activeTests[0]?.title || "CBSE Timed Examination Mocks"}
+                  </h3>
+                  <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                    {activeTests.length > 0
+                      ? "Live examination is ready for your submission. Timer begins on quiz launch."
+                      : "Timed tests covering CBSE syllabus chapters with automatic score benchmarking."}
+                  </p>
+                </div>
+              </div>
+              <div className="p-5 pt-0">
+                <Button
+                  asChild
+                  className="w-full rounded-full bg-[#3E7CB1] hover:bg-[#316491] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
+                >
+                  <Link to={activeTests[0]?.id ? `/quiz/${activeTests[0].id}` : "/tests"}>
+                    {activeTests.length > 0 ? "Take Test Now" : "View Tests"} <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            {/* Card 3: Real Material */}
+            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out">
+              <div>
+                <div className="bg-[#E04A3C] border-b-2 border-[#1E293B] p-5 text-center relative">
+                  <span className="text-4xl block">📚</span>
+                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-black uppercase text-[#1E293B]">
+                    Resource Center
+                  </span>
+                </div>
+                <div className="p-5 space-y-2">
+                  <span className="text-[11px] font-mono font-bold text-[#64748B]">
+                    {materials[0]?.file_type ? materials[0].file_type.toUpperCase() : "Course Materials"}
+                  </span>
+                  <h3 className="font-head text-lg font-black text-[#1E293B] leading-snug">
+                    {materials[0]?.title || "Classroom Handouts & PDFs"}
+                  </h3>
+                  <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                    {materials[0]?.subject
+                      ? `Subject: ${materials[0].subject}. Teacher-shared chalkboard notes and assignments.`
+                      : "Teacher-shared chalkboard solutions, solved questions and batch assignments."}
+                  </p>
+                </div>
+              </div>
+              <div className="p-5 pt-0">
+                <Button
+                  asChild
+                  className="w-full rounded-full bg-[#E04A3C] hover:bg-[#c93f33] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
+                >
+                  <Link to="/materials">
+                    Browse Materials <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Link>
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ======================================================== */}
-      {/* 5. CLASS SCHEDULE SECTION (COLORFUL WEEKLY TABLE) */}
+      {/* 4. STUDENT OF THE WEEK SECTION (REAL TOPPER ONLY) */}
+      {/* ======================================================== */}
+      {topper && (
+        <section className="rounded-3xl bg-[#3E7CB1] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-black tracking-wider uppercase mb-2">
+                ⭐ HALL OF FAME
+              </div>
+              <h2 className="font-head text-3xl sm:text-4xl font-black uppercase tracking-tight text-white flex items-center gap-2">
+                Student of the Week <span>✨</span>
+              </h2>
+            </div>
+            <span className="text-white font-head font-bold text-xs bg-white/25 px-3 py-1.5 rounded-full border border-white/40">
+              Batch Top Performer
+            </span>
+          </div>
+
+          <SpotlightCard
+            studentName={topper.name}
+            batchName={`Batch: ${topper.batch_name || "Active Batch"}`}
+            badgeText="Batch Top Scorer"
+            quote={topper.quote}
+            streakDays={topper.streak_days}
+            accuracy={topper.accuracy}
+            testsCompleted={topper.tests_taken}
+          />
+        </section>
+      )}
+
+      {/* ======================================================== */}
+      {/* 5. CLASS SCHEDULE SECTION (SHARED COMPONENT) */}
       {/* ======================================================== */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-xl bg-[#9B7EDE] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+            <div className="h-8 w-8 rounded-xl bg-[#7A5CC0] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
               <Clock className="h-4 w-4 text-white" />
             </div>
-            <h2 className="font-head text-2xl sm:text-3xl font-900 uppercase tracking-tight text-[#1E293B]">
+            <h2 className="font-head text-2xl sm:text-3xl font-black uppercase tracking-tight text-[#1E293B]">
               Class Schedule
             </h2>
           </div>
@@ -646,90 +663,7 @@ export default function StudentDashboard() {
           </span>
         </div>
 
-        {/* Weekly Timetable with Per-Column Colored Header Cells */}
-        <div className="overflow-x-auto rounded-3xl border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] bg-white">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b-[3px] border-[#1E293B]">
-                <th className="p-4 bg-[#FFF9E8] text-[#1E293B] font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[120px]">
-                  Time Slot
-                </th>
-                <th className="p-4 bg-[#FF6B5E] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
-                  Monday (Coral)
-                </th>
-                <th className="p-4 bg-[#F5C842] text-[#1E293B] font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
-                  Tuesday (Yellow)
-                </th>
-                <th className="p-4 bg-[#4CAF7D] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
-                  Wednesday (Green)
-                </th>
-                <th className="p-4 bg-[#5B9BD5] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
-                  Thursday (Blue)
-                </th>
-                <th className="p-4 bg-[#9B7EDE] text-white font-head font-900 text-xs uppercase tracking-wider min-w-[160px]">
-                  Friday (Purple)
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y-2 divide-[#1E293B]">
-              {/* Row 1 */}
-              <tr>
-                <td className="p-4 bg-[#FFF9E8] font-head font-bold text-xs text-[#1E293B] border-r-2 border-[#1E293B] align-top">
-                  4:00 PM – 5:00 PM
-                  <div className="text-[10px] font-mono text-[#64748B] mt-0.5">Core Lecture</div>
-                </td>
-                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#1E293B] block">Real Numbers & Euclid</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Proof of irrationality drills</span>
-                </td>
-                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#1E293B] block">Polynomials & Factorization</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Zeroes & coefficients</span>
-                </td>
-                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#1E293B] block">Quadratic Equations</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Discriminant & word problems</span>
-                </td>
-                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#1E293B] block">Arithmetic Progressions</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Sum of n terms formulas</span>
-                </td>
-                <td className="p-4 bg-white align-top">
-                  <span className="font-head font-bold text-sm text-[#1E293B] block">Triangles & BPT Theorem</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Step-by-step theorem proofs</span>
-                </td>
-              </tr>
-
-              {/* Row 2 */}
-              <tr>
-                <td className="p-4 bg-[#FFF9E8] font-head font-bold text-xs text-[#1E293B] border-r-2 border-[#1E293B] align-top">
-                  5:15 PM – 6:15 PM
-                  <div className="text-[10px] font-mono text-[#64748B] mt-0.5">Sprint & Doubt Lab</div>
-                </td>
-                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#FF6B5E] block">DPP Problem Lab #1</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Section A & B Speed Sprint</span>
-                </td>
-                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#F5C842] block">NCERT Exemplar Review</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">High-difficulty challenges</span>
-                </td>
-                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#4CAF7D] block">Formula Memorization</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Flashcard active recall</span>
-                </td>
-                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
-                  <span className="font-head font-bold text-sm text-[#5B9BD5] block">Previous Year Questions</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">CBSE 2019-2024 board patterns</span>
-                </td>
-                <td className="p-4 bg-[#FFF9E8]/50 align-top">
-                  <span className="font-head font-bold text-sm text-[#9B7EDE] block">Weekly Timed Mock Test</span>
-                  <span className="text-xs text-[#64748B] block mt-0.5">Full syllabus sprint & analysis</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <WeeklyTimetable />
       </section>
 
       {/* ======================================================== */}
@@ -737,10 +671,10 @@ export default function StudentDashboard() {
       {/* ======================================================== */}
       <section className="rounded-3xl bg-white border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 text-center space-y-6">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-black tracking-wider uppercase mb-2">
             🔗 QUICK NAVIGATION
           </div>
-          <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-[#1E293B]">
+          <h2 className="font-head text-3xl sm:text-4xl font-black uppercase tracking-tight text-[#1E293B]">
             Class Resources
           </h2>
           <p className="text-xs sm:text-sm text-[#64748B] font-medium max-w-md mx-auto mt-1">
@@ -797,19 +731,19 @@ export default function StudentDashboard() {
           <MasteryMap
             topics={masteryTopics}
             onStartDiagnostic={handleStartDiagnostic}
-            onPracticeTopic={(topic) => nav(`/dpp`)}
+            onPracticeTopic={() => nav(`/dpp`)}
           />
 
           {/* Weak Topics Panel */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-[#FF6B5E]" />
-                <h3 className="font-head text-xl font-900 text-[#1E293B]">Targeted Weak Topics</h3>
+                <AlertCircle className="h-5 w-5 text-[#E04A3C]" />
+                <h3 className="font-head text-xl font-black text-[#1E293B]">Targeted Weak Topics</h3>
               </div>
               <Link
                 to="/mastery"
-                className="text-xs font-head font-bold text-[#5B9BD5] hover:underline flex items-center gap-1"
+                className="text-xs font-head font-bold text-[#3E7CB1] hover:underline flex items-center gap-1"
               >
                 Full syllabus radar <ChevronRight className="h-3.5 w-3.5" />
               </Link>
@@ -817,8 +751,8 @@ export default function StudentDashboard() {
 
             {weakTopics.length === 0 ? (
               <div className="rounded-3xl bg-white p-8 text-center space-y-2 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
-                <ShieldCheck className="h-9 w-9 text-[#4CAF7D] mx-auto" />
-                <h4 className="font-head text-base font-800 text-[#1E293B]">No Critical Weaknesses!</h4>
+                <ShieldCheck className="h-9 w-9 text-[#2F8A5F] mx-auto" />
+                <h4 className="font-head text-base font-extrabold text-[#1E293B]">No Critical Weaknesses!</h4>
                 <p className="text-xs text-[#64748B] max-w-sm mx-auto leading-relaxed">
                   All attempted concepts are currently above 55% accuracy. Challenge yourself with fresh board mocks!
                 </p>
@@ -849,9 +783,9 @@ export default function StudentDashboard() {
                 <div className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
                   <BookOpen className="h-4 w-4 text-[#1E293B]" />
                 </div>
-                <h3 className="font-head text-lg font-900 text-[#1E293B]">Learning Queue</h3>
+                <h3 className="font-head text-lg font-black text-[#1E293B]">Learning Queue</h3>
               </div>
-              <Link to="/notes" className="text-xs font-head font-bold text-[#5B9BD5] hover:underline">
+              <Link to="/notes" className="text-xs font-head font-bold text-[#3E7CB1] hover:underline">
                 All notes →
               </Link>
             </div>
@@ -866,7 +800,7 @@ export default function StudentDashboard() {
                   <Link
                     key={n.id}
                     to={`/notes/${n.id}`}
-                    className="group block p-3.5 sm:p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-all"
+                    className="group block p-3.5 sm:p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-[transform,box-shadow] duration-150 ease-out"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <Badge className="bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] text-[10px] font-bold">
@@ -874,7 +808,7 @@ export default function StudentDashboard() {
                       </Badge>
                       <span className="text-[11px] font-mono font-bold text-[#64748B]">Class {n.class_level}</span>
                     </div>
-                    <h4 className="font-head text-sm font-800 text-[#1E293B] mt-1.5 truncate">
+                    <h4 className="font-head text-sm font-extrabold text-[#1E293B] mt-1.5 truncate">
                       {n.title}
                     </h4>
                     <p className="text-xs text-[#64748B] truncate mt-0.5">{n.chapter}</p>
@@ -887,11 +821,11 @@ export default function StudentDashboard() {
           {/* Batch Enrolment / Join Card */}
           <div className="rounded-3xl bg-[#FFF9E8] p-6 sm:p-7 space-y-4 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] relative overflow-hidden">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-2xl bg-[#4CAF7D] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center shrink-0">
+              <div className="h-10 w-10 rounded-2xl bg-[#2F8A5F] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center shrink-0">
                 <Orbit className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h4 className="font-head text-base font-900 text-[#1E293B]">Join Coaching Batch</h4>
+                <h4 className="font-head text-base font-black text-[#1E293B]">Join Coaching Batch</h4>
                 <p className="text-xs text-[#64748B] font-medium">
                   Enter the 6-character code provided by your teacher.
                 </p>
@@ -909,7 +843,7 @@ export default function StudentDashboard() {
               <Button
                 type="submit"
                 disabled={joining || !joinCode.trim()}
-                className="rounded-xl bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-5 shrink-0"
+                className="rounded-xl bg-[#3E7CB1] hover:bg-[#316491] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-5 shrink-0"
               >
                 {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : "Join"}
               </Button>

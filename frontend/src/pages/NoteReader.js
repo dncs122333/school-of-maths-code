@@ -37,12 +37,12 @@ export default function NoteReader() {
       )}
 
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <Button data-testid="back-btn" asChild variant="ghost" className="rounded-full -ml-2 text-[#94A3B8] hover:text-white hover:bg-white/5">
+        <Button data-testid="back-btn" asChild variant="ghost" className="rounded-full -ml-2 text-[#1E293B] hover:text-[#1E293B] hover:bg-[#F5C842]/20 font-bold">
           <Link to="/notes"><ArrowLeft className="h-4 w-4 mr-1" /> Back to library</Link>
         </Button>
-        <div className="flex items-center gap-1.5 text-xs text-[#94A3B8] font-mono bg-[#111827]/90 px-3 py-1 rounded-full border border-[#1E293B] shadow-sm">
-          <ShieldCheck className="h-3.5 w-3.5 text-[#34D399]" />
-          <span>Licensed Copy: <strong className="text-white font-medium">{user?.name || "Student"}</strong></span>
+        <div className="flex items-center gap-1.5 text-xs text-[#1E293B] font-mono bg-white px-3 py-1 rounded-full border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+          <ShieldCheck className="h-3.5 w-3.5 text-[#2F8A5F]" />
+          <span>Licensed Copy: <strong className="text-[#1E293B] font-medium">{user?.name || "Student"}</strong></span>
         </div>
       </div>
 
@@ -51,12 +51,12 @@ export default function NoteReader() {
         <span className="text-[11px] font-head font-bold uppercase tracking-wide px-3 py-1 rounded-full bg-white border-2 border-[#1E293B] text-[#1E293B] font-mono">Class {note.class_level}</span>
         <span className="text-[11px] font-head font-bold px-3 py-1 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B]">{note.chapter}</span>
         {note.batch_name && (
-          <span className="text-[11px] font-head font-bold px-3 py-1 rounded-full border-2 border-[#1E293B] bg-[#5B9BD5] text-white font-mono">
+          <span className="text-[11px] font-head font-bold px-3 py-1 rounded-full border-2 border-[#1E293B] bg-[#3E7CB1] text-white font-mono">
             Batch: {note.batch_name}
           </span>
         )}
       </div>
-      <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight leading-tight text-[#1E293B]">{note.title}</h1>
+      <h1 className="font-head text-3xl sm:text-4xl font-black tracking-tight leading-tight text-[#1E293B]">{note.title}</h1>
       <p className="mt-3 text-lg text-[#64748B] leading-relaxed font-medium">{note.intro}</p>
 
       <div className="mt-8 space-y-8">
@@ -64,8 +64,8 @@ export default function NoteReader() {
           <motion.section key={i} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.4 }}
             className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6 sm:p-8">
             <div className="flex items-center gap-3 mb-3">
-              <span className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center font-head font-900 text-sm text-[#1E293B]">{i + 1}</span>
-              <h2 className="font-head text-2xl font-800 tracking-tight text-[#1E293B]">{s.heading}</h2>
+              <span className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center font-head font-black text-sm text-[#1E293B]">{i + 1}</span>
+              <h2 className="font-head text-2xl font-extrabold tracking-tight text-[#1E293B]">{s.heading}</h2>
             </div>
             {s.image_path && (
               <AuthedImage path={s.image_path} alt={s.heading} className="rounded-2xl border-2 border-[#1E293B] w-full max-h-80 object-contain bg-[#FFF9E8] my-4" />
@@ -75,17 +75,17 @@ export default function NoteReader() {
               <div className="mt-4 space-y-1.5">
                 {s.formulas.map((fm, j) => (
                   <div key={j} className="flex items-center gap-2 font-mono text-[#1E293B] font-bold bg-[#FFF9E8] border-2 border-[#1E293B] rounded-xl px-4 py-2.5 text-sm">
-                    <Sigma className="h-4 w-4 shrink-0 text-[#5B9BD5]" /> {fm}
+                    <Sigma className="h-4 w-4 shrink-0 text-[#3E7CB1]" /> {fm}
                   </div>
                 ))}
               </div>
             )}
             {s.key_points?.length > 0 && (
               <div className="mt-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-5">
-                <div className="flex items-center gap-2 font-head font-bold mb-2 text-[#1E293B]"><ListChecks className="h-4 w-4 text-[#4CAF7D]" /> Key points</div>
+                <div className="flex items-center gap-2 font-head font-bold mb-2 text-[#1E293B]"><ListChecks className="h-4 w-4 text-[#2F8A5F]" /> Key points</div>
                 <ul className="space-y-1.5">
                   {s.key_points.map((k, j) => (
-                    <li key={j} className="flex gap-2 text-[#1E293B] font-medium"><span className="text-[#4CAF7D] font-bold">•</span>{k}</li>
+                    <li key={j} className="flex gap-2 text-[#1E293B] font-medium"><span className="text-[#2F8A5F] font-bold">•</span>{k}</li>
                   ))}
                 </ul>
               </div>
@@ -96,24 +96,24 @@ export default function NoteReader() {
 
       {note.mnemonics?.length > 0 && (
         <div className="mt-8 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6 text-[#1E293B]">
-          <div className="flex items-center gap-2 font-head text-xl font-900 mb-3 text-[#1E293B]"><Lightbulb className="h-5 w-5" /> Memory tricks</div>
+          <div className="flex items-center gap-2 font-head text-xl font-black mb-3 text-[#1E293B]"><Lightbulb className="h-5 w-5" /> Memory tricks</div>
           <ul className="space-y-2">{note.mnemonics.map((m, i) => <li key={i} className="text-[#1E293B] font-bold">✦ {m}</li>)}</ul>
         </div>
       )}
 
       {note.quick_revision?.length > 0 && (
-        <div className="mt-6 rounded-3xl bg-[#06B6D4]/10 border border-[#06B6D4]/30 p-6">
-          <div className="flex items-center gap-2 font-head text-xl font-600 mb-3 text-[#06B6D4]"><BookMarked className="h-5 w-5" /> Quick revision</div>
-          <ul className="space-y-2">{note.quick_revision.map((m, i) => <li key={i} className="flex gap-2 text-[#F8FAFC]/90"><span className="font-700 font-mono text-[#06B6D4]">{i + 1}.</span>{m}</li>)}</ul>
+        <div className="mt-6 rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6">
+          <div className="flex items-center gap-2 font-head text-xl font-bold mb-3 text-[#1E293B]"><BookMarked className="h-5 w-5 text-[#3E7CB1]" /> Quick revision</div>
+          <ul className="space-y-2">{note.quick_revision.map((m, i) => <li key={i} className="flex gap-2 text-[#1E293B]"><span className="font-bold font-mono text-[#3E7CB1]">{i + 1}.</span>{m}</li>)}</ul>
         </div>
       )}
 
       {note.key_terms?.length > 0 && (
-        <div className="mt-6 rounded-3xl bg-[#111827] border border-[#1E293B] p-6">
-          <div className="flex items-center gap-2 font-head text-xl font-600 mb-3 text-[#FBBF24]"><Tag className="h-5 w-5" /> Key Terms</div>
+        <div className="mt-6 rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6">
+          <div className="flex items-center gap-2 font-head text-xl font-bold mb-3 text-[#1E293B]"><Tag className="h-5 w-5 text-[#F5C842]" /> Key Terms</div>
           <div className="flex flex-wrap gap-2">
             {note.key_terms.map((t, i) => (
-              <span key={i} className="px-3 py-1 rounded-full bg-[#FBBF24]/10 border border-[#FBBF24]/30 text-[#FBBF24] text-sm font-500">{t}</span>
+              <span key={i} className="px-3 py-1 rounded-full bg-[#FFF9E8] border border-[#1E293B] text-[#1E293B] text-sm font-medium">{t}</span>
             ))}
           </div>
         </div>

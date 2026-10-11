@@ -1785,8 +1785,9 @@ async def media(path: str, user: dict = Depends(get_current_user)):
 @api_router.get("/stats")
 async def stats(user: dict = Depends(get_current_user)):
     if user["role"] == "student":
-        subs = await db.submissions.find({"student_id": user["id"], "kind": "test"}, {"_id": 0}).to_list(500)
-        avg = round(sum(s.get("score", 0) for s in subs) / len(subs), 1) if subs else 0
+        subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0, "created_at": 1, "score": 1, "kind": 1}).to_list(1000)
+        test_subs = [s for s in subs if s.get("kind") == "test"]
+        avg = round(sum(s.get("score", 0) for s in test_subs) / len(test_subs), 1) if test_subs else 0
         batch_docs = await db.batches.find({"id": {"$in": user.get("batch_ids", [])}}, {"_id": 0, "class_level": 1}).to_list(20)
         class_levels = [b["class_level"] for b in batch_docs]
         student_batches = user.get("batch_ids", [])
@@ -1801,14 +1802,132 @@ async def stats(user: dict = Depends(get_current_user)):
         if class_levels:
             nq["class_level"] = {"$in": class_levels}
         note_count = await db.notes.count_documents(nq) if class_levels else 0
-        return {"tests_taken": len(subs), "avg_score": avg,
-                "batches": len(batch_docs), "notes": note_count}
+
+        # Calculate real practice streak from submission created_at dates
+        active_dates = set()
+        for s in subs:
+            ca = s.get("created_at")
+            if ca:
+                try:
+                    dt = datetime.fromisoformat(ca.replace("Z", "+00:00"))
+                    active_dates.add(dt.date())
+                except Exception:
+                    pass
+
+        today = datetime.now(timezone.utc).date()
+        yesterday = today - timedelta(days=1)
+        streak_days = 0
+        if today in active_dates:
+            chk = today
+            while chk in active_dates:
+                streak_days += 1
+                chk -= timedelta(days=1)
+        elif yesterday in active_dates:
+            chk = yesterday
+            while chk in active_dates:
+                streak_days += 1
+                chk -= timedelta(days=1)
+
+        # Active status for current week (Monday through Sunday)
+        week_start = today - timedelta(days=today.weekday())
+        active_week_days = [
+            ((week_start + timedelta(days=i)) in active_dates)
+            for i in range(7)
+        ]
+
+        return {
+            "tests_taken": len(test_subs),
+            "avg_score": avg,
+            "batches": len(batch_docs),
+            "notes": note_count,
+            "streak_days": streak_days,
+            "active_week_days": active_week_days,
+        }
     q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
     return {"notes": await db.notes.count_documents(q),
             "tests": await db.tests.count_documents({**q, "kind": "test"}),
             "dpps": await db.tests.count_documents({**q, "kind": "dpp"}),
             "batches": await db.batches.count_documents(q if user["role"] == "admin" else {"teacher_id": user["id"]}),
             "students": await db.users.count_documents({"role": "student"})}
+
+
+@api_router.get("/batches/{batch_id}/topper")
+async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        return {"topper": None}
+
+    students = await db.users.find({"role": "student", "batch_ids": batch_id}, {"_id": 1, "name": 1}).to_list(500)
+    student_map = {str(s["_id"]): s.get("name", "Student") for s in students}
+    for s in students:
+        if "id" in s:
+            student_map[str(s["id"])] = s.get("name", "Student")
+
+    if not student_map:
+        return {"topper": None}
+
+    subs = await db.submissions.find(
+        {"student_id": {"$in": list(student_map.keys())}},
+        {"_id": 0, "student_id": 1, "student_name": 1, "score": 1, "created_at": 1}
+    ).to_list(2000)
+
+    if not subs:
+        return {"topper": None}
+
+    student_stats = {}
+    for sub in subs:
+        sid = sub.get("student_id")
+        if not sid:
+            continue
+        if sid not in student_stats:
+            sname = sub.get("student_name") or student_map.get(sid, "Student")
+            student_stats[sid] = {"name": sname, "scores": [], "dates": set()}
+        student_stats[sid]["scores"].append(sub.get("score", 0))
+        ca = sub.get("created_at")
+        if ca:
+            try:
+                student_stats[sid]["dates"].add(datetime.fromisoformat(ca.replace("Z", "+00:00")).date())
+            except Exception:
+                pass
+
+    if not student_stats:
+        return {"topper": None}
+
+    toppers = []
+    today = datetime.now(timezone.utc).date()
+    yesterday = today - timedelta(days=1)
+    for sid, data in student_stats.items():
+        if not data["scores"]:
+            continue
+        avg = sum(data["scores"]) / len(data["scores"])
+        streak = 0
+        active_dates = data["dates"]
+        if today in active_dates:
+            chk = today
+            while chk in active_dates:
+                streak += 1
+                chk -= timedelta(days=1)
+        elif yesterday in active_dates:
+            chk = yesterday
+            while chk in active_dates:
+                streak += 1
+                chk -= timedelta(days=1)
+
+        toppers.append({
+            "student_id": sid,
+            "name": data["name"],
+            "batch_name": batch.get("name", "Batch"),
+            "avg_score": round(avg, 1),
+            "accuracy": round(avg),
+            "tests_taken": len(data["scores"]),
+            "streak_days": streak,
+        })
+
+    if not toppers:
+        return {"topper": None}
+
+    toppers.sort(key=lambda t: (t["avg_score"], t["tests_taken"]), reverse=True)
+    return {"topper": toppers[0]}
 
 
 @api_router.get("/admin/data-source-status", response_model=DataSourceStatusResponse)
