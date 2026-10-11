@@ -18,16 +18,26 @@ module.exports = {
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
+        hub: {
+          yellow: '#F5C842',
+          green: '#4CAF7D',
+          blue: '#5B9BD5',
+          purple: '#9B7EDE',
+          red: '#FF6B5E',
+          cream: '#FFF9E8',
+          dark: '#1E293B',
+          white: '#FFFFFF',
+        },
         cosmic: {
-          bg: '#0B0F19',
-          card: '#111827',
-          reader: '#172033',
+          bg: '#FFF9E8',
+          card: '#FFFFFF',
+          reader: '#FFFDF5',
           border: '#1E293B',
-          blue: '#3B82F6',
-          cyan: '#06B6D4',
-          amber: '#FBBF24',
-          text: '#F8FAFC',
-          sub: '#94A3B8',
+          blue: '#5B9BD5',
+          cyan: '#4CAF7D',
+          amber: '#F5C842',
+          text: '#1E293B',
+          sub: '#64748B',
         },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
@@ -63,12 +73,18 @@ module.exports = {
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
         chart: {
-          '1': 'hsl(var(--chart-1))',
-          '2': 'hsl(var(--chart-2))',
-          '3': 'hsl(var(--chart-3))',
-          '4': 'hsl(var(--chart-4))',
-          '5': 'hsl(var(--chart-5))'
+          '1': '#F5C842',
+          '2': '#4CAF7D',
+          '3': '#5B9BD5',
+          '4': '#9B7EDE',
+          '5': '#FF6B5E'
         }
+      },
+      boxShadow: {
+        'sticker': '4px 4px 0px #1E293B',
+        'sticker-sm': '2px 2px 0px #1E293B',
+        'sticker-lg': '6px 6px 0px #1E293B',
+        'sticker-xl': '8px 8px 0px #1E293B',
       },
       keyframes: {
         'accordion-down': {

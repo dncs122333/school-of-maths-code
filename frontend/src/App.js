@@ -25,7 +25,7 @@ import TeacherDashboard from "./pages/TeacherDashboard";
 
 function Shell({ children }) {
   return (
-    <div className="min-h-screen cosmic-bg">
+    <div className="min-h-screen classroom-bg text-[#1E293B]">
       <Navbar />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
     </div>
@@ -34,7 +34,7 @@ function Shell({ children }) {
 
 function App() {
   return (
-    <div className="App">
+    <div className="App bg-[#FFF9E8] text-[#1E293B]">
       <AuthProvider>
         <BrowserRouter>
           <DatabaseAvailabilityProvider>
@@ -57,7 +57,7 @@ function App() {
               <Route path="/reports" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><Reports /></Shell></ProtectedRoute>} />
               <Route path="/admin/data-source" element={<ProtectedRoute roles={["admin"]}><Shell><DataSourceStatus /></Shell></ProtectedRoute>} />
             </Routes>
-            <Toaster position="bottom-right" theme="dark" richColors />
+            <Toaster position="bottom-right" theme="light" richColors />
           </DatabaseAvailabilityProvider>
         </BrowserRouter>
       </AuthProvider>

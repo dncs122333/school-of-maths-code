@@ -12,14 +12,14 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 const CHIP = [
-  "text-[#3B82F6] border-[#3B82F6]/40 bg-[#3B82F6]/10",
-  "text-[#06B6D4] border-[#06B6D4]/40 bg-[#06B6D4]/10",
-  "text-[#34D399] border-[#34D399]/40 bg-[#34D399]/10",
-  "text-[#FBBF24] border-[#FBBF24]/40 bg-[#FBBF24]/10",
-  "text-[#F472B6] border-[#F472B6]/40 bg-[#F472B6]/10",
+  "text-[#1E293B] border-2 border-[#1E293B] bg-[#F5C842]",
+  "text-white border-2 border-[#1E293B] bg-[#4CAF7D]",
+  "text-white border-2 border-[#1E293B] bg-[#5B9BD5]",
+  "text-white border-2 border-[#1E293B] bg-[#9B7EDE]",
+  "text-white border-2 border-[#1E293B] bg-[#FF6B5E]",
 ];
 
-const inp = "rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]";
+const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B]";
 
 export default function NotesLibrary() {
   const { user } = useAuth();
@@ -108,46 +108,46 @@ export default function NotesLibrary() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B]">
         <div>
-          <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Library</span>
-          <h1 className="font-head text-3xl font-700 tracking-tight text-white">Notes</h1>
+          <span className="text-xs uppercase tracking-widest text-[#1E293B] font-head font-extrabold px-3 py-1 bg-white rounded-full border-2 border-[#1E293B]">Concept Repository</span>
+          <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight text-[#1E293B] uppercase mt-2">AI Study Notes</h1>
         </div>
         {isTeacher && (
-          <Button data-testid="new-note-btn" asChild className="rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA]">
-            <Link to="/notes/new"><Plus className="h-4 w-4 mr-1" /> New notes</Link>
+          <Button data-testid="new-note-btn" asChild className="rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold hover:bg-[#FFF9E8]">
+            <Link to="/notes/new"><Plus className="h-4 w-4 mr-1" /> + New Note</Link>
           </Button>
         )}
       </div>
 
       <div className="flex flex-wrap gap-3">
         <Select value={cls} onValueChange={(v) => { setCls(v); setSubject("all"); }}>
-          <SelectTrigger data-testid="filter-class" className="w-40 rounded-full border-[#1E293B] bg-[#111827]"><SelectValue placeholder="Class" /></SelectTrigger>
-          <SelectContent>
+          <SelectTrigger data-testid="filter-class" className="w-40 rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] font-head font-bold shadow-[2px_2px_0_#1E293B]"><SelectValue placeholder="Class" /></SelectTrigger>
+          <SelectContent className="bg-white border-2 border-[#1E293B]">
             <SelectItem value="all">All classes</SelectItem>
             <SelectItem value="9">Class 9</SelectItem>
             <SelectItem value="10">Class 10</SelectItem>
           </SelectContent>
         </Select>
         <Select value={subject} onValueChange={setSubject}>
-          <SelectTrigger data-testid="filter-subject" className="w-48 rounded-full border-[#1E293B] bg-[#111827]"><SelectValue placeholder="Subject" /></SelectTrigger>
-          <SelectContent>
+          <SelectTrigger data-testid="filter-subject" className="w-48 rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] font-head font-bold shadow-[2px_2px_0_#1E293B]"><SelectValue placeholder="Subject" /></SelectTrigger>
+          <SelectContent className="bg-white border-2 border-[#1E293B]">
             <SelectItem value="all">All subjects</SelectItem>
             {subjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
 
-      {loading ? <p className="text-[#94A3B8]">Loading…</p> : notes.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-[#1E293B] p-16 text-center">
-          <BookOpen className="h-10 w-10 mx-auto text-[#94A3B8]/40" />
-          <p className="mt-3 text-[#94A3B8]">No notes yet {isTeacher && "— create your first beautiful notes!"}</p>
+      {loading ? <p className="text-[#64748B] font-bold">Loading notes…</p> : notes.length === 0 ? (
+        <div className="rounded-3xl border-2 border-dashed border-[#1E293B] bg-white p-16 text-center shadow-[4px_4px_0_#1E293B]">
+          <BookOpen className="h-10 w-10 mx-auto text-[#64748B]" />
+          <p className="mt-3 text-[#1E293B] font-bold">No notes yet {isTeacher && "— create your first notes!"}</p>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {notes.map((n, i) => (
             <motion.div key={n.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-              className="relative group rounded-3xl bg-[#111827] border border-[#1E293B] hover:border-[#3B82F6]/40 transition-colors">
+              className="relative group rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all">
 
               {/* Teacher action buttons — top-right overlay on hover */}
               {isTeacher && (
@@ -155,7 +155,7 @@ export default function NotesLibrary() {
                   <button
                     data-testid={`edit-note-${n.id}`}
                     onClick={(e) => { e.preventDefault(); openEdit(n); }}
-                    className="h-7 w-7 rounded-full bg-[#1E293B] hover:bg-[#3B82F6]/20 border border-[#3B82F6]/30 flex items-center justify-center text-[#3B82F6] transition-colors"
+                    className="h-8 w-8 rounded-full bg-white hover:bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#1E293B] transition-colors"
                     title="Edit note">
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -163,7 +163,7 @@ export default function NotesLibrary() {
                     data-testid={`delete-note-${n.id}`}
                     onClick={(e) => { e.preventDefault(); setDeleteConfirm(n); }}
                     disabled={deleting === n.id}
-                    className="h-7 w-7 rounded-full bg-[#1E293B] hover:bg-[#F87171]/20 border border-[#F87171]/30 flex items-center justify-center text-[#F87171] transition-colors disabled:opacity-50"
+                    className="h-8 w-8 rounded-full bg-white hover:bg-[#FF6B5E]/20 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#FF6B5E] transition-colors disabled:opacity-50"
                     title="Delete note">
                     {deleting === n.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
@@ -172,23 +172,23 @@ export default function NotesLibrary() {
 
               <Link to={`/notes/${n.id}`} data-testid={`note-card-${n.id}`} className="block p-6 h-full">
                 <div className="flex items-center gap-2 mb-3 flex-wrap pr-16">
-                  <span className={`text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border ${CHIP[i % CHIP.length]}`}>{n.subject}</span>
-                  <span className="text-[11px] text-[#94A3B8] font-600 font-mono">Class {n.class_level}</span>
+                  <span className={`text-[11px] font-head font-bold uppercase tracking-wide px-2.5 py-0.5 rounded-full border-2 ${CHIP[i % CHIP.length]}`}>{n.subject}</span>
+                  <span className="text-[11px] text-[#64748B] font-bold font-mono">Class {n.class_level}</span>
                   {n.batch_name && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#06B6D4]/15 border border-[#06B6D4]/30 text-[#06B6D4]">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] font-bold">
                       {n.batch_name}
                     </span>
                   )}
-                  {n.status === "processing" && <span className="ml-auto text-[10px] font-600 uppercase tracking-wide px-2 py-0.5 rounded-full border border-[#FBBF24]/40 bg-[#FBBF24]/10 text-[#FBBF24] animate-pulse">Generating</span>}
-                  {n.status === "failed" && <span className="ml-auto text-[10px] font-600 uppercase tracking-wide px-2 py-0.5 rounded-full border border-[#F87171]/40 bg-[#F87171]/10 text-[#F87171]">Failed</span>}
+                  {n.status === "processing" && <span className="ml-auto text-[10px] font-head font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#F5C842] text-[#1E293B] animate-pulse">Generating</span>}
+                  {n.status === "failed" && <span className="ml-auto text-[10px] font-head font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#FF6B5E] text-white">Failed</span>}
                 </div>
-                <h3 className="font-head text-lg font-600 leading-snug text-white">{n.title}</h3>
-                <p className="text-sm text-[#94A3B8] mt-1 line-clamp-2">{n.intro}</p>
-                <div className="mt-4 flex flex-wrap items-center gap-1.5 text-xs text-[#94A3B8] font-500">
-                  <span className="px-2 py-0.5 rounded-full bg-[#0B0F19] border border-[#1E293B]">{n.chapter}</span>
-                  {n.topic && <span className="px-2 py-0.5 rounded-full bg-[#0B0F19] border border-[#1E293B]">{n.topic}</span>}
+                <h3 className="font-head text-lg font-900 leading-snug text-[#1E293B]">{n.title}</h3>
+                <p className="text-sm text-[#64748B] mt-1 line-clamp-2">{n.intro}</p>
+                <div className="mt-4 flex flex-wrap items-center gap-1.5 text-xs text-[#1E293B] font-bold">
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B]">{n.chapter}</span>
+                  {n.topic && <span className="px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B]">{n.topic}</span>}
                 </div>
-                <div className="mt-3 flex items-center gap-1 text-xs text-[#94A3B8]/70"><User className="h-3 w-3" /> {n.teacher_name}</div>
+                <div className="mt-3 flex items-center gap-1 text-xs text-[#64748B] font-medium"><User className="h-3 w-3" /> {n.teacher_name}</div>
               </Link>
             </motion.div>
           ))}
@@ -197,18 +197,18 @@ export default function NotesLibrary() {
 
       {/* ---- Delete confirmation dialog ---- */}
       <Dialog open={!!deleteConfirm} onOpenChange={(o) => { if (!o) setDeleteConfirm(null); }}>
-        <DialogContent className="bg-[#111827] border-[#1E293B] max-w-md">
+        <DialogContent className="bg-white border-[3px] border-[#1E293B] max-w-md rounded-3xl p-6 shadow-[6px_6px_0_#1E293B] text-[#1E293B]">
           <DialogHeader>
-            <DialogTitle className="text-white font-head text-xl">Delete note?</DialogTitle>
+            <DialogTitle className="text-[#1E293B] font-head text-xl font-900">Delete note?</DialogTitle>
           </DialogHeader>
-          <p className="text-[#94A3B8] text-sm leading-relaxed">
-            <span className="font-600 text-white">"{deleteConfirm?.title}"</span> will be permanently removed and students will lose access immediately.
+          <p className="text-[#64748B] text-sm leading-relaxed">
+            <span className="font-bold text-[#1E293B]">"{deleteConfirm?.title}"</span> will be permanently removed and students will lose access immediately.
           </p>
-          <DialogFooter className="gap-2 mt-2">
-            <Button variant="outline" className="rounded-full border-[#1E293B] text-[#94A3B8]"
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" className="rounded-full border-2 border-[#1E293B] text-[#1E293B]"
               onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button
-              className="rounded-full bg-[#F87171] hover:bg-[#EF4444] text-white font-700"
+              className="rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] font-head font-bold"
               disabled={!!deleting}
               onClick={() => handleDelete(deleteConfirm)}>
               {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
@@ -220,9 +220,9 @@ export default function NotesLibrary() {
 
       {/* ---- Edit dialog ---- */}
       <Dialog open={!!editNote} onOpenChange={(o) => { if (!o) setEditNote(null); }}>
-        <DialogContent className="bg-[#111827] border-[#1E293B] max-w-lg">
+        <DialogContent className="bg-white border-[3px] border-[#1E293B] max-w-lg rounded-3xl p-6 shadow-[6px_6px_0_#1E293B] text-[#1E293B]">
           <DialogHeader>
-            <DialogTitle className="text-white font-head text-xl">Edit note</DialogTitle>
+            <DialogTitle className="text-[#1E293B] font-head text-xl font-900">Edit note</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>

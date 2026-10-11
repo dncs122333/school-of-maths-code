@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui/button";
-import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, Orbit, FolderOpen, Brain, BarChart3, Database } from "lucide-react";
+import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, FolderOpen, Brain, BarChart3, Database } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -22,36 +22,65 @@ export default function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-[#0B0F19]/85 backdrop-blur-xl border-b border-[#1E293B]">
+    <header className="sticky top-0 z-50 bg-[#F5C842] border-b-[3px] border-[#1E293B] shadow-[0_4px_0_#1E293B]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-        <Link to="/dashboard" data-testid="navbar-logo" className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-xl bg-[#3B82F6] flex items-center justify-center glow-blue">
-            <Orbit className="h-5 w-5 text-white" />
+        {/* Logo */}
+        <Link to="/dashboard" data-testid="navbar-logo" className="flex items-center gap-2.5 group">
+          <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center group-hover:rotate-6 transition-transform">
+            <span className="text-xl">📐</span>
           </div>
-          <span className="font-head font-700 text-xl tracking-tight text-white">School of <span className="text-[#06B6D4]">Maths</span></span>
+          <div className="flex flex-col">
+            <span className="font-head font-900 text-lg sm:text-xl tracking-tight text-[#1E293B] uppercase leading-none">
+              School of <span className="text-[#FF6B5E]">Maths</span>
+            </span>
+            <span className="text-[10px] font-head font-bold uppercase tracking-wider text-[#1E293B]/80 mt-0.5">
+              Classroom Hub
+            </span>
+          </div>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1">
+        {/* Chunky Nav Links */}
+        <nav className="hidden md:flex items-center gap-1.5 overflow-x-auto py-1">
           {links.map((l) => {
-            const active = loc.pathname.startsWith(l.to);
+            const active = loc.pathname === l.to || (l.to !== "/dashboard" && loc.pathname.startsWith(l.to));
             const Icon = l.icon;
             return (
-              <Link key={l.to} to={l.to} data-testid={`nav-${l.label.toLowerCase().replace(/\s+/g, "-")}`}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-500 transition-colors ${active ? "bg-[#3B82F6]/15 text-[#3B82F6]" : "text-[#94A3B8] hover:text-white hover:bg-white/5"}`}>
-                <Icon className="h-4 w-4" /> {l.label}
+              <Link
+                key={l.to}
+                to={l.to}
+                data-testid={`nav-${l.label.toLowerCase().replace(/\s+/g, "-")}`}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-head font-bold border-2 border-[#1E293B] transition-all whitespace-nowrap ${
+                  active
+                    ? "bg-white text-[#1E293B] shadow-[2px_2px_0_#1E293B] -translate-y-0.5"
+                    : "bg-white/35 text-[#1E293B] hover:bg-white hover:shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5 text-[#1E293B]" /> {l.label}
               </Link>
             );
           })}
         </nav>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex flex-col items-end leading-tight">
-            <span className="text-sm font-600 text-white">{user.name}</span>
-            <span className="text-[11px] uppercase tracking-widest text-[#94A3B8]">{user.role}</span>
+        {/* Right User & Logout Capsule */}
+        <div className="flex items-center gap-2.5">
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-white rounded-full border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+            <span className="h-2 w-2 rounded-full bg-[#4CAF7D]" />
+            <span className="text-xs font-head font-bold text-[#1E293B] max-w-[120px] truncate">{user.name}</span>
+            <span className="text-[10px] font-head font-extrabold uppercase px-1.5 py-0.2 bg-[#F5C842] border border-[#1E293B] rounded-full text-[#1E293B]">
+              {user.role}
+            </span>
           </div>
-          <Button data-testid="logout-btn" variant="outline" size="sm" className="rounded-full border-[#1E293B] bg-transparent hover:bg-white/5 text-[#94A3B8]"
-            onClick={() => { logout(); nav("/auth"); }}>
-            <LogOut className="h-4 w-4" />
+
+          <Button
+            data-testid="logout-btn"
+            variant="destructive"
+            size="sm"
+            className="rounded-full h-8 px-3 text-xs bg-[#FF6B5E] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:bg-[#EE594B]"
+            onClick={() => { logout(); nav("/auth"); }}
+            title="Log out"
+          >
+            <LogOut className="h-3.5 w-3.5 mr-1" />
+            <span className="hidden xs:inline">Exit</span>
           </Button>
         </div>
       </div>

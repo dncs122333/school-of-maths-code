@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,149 +8,249 @@ body {
     font-family: 'IBM Plex Sans', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: #0B0F19;
-    color: #F8FAFC;
+    background-color: #FFF9E8;
+    color: #1E293B;
 }
 
-h1, h2, h3, h4, .font-head {
+h1, h2, h3, h4, h5, h6, .font-head {
     font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #1E293B;
 }
+
 .font-mono { font-family: 'JetBrains Mono', monospace; }
 
 @layer base {
     :root {
-        --background: 222 47% 7%;
-        --foreground: 210 40% 98%;
-        --card: 222 39% 11%;
-        --card-foreground: 210 40% 98%;
-        --popover: 222 39% 11%;
-        --popover-foreground: 210 40% 98%;
-        --primary: 217 91% 60%;
-        --primary-foreground: 0 0% 100%;
-        --secondary: 217 33% 17%;
-        --secondary-foreground: 210 40% 98%;
-        --muted: 217 33% 17%;
-        --muted-foreground: 215 20% 65%;
-        --accent: 188 94% 43%;
-        --accent-foreground: 222 47% 7%;
-        --destructive: 0 72% 51%;
+        --background: 44 100% 95%; /* #FFF9E8 */
+        --foreground: 222 47% 18%; /* #1E293B */
+        --card: 0 0% 100%; /* #FFFFFF */
+        --card-foreground: 222 47% 18%; /* #1E293B */
+        --popover: 0 0% 100%;
+        --popover-foreground: 222 47% 18%;
+        --primary: 44 90% 61%; /* #F5C842 */
+        --primary-foreground: 222 47% 18%; /* #1E293B */
+        --secondary: 208 58% 60%; /* #5B9BD5 */
+        --secondary-foreground: 0 0% 100%;
+        --muted: 44 60% 92%;
+        --muted-foreground: 215 16% 47%; /* #64748B */
+        --accent: 149 39% 49%; /* #4CAF7D */
+        --accent-foreground: 0 0% 100%;
+        --destructive: 5 100% 68%; /* #FF6B5E */
         --destructive-foreground: 0 0% 100%;
-        --border: 217 33% 17%;
-        --input: 217 33% 20%;
-        --ring: 217 91% 60%;
-        --radius: 0.9rem;
+        --border: 222 47% 18%; /* #1E293B */
+        --input: 44 100% 95%; /* #FFF9E8 */
+        --ring: 44 90% 61%; /* #F5C842 */
+        --radius: 1.25rem;
     }
 }
 
 @layer base {
-    * { @apply border-border; }
-    body { @apply bg-background text-foreground; }
+    * { 
+        border-color: #1E293B; 
+    }
+    body { 
+        @apply bg-[#FFF9E8] text-[#1E293B]; 
+    }
 }
 
-/* Deep space background with faint constellation dots */
-.cosmic-bg {
-    background-color: #0B0F19;
-    background-image:
-        radial-gradient(circle at 15% 20%, rgba(59,130,246,0.10), transparent 40%),
-        radial-gradient(circle at 85% 15%, rgba(6,182,212,0.08), transparent 40%),
-        radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.35), transparent),
-        radial-gradient(1px 1px at 60% 70%, rgba(255,255,255,0.25), transparent),
-        radial-gradient(1px 1px at 80% 40%, rgba(255,255,255,0.3), transparent),
-        radial-gradient(1px 1px at 35% 80%, rgba(255,255,255,0.2), transparent),
-        radial-gradient(2px 2px at 50% 15%, rgba(255,255,255,0.25), transparent);
-    background-repeat: no-repeat, no-repeat, repeat, repeat, repeat, repeat, repeat;
-    background-size: auto, auto, 220px 220px, 300px 300px, 260px 260px, 340px 340px, 400px 400px;
+/* Bulletin board paper texture with subtle dot grid */
+.cosmic-bg, .classroom-bg {
+    background-color: #FFF9E8;
+    background-image: radial-gradient(#1E293B 0.8px, transparent 0.8px);
+    background-size: 24px 24px;
+}
+
+/* Classroom Hub Card & Sticker Styles */
+.hub-card {
+    background: #FFFFFF;
+    border: 2.5px solid #1E293B;
+    border-radius: 1.5rem;
+    box-shadow: 4px 4px 0px #1E293B;
+    color: #1E293B;
+}
+
+.hub-card-lg {
+    background: #FFFFFF;
+    border: 3px solid #1E293B;
+    border-radius: 2rem;
+    box-shadow: 6px 6px 0px #1E293B;
+    color: #1E293B;
+}
+
+.hub-card-interactive {
+    background: #FFFFFF;
+    border: 2.5px solid #1E293B;
+    border-radius: 1.5rem;
+    box-shadow: 4px 4px 0px #1E293B;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    color: #1E293B;
+}
+
+.hub-card-interactive:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px #1E293B;
+}
+
+/* Backward compatibility for .glass-panel to ensure zero dark leftovers */
+.glass-panel {
+    background: #FFFFFF !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: 2.5px solid #1E293B !important;
+    border-radius: 1.5rem !important;
+    box-shadow: 4px 4px 0px #1E293B !important;
+    color: #1E293B !important;
+}
+
+.glass-panel-interactive {
+    background: #FFFFFF !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: 2.5px solid #1E293B !important;
+    border-radius: 1.5rem !important;
+    box-shadow: 4px 4px 0px #1E293B !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+    color: #1E293B !important;
+}
+
+.glass-panel-interactive:hover {
+    background: #FFFFFF !important;
+    transform: translate(-2px, -2px) !important;
+    box-shadow: 6px 6px 0px #1E293B !important;
+}
+
+/* Chunky Classroom Buttons */
+.hub-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    border: 2.5px solid #1E293B;
+    border-radius: 9999px;
+    box-shadow: 3px 3px 0px #1E293B;
+    transition: all 0.1s ease;
+    cursor: pointer;
+}
+
+.hub-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px #1E293B !important;
+}
+
+.hub-btn-yellow {
+    background-color: #F5C842;
+    color: #1E293B;
+}
+.hub-btn-yellow:hover { background-color: #E6B935; }
+
+.hub-btn-green {
+    background-color: #4CAF7D;
+    color: #FFFFFF;
+}
+.hub-btn-green:hover { background-color: #429E6F; }
+
+.hub-btn-blue {
+    background-color: #5B9BD5;
+    color: #FFFFFF;
+}
+.hub-btn-blue:hover { background-color: #4D8BC4; }
+
+.hub-btn-purple {
+    background-color: #9B7EDE;
+    color: #FFFFFF;
+}
+.hub-btn-purple:hover { background-color: #8C6FD0; }
+
+.hub-btn-red {
+    background-color: #FF6B5E;
+    color: #FFFFFF;
+}
+.hub-btn-red:hover { background-color: #EE594B; }
+
+.hub-btn-white {
+    background-color: #FFFFFF;
+    color: #1E293B;
+}
+.hub-btn-white:hover { background-color: #FFF9E8; }
+
+/* Dashed Notice & Inner Panels */
+.hub-dashed {
+    border: 2.5px dashed #1E293B !important;
 }
 
 .note-content {
     line-height: 1.95;
     white-space: pre-wrap;
-    color: #D1D5DB;
+    color: #1E293B;
 }
 
-@keyframes floaty {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-}
-.animate-floaty { animation: floaty 6s ease-in-out infinite; }
+/* Remove glow effects and replace with solid retro sticker shadows */
+.glow-blue { box-shadow: 3px 3px 0px #1E293B; }
+.glow-cyan { box-shadow: 3px 3px 0px #1E293B; }
+.glow-amber { box-shadow: 3px 3px 0px #1E293B; }
+.glow-green { box-shadow: 3px 3px 0px #1E293B; }
+.glow-red { box-shadow: 3px 3px 0px #1E293B; }
 
-@keyframes twinkle {
-    0%, 100% { opacity: 0.2; }
-    50% { opacity: 1; }
-}
-.animate-twinkle { animation: twinkle 3s ease-in-out infinite; }
-
-@keyframes spin-slow { to { transform: rotate(360deg); } }
-.animate-spin-slow { animation: spin-slow 40s linear infinite; }
-
-.glow-blue { box-shadow: 0 0 40px -8px rgba(59,130,246,0.5); }
-.glow-cyan { box-shadow: 0 0 40px -8px rgba(6,182,212,0.45); }
-.glow-amber { box-shadow: 0 0 40px -8px rgba(251,191,36,0.35); }
-.glow-green { box-shadow: 0 0 40px -8px rgba(52,211,153,0.35); }
-.glow-red { box-shadow: 0 0 40px -8px rgba(248,113,113,0.35); }
-
-.glass-panel {
-    background: rgba(17, 24, 39, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(30, 41, 59, 0.8);
+/* Replace text gradients with crisp solid flat dark text */
+.text-gradient-cyan, .text-gradient-blue, .text-gradient-amber {
+    background: none !important;
+    -webkit-background-clip: unset !important;
+    -webkit-text-fill-color: #1E293B !important;
+    color: #1E293B !important;
 }
 
-.glass-panel-interactive {
-    background: rgba(17, 24, 39, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(30, 41, 59, 0.8);
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.glass-panel-interactive:hover {
-    background: rgba(23, 32, 51, 0.9);
-    border-color: rgba(59, 130, 246, 0.4);
-    transform: translateY(-2px);
-}
-
-.text-gradient-cyan {
-    background: linear-gradient(135deg, #FFFFFF 30%, #06B6D4 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.text-gradient-blue {
-    background: linear-gradient(135deg, #FFFFFF 30%, #3B82F6 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.text-gradient-amber {
-    background: linear-gradient(135deg, #FDE68A 0%, #F59E0B 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-/* Custom Thin Scrollbar */
+/* Chunky Scrollbar */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 ::-webkit-scrollbar-track {
-    background: #0B0F19;
+    background: #FFF9E8;
+    border-left: 1px solid #1E293B;
 }
 ::-webkit-scrollbar-thumb {
-    background: #1E293B;
+    background: #F5C842;
+    border: 2px solid #1E293B;
     border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #3B82F6;
+    background: #FF6B5E;
 }
 
-/* Live science/maths wallpaper */
-@keyframes aurora {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+/* Floating animation */
+@keyframes floaty {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
 }
-.live-wall {
-    background: linear-gradient(120deg, #0B0F19, #0d1b3a, #08283a, #101a33, #0B0F19);
-    background-size: 320% 320%;
-    animation: aurora 14s ease infinite;
+.animate-floaty { animation: floaty 4s ease-in-out infinite; }
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 30s linear infinite; }
+
+/* Classroom Hub container & text overrides to prevent any dark-theme bleed */
+.bg-\[\#111827\], .bg-\[\#111827\]\/80, .bg-\[\#111827\]\/90 {
+    background-color: #FFFFFF !important;
+    border-color: #1E293B !important;
+    color: #1E293B !important;
+}
+
+.bg-\[\#0B0F19\], .bg-\[\#0B0F19\]\/90, .bg-\[\#0B0F19\]\/80, .bg-\[\#0B0F19\]\/60 {
+    background-color: #FFF9E8 !important;
+    border-color: #1E293B !important;
+    color: #1E293B !important;
+}
+
+.bg-\[\#172033\], .bg-\[\#172554\]\/90, .bg-\[\#0F172A\] {
+    background-color: #FFF9E8 !important;
+    border-color: #1E293B !important;
+    color: #1E293B !important;
+}
+
+.bg-\[\#111827\] h1, .bg-\[\#111827\] h2, .bg-\[\#111827\] h3, .bg-\[\#111827\] h4,
+.bg-\[\#0B0F19\] h1, .bg-\[\#0B0F19\] h2, .bg-\[\#0B0F19\] h3, .bg-\[\#0B0F19\] h4 {
+    color: #1E293B !important;
 }

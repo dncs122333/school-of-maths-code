@@ -5,7 +5,7 @@ import { formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { Orbit, BookOpen, Presentation } from "lucide-react";
+import { BookOpen, Presentation } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Auth() {
@@ -33,21 +33,38 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen cosmic-bg flex items-center justify-center p-4">
+    <div className="min-h-screen classroom-bg flex items-center justify-center p-4">
       <div className="w-full max-w-md relative">
-        <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-48 w-48 rounded-full border border-dashed border-white/10 animate-spin-slow" />
-        <div className="flex items-center justify-center gap-2.5 mb-8 cursor-pointer relative z-10" onClick={() => nav("/")}>
-          <div className="h-10 w-10 rounded-xl bg-[#3B82F6] flex items-center justify-center glow-blue">
-            <Orbit className="h-6 w-6 text-white" />
+        {/* Retro Logo Badge */}
+        <div className="flex items-center justify-center gap-2.5 mb-8 cursor-pointer" onClick={() => nav("/")}>
+          <div className="h-12 w-12 rounded-2xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] flex items-center justify-center">
+            <span className="text-2xl">📐</span>
           </div>
-          <span className="font-head font-700 text-2xl tracking-tight text-white"><span className="text-[#3B82F6]">School</span> <span className="text-[#F87171]">of</span> <span className="text-[#3B82F6]">Maths</span></span>
+          <div className="flex flex-col">
+            <span className="font-head font-900 text-2xl tracking-tight text-[#1E293B] uppercase leading-none">
+              School <span className="text-[#FF6B5E]">of</span> Maths
+            </span>
+            <span className="text-[11px] font-head font-bold uppercase tracking-wider text-[#64748B] mt-0.5">
+              Classroom Hub Portal
+            </span>
+          </div>
         </div>
 
-        <div className="bg-[#111827] rounded-3xl border border-[#1E293B] p-8 relative z-10">
-          <div className="flex gap-2 p-1 bg-[#0B0F19] border border-[#1E293B] rounded-full mb-6">
+        {/* White Card with Thick Borders & Hard Shadow */}
+        <div className="bg-white rounded-3xl border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-8">
+          {/* Mode Switcher Pills */}
+          <div className="flex gap-2 p-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] rounded-full mb-6">
             {["login", "register"].map((m) => (
-              <button key={m} data-testid={`tab-${m}`} onClick={() => setMode(m)}
-                className={`flex-1 py-2 rounded-full text-sm font-600 capitalize transition-colors ${mode === m ? "bg-[#3B82F6] text-white" : "text-[#94A3B8]"}`}>
+              <button
+                key={m}
+                data-testid={`tab-${m}`}
+                onClick={() => setMode(m)}
+                className={`flex-1 py-2 rounded-full text-xs font-head font-bold uppercase tracking-wider transition-all ${
+                  mode === m
+                    ? "bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
+                    : "text-[#1E293B] hover:bg-white"
+                }`}
+              >
                 {m === "login" ? "Log in" : "Sign up"}
               </button>
             ))}
@@ -57,40 +74,78 @@ export default function Auth() {
             {mode === "register" && (
               <>
                 <div>
-                  <Label className="text-sm font-600 text-[#94A3B8]">I am a</Label>
-                  <div className="grid grid-cols-2 gap-2 mt-1.5">
+                  <Label className="text-xs font-head font-bold uppercase text-[#1E293B]">I am a</Label>
+                  <div className="grid grid-cols-2 gap-2.5 mt-1.5">
                     {[{ v: "student", icon: BookOpen, l: "Student" }, { v: "teacher", icon: Presentation, l: "Teacher" }].map((r) => (
-                      <button type="button" key={r.v} data-testid={`role-${r.v}`} onClick={() => setRole(r.v)}
-                        className={`flex items-center justify-center gap-2 py-3 rounded-2xl border font-600 transition-colors ${role === r.v ? "border-[#3B82F6] bg-[#3B82F6]/10 text-white" : "border-[#1E293B] text-[#94A3B8]"}`}>
+                      <button
+                        type="button"
+                        key={r.v}
+                        data-testid={`role-${r.v}`}
+                        onClick={() => setRole(r.v)}
+                        className={`flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-[#1E293B] font-head font-bold text-xs transition-all ${
+                          role === r.v
+                            ? "bg-[#5B9BD5] text-white shadow-[2px_2px_0_#1E293B]"
+                            : "bg-[#FFF9E8] text-[#1E293B] hover:bg-white"
+                        }`}
+                      >
                         <r.icon className="h-4 w-4" /> {r.l}
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="name" className="text-sm font-600 text-[#94A3B8]">Full name</Label>
-                  <Input id="name" data-testid="name-input" required className="rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]" value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Aarav Sharma" />
+                  <Label htmlFor="name" className="text-xs font-head font-bold uppercase text-[#1E293B]">Full name</Label>
+                  <Input
+                    id="name"
+                    data-testid="name-input"
+                    required
+                    className="mt-1"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="Aarav Sharma"
+                  />
                 </div>
               </>
             )}
             <div>
-              <Label htmlFor="email" className="text-sm font-600 text-[#94A3B8]">Email</Label>
-              <Input id="email" data-testid="email-input" type="email" required className="rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]" value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" />
+              <Label htmlFor="email" className="text-xs font-head font-bold uppercase text-[#1E293B]">Email</Label>
+              <Input
+                id="email"
+                data-testid="email-input"
+                type="email"
+                required
+                className="mt-1"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="you@example.com"
+              />
             </div>
             <div>
-              <Label htmlFor="password" className="text-sm font-600 text-[#94A3B8]">Password</Label>
-              <Input id="password" data-testid="password-input" type="password" required className="rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]" value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+              <Label htmlFor="password" className="text-xs font-head font-bold uppercase text-[#1E293B]">Password</Label>
+              <Input
+                id="password"
+                data-testid="password-input"
+                type="password"
+                required
+                className="mt-1"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="••••••••"
+              />
             </div>
-            <Button data-testid="auth-submit" type="submit" disabled={busy}
-              className="w-full rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA] h-11 glow-blue">
-              {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+            <Button
+              data-testid="auth-submit"
+              type="submit"
+              disabled={busy}
+              className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-900 text-sm h-11 uppercase tracking-wider mt-2"
+            >
+              {busy ? "Please wait…" : mode === "login" ? "Log in to Hub" : "Create Account"}
             </Button>
           </form>
           {mode === "login" && (
-            <p className="text-xs text-[#94A3B8]/70 text-center mt-4 font-mono">admin@vidya.com / admin123</p>
+            <p className="text-xs text-[#64748B] text-center mt-4 font-mono font-bold">
+              Teacher Demo: admin@vidya.com / admin123
+            </p>
           )}
         </div>
       </div>

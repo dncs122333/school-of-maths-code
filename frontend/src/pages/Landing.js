@@ -1,285 +1,602 @@
-import React, { useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
-import { Orbit } from "lucide-react";
-import { mountLetsScroll } from "../lib/scrub-engine";
+import {
+  Sparkles,
+  BookOpen,
+  FileQuestion,
+  Target,
+  ArrowRight,
+  Award,
+  Calendar,
+  CheckCircle2,
+  Users,
+  Compass,
+  Zap,
+  FolderOpen,
+} from "lucide-react";
 import FloatingSymbols from "../components/FloatingSymbols";
 
 export default function Landing() {
   const nav = useNavigate();
-  const worldRef = useRef(null);
-
-  useEffect(() => {
-    if (!worldRef.current) return;
-
-    // Clear out any previous instances if React strict mode double-invokes
-    worldRef.current.innerHTML = "";
-
-    mountLetsScroll(worldRef.current, {
-      diveScroll: 1.3,
-      connScroll: 0.9,
-      hint: 'scroll to dive in',
-      nav: false,
-      atmosphere: true,
-      sections: [
-        {
-          id: 'notes', label: 'Topper Notes',
-          still: '/assets/notes.webp',
-          stillMobile: '/assets/notes_mobile.webp',
-          clip: '/assets/vid/notes.mp4',
-          clipMobile: '/assets/vid/notes_mobile.mp4',
-          accent: '#3B82F6',
-          scroll: 1.6, linger: 0.45,
-          eyebrow: 'EXAM SECRETS',
-          title: 'Topper Notes',
-          body: 'No Confusion, Just Clarity!\nSmart Notes for Easy Understanding.',
-        },
-        {
-          id: 'tests', label: 'Timed Tests',
-          still: '/assets/tests.webp',
-          stillMobile: '/assets/tests_mobile.webp',
-          clip: '/assets/vid/tests.mp4',
-          clipMobile: '/assets/vid/tests_mobile.mp4',
-          accent: '#06B6D4',
-          scroll: 1.6, linger: 0.45,
-          eyebrow: 'Live Exam Window',
-          title: 'Timed Competitive Tests',
-          body: 'Practise under real exam pressure\nChallenge yourself against the clock.',
-        },
-        {
-          id: 'dpp', label: 'Daily Practice',
-          still: '/assets/dpp.webp',
-          stillMobile: '/assets/dpp_mobile.webp',
-          clip: '/assets/vid/dpp.mp4',
-          clipMobile: '/assets/vid/dpp_mobile.mp4',
-          accent: '#FBBF24',
-          scroll: 1.6, linger: 0.45,
-          eyebrow: 'Build Momentum',
-          title: 'Daily Practice Problems',
-          body: 'Small daily steps, massive exams result..\nMaster Tough Concepts with Daily Practice',
-        },
-        {
-          id: 'leaderboard', label: 'Smart Analytics',
-          still: '/assets/leaderboard.webp',
-          stillMobile: '/assets/leaderboard_mobile.webp',
-          clip: '/assets/vid/leaderboard.mp4',
-          clipMobile: '/assets/vid/leaderboard_mobile.mp4',
-          accent: '#34D399',
-          scroll: 1.6, linger: 0.45,
-          eyebrow: 'Personalized AI Power-up',
-          title: 'Smart Analytics',
-          body: 'No more Guessing!\nUncover your Weak Concepts, Fix them fast and Level Up.',
-        },
-        {
-          id: 'smart-practice', label: 'Smart Practice',
-          still: '/assets/smart_practice.webp',
-          stillMobile: '/assets/smart_practice_mobile.webp',
-          clip: '/assets/vid/smart_practice.mp4',
-          clipMobile: '/assets/vid/smart_practice_mobile.mp4',
-          accent: '#A78BFA',
-          scroll: 1.6, linger: 0.45,
-          eyebrow: 'Personalized Practice Engine',
-          title: 'Smart Practice',
-          body: 'Turn your Weak spots into your strongest topics with\nSmart Tests tailored just for you.',
-          cta: {
-            primary: { label: 'Start learning free', href: '/auth?mode=register' },
-            secondary: { label: "I'm a teacher", href: '/auth?mode=register&role=teacher' }
-          }
-        }
-      ],
-      connectors: [],
-      connectorsMobile: []
-    });
-
-    // Inject animated ↑ arrow into the last section's body text
-    const lastBody = worldRef.current.querySelectorAll('.sw-copy__body');
-    if (lastBody.length > 0) {
-      const last = lastBody[lastBody.length - 1];
-      const arrow = document.createElement('span');
-      arrow.className = 'level-up-arrow';
-      arrow.textContent = ' ↑';
-      last.appendChild(arrow);
-    }
-
-    // Inject animated artistic SVG lock icon next to first eyebrow
-    const eyebrows = worldRef.current.querySelectorAll('.sw-copy__eyebrow');
-    if (eyebrows.length > 0) {
-      const lockSpan = document.createElement('span');
-      lockSpan.className = 'lock-icon';
-      lockSpan.innerHTML = `
-        <svg class="artistic-lock" viewBox="0 0 100 100">
-          <defs>
-            <linearGradient id="lock-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#60A5FA" />
-              <stop offset="100%" stop-color="#2563EB" />
-            </linearGradient>
-            <linearGradient id="shackle-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#E2E8F0" />
-              <stop offset="100%" stop-color="#94A3B8" />
-            </linearGradient>
-          </defs>
-          <!-- Shackle -->
-          <path class="lock-shackle" d="M32 45 V 28 A 18 18 0 0 1 68 28 V 45" fill="none" stroke="url(#shackle-grad)" stroke-width="8" stroke-linecap="round" />
-          <!-- Lock Body -->
-          <rect class="lock-body" x="18" y="45" width="64" height="48" rx="12" fill="url(#lock-grad)" stroke="#3B82F6" stroke-width="3" />
-          <!-- Keyhole -->
-          <circle cx="50" cy="65" r="7" fill="#111827" />
-          <path d="M46 65 L54 65 L56 81 L44 81 Z" fill="#111827" />
-        </svg>
-      `;
-      eyebrows[0].appendChild(lockSpan);
-    }
-  }, []);
 
   return (
-    <div className="min-h-screen bg-[#111827]">
-      <header className="fixed top-0 left-0 right-0 max-w-7xl mx-auto px-6 h-20 flex items-center justify-between z-[200] pointer-events-none">
-        <div className="flex items-center gap-2.5 pointer-events-auto cursor-pointer" onClick={() => window.scrollTo(0, 0)}>
-          <div className="h-12 w-12 rounded-xl bg-[#3B82F6] flex items-center justify-center glow-blue">
-            <Orbit className="h-7 w-7 text-white" />
+    <div className="min-h-screen bg-[#FFF9E8] text-[#1E293B] relative overflow-x-hidden">
+      {/* Live Particle Overlay */}
+      <FloatingSymbols count={30} />
+
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-50 bg-[#F5C842] border-b-[3px] border-[#1E293B] shadow-[0_4px_0_#1E293B]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-4">
+          {/* Logo */}
+          <div
+            className="flex items-center gap-2.5 cursor-pointer group"
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          >
+            <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center group-hover:rotate-6 transition-transform">
+              <span className="text-xl sm:text-2xl">📐</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-head font-900 text-xl sm:text-2xl tracking-tight text-[#1E293B] uppercase leading-none">
+                School of <span className="text-[#FF6B5E]">Maths</span>
+              </span>
+              <span className="text-[10px] sm:text-xs font-head font-bold uppercase tracking-wider text-[#1E293B]/80 mt-0.5">
+                Classroom Hub • CBSE 9–10
+              </span>
+            </div>
           </div>
-          <span className="font-head font-700 text-3xl sm:text-4xl tracking-tight"><span className="text-[#3B82F6]">School</span> <span className="text-[#F87171]">of</span> <span className="text-[#3B82F6]">Maths</span></span>
-        </div>
-        <div className="flex items-center gap-3 pointer-events-auto">
-          <Button data-testid="landing-login-btn" variant="ghost" className="rounded-full font-600 text-[#94A3B8] hover:text-white hover:bg-white/5 bg-[#111827]/80 backdrop-blur-md" onClick={() => nav("/auth")}>Log in</Button>
-          <Button data-testid="landing-start-btn" className="rounded-full bg-[#3B82F6] text-white hover:bg-[#60A5FA] font-600 shadow-[0_0_15px_rgba(59,130,246,0.5)]" onClick={() => nav("/auth?mode=register")}>Get started</Button>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            <Button
+              data-testid="landing-login-btn"
+              variant="outline"
+              className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-bold text-xs sm:text-sm h-10 px-4 sm:px-5 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              onClick={() => nav("/auth")}
+            >
+              Log in
+            </Button>
+            <Button
+              data-testid="landing-start-btn"
+              variant="dark"
+              className="rounded-full !text-white font-head font-bold text-xs sm:text-sm h-10 px-4 sm:px-6 shadow-[2px_2px_0_#1E293B]"
+              onClick={() => nav("/auth?mode=register")}
+            >
+              Get started <ArrowRight className="h-4 w-4 ml-1 inline" />
+            </Button>
+          </div>
         </div>
       </header>
 
-      {/* Live Particle Overlay */}
-      <FloatingSymbols count={40} />
+      {/* ======================================================== */}
+      {/* 1. HERO SECTION (MUSTARD YELLOW #F5C842 BANNER) */}
+      {/* ======================================================== */}
+      <section className="bg-[#F5C842] border-b-[3px] border-[#1E293B] py-16 sm:py-24 px-4 sm:px-6 relative overflow-hidden">
+        <div className="max-w-6xl mx-auto text-center space-y-6 sm:space-y-8 relative z-10">
+          {/* Top Badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+            <span className="text-base select-none">📌</span>
+            <span className="text-xs sm:text-sm font-head font-900 uppercase tracking-widest text-[#1E293B]">
+              CBSE Classes 9–10 Academic Platform
+            </span>
+          </div>
 
-      {/* CSS Overrides — unlayered CSS always wins over @layer sw from scrub-engine */}
-      <style>{`
-        /* Override scrub-engine theme tokens to match our dark background */
-        .sw-root {
-          --sw-bg: #111827 !important;
-          --sw-ink: #F1F5F9 !important;
-          --sw-ink-soft: #94A3B8 !important;
-        }
-        html, body {
-          background: #111827 !important;
-        }
-        /* Kill the white sky background & glow */
-        .sw-sky {
-          background: #111827 !important;
-        }
-        .sw-sky__grad, .sw-sky__glow {
-          display: none !important;
-        }
+          {/* Headline */}
+          <h1 className="font-head text-4xl sm:text-6xl md:text-7xl font-900 tracking-tight text-[#1E293B] uppercase leading-[1.05] max-w-5xl mx-auto">
+            Smart Board Notes, Timed Tests &amp; Instant Mastery!
+          </h1>
 
-        /* Widen the copy container and move it up so full description is visible */
-        .sw-copy {
-          width: min(55vw, 800px) !important;
-          top: 45% !important;
-          transform: translateY(-30%) !important;
-        }
+          {/* Subtext */}
+          <p className="text-base sm:text-xl font-medium text-[#1E293B]/85 max-w-3xl mx-auto leading-relaxed">
+            No confusion, just crystal-clear clarity. Prepare for CBSE board exams with
+            structured topper notes, timed batch examinations, daily chapterwise practice, and
+            real-time weak-topic detection.
+          </p>
 
-        /* Eyebrow: "Concept Illustrations", "Group & Rank" etc. */
-        .sw-copy__eyebrow {
-          font-size: 2rem !important;
-          letter-spacing: 0.15em !important;
-          margin-top: 12px !important;
-          margin-bottom: 1.5rem !important;
-          font-weight: 800 !important;
-        }
+          {/* CTA Button Group */}
+          <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+            <Button
+              size="lg"
+              onClick={() => nav("/auth?mode=register")}
+              className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-900 text-sm sm:text-base px-8 h-14 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              Start Learning Free <ArrowRight className="h-5 w-5 ml-2" />
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => nav("/auth?mode=register&role=teacher")}
+              className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white font-head font-900 text-sm sm:text-base px-7 h-14 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              <Users className="h-5 w-5 mr-2" /> I'm a Teacher
+            </Button>
+          </div>
 
-        /* Main title: "Topper Notes", "Batches & Leaderboards" etc. */
-        .sw-copy__title {
-          font-family: 'Outfit', sans-serif !important;
-          font-size: clamp(2.2rem, 4.5vw, 5rem) !important;
-          line-height: 1.05 !important;
-          font-weight: 800 !important;
-          margin: 8px 0 0 !important;
-        }
+          {/* Retro Math Badges / Stickers floating across the hero */}
+          <div className="pt-6 flex flex-wrap items-center justify-center gap-3 text-xs sm:text-sm font-mono font-bold text-[#1E293B]">
+            <span className="px-3.5 py-1.5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] rotate-[-2deg]">
+              π ≈ 3.14159
+            </span>
+            <span className="px-3.5 py-1.5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] rotate-[2deg]">
+              (a+b)² = a² + 2ab + b²
+            </span>
+            <span className="px-3.5 py-1.5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] rotate-[-1deg]">
+              Pythagoras: a² + b² = c²
+            </span>
+            <span className="px-3.5 py-1.5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] rotate-[3deg]">
+              Discriminant: D = b² - 4ac
+            </span>
+          </div>
 
-        /* Body description text */
-        .sw-copy__body {
-          font-size: clamp(1.2rem, 1.8vw, 1.75rem) !important;
-          max-width: none !important;
-          line-height: 1.6 !important;
-          margin-top: 1.5rem !important;
-          color: #E2E8F0 !important;
-          white-space: pre-line !important;
-        }
+          {/* Quick Pillars Strip */}
+          <div className="pt-6 border-t-2 border-[#1E293B]/20 grid grid-cols-2 md:grid-cols-4 gap-3 text-left">
+            <div className="p-3.5 rounded-2xl bg-white/70 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+              <div className="flex items-center gap-2 font-head font-900 text-xs sm:text-sm text-[#1E293B]">
+                <CheckCircle2 className="h-4 w-4 text-[#4CAF7D]" /> 100% CBSE Aligned
+              </div>
+              <div className="text-[11px] text-[#1E293B]/70 mt-1">Class 9 &amp; 10 NCERT Syllabus</div>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-white/70 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+              <div className="flex items-center gap-2 font-head font-900 text-xs sm:text-sm text-[#1E293B]">
+                <Sparkles className="h-4 w-4 text-[#FF6B5E]" /> Chapterwise DPPs
+              </div>
+              <div className="text-[11px] text-[#1E293B]/70 mt-1">Bite-sized daily practice sets</div>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-white/70 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+              <div className="flex items-center gap-2 font-head font-900 text-xs sm:text-sm text-[#1E293B]">
+                <FileQuestion className="h-4 w-4 text-[#5B9BD5]" /> Timed Class Exams
+              </div>
+              <div className="text-[11px] text-[#1E293B]/70 mt-1">Real exam countdown pressure</div>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-white/70 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+              <div className="flex items-center gap-2 font-head font-900 text-xs sm:text-sm text-[#1E293B]">
+                <Target className="h-4 w-4 text-[#9B7EDE]" /> Concept Radar
+              </div>
+              <div className="text-[11px] text-[#1E293B]/70 mt-1">Instant weak-topic detection</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-        /* Tags like "AI-crafted", "Competitive" */
-        .sw-copy__tags li {
-          font-size: 1.1rem !important;
-          padding: 0.6rem 1.5rem !important;
-          font-weight: 600 !important;
-        }
+      {/* ======================================================== */}
+      {/* 2. BULLETIN FEATURES SECTION (CREAM BACKGROUND) */}
+      {/* ======================================================== */}
+      <section className="py-16 sm:py-24 px-4 sm:px-6 max-w-7xl mx-auto space-y-12">
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
+            ⚡ EVERYTHING YOU NEED TO SCORE 95%+
+          </div>
+          <h2 className="font-head text-3xl sm:text-5xl font-900 uppercase tracking-tight text-[#1E293B]">
+            What's on the Bulletin Board?
+          </h2>
+          <p className="text-sm sm:text-base text-[#1E293B]/75 max-w-2xl mx-auto font-medium">
+            Designed specifically around how CBSE students study: clear notes first, followed
+            by timed test runs and targeted gap remediation.
+          </p>
+        </div>
 
-        /* CTA buttons: "Start learning free" / "I'm a teacher" */
-        .sw-copy__cta {
-          margin-top: 3rem !important;
-          gap: 1.25rem !important;
-        }
-        .sw-btn {
-          font-size: 1.2rem !important;
-          padding: 14px 28px !important;
-        }
-        .sw-btn--primary {
-          background: rgba(59, 130, 246, 0.95) !important;
-          color: white !important;
-          box-shadow: 0 0 20px rgba(59, 130, 246, 0.5) !important;
-        }
-        .sw-btn--primary:hover {
-          background: rgba(59, 130, 246, 1) !important;
-        }
-        .sw-btn--ghost {
-          background: rgba(17, 24, 39, 0.75) !important;
-          color: white !important;
-          border: 1.5px solid rgba(255,255,255,0.3) !important;
-        }
-        .sw-btn--ghost:hover {
-          background: rgba(255,255,255,0.1) !important;
-        }
-        /* Animated level-up arrow */
-        @keyframes bounce-up {
-          0%, 100% { transform: translateY(0); opacity: 1; }
-          50% { transform: translateY(-8px); opacity: 0.7; }
-        }
-        .level-up-arrow {
-          display: inline-block;
-          color: #34D399;
-          font-size: 1.4em;
-          font-weight: 900;
-          animation: bounce-up 1.2s ease-in-out infinite;
-          margin-left: 4px;
-          text-shadow: 0 0 12px rgba(52, 211, 153, 0.8);
-        }
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Card 1: Topper Notes */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 sm:p-7 shadow-[4px_4px_0_#1E293B] flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              <div className="h-12 w-12 rounded-2xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center mb-5">
+                <BookOpen className="h-6 w-6 text-[#1E293B]" />
+              </div>
+              <span className="text-[10px] font-head font-900 uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border border-[#1E293B] text-[#1E293B]">
+                Exam Secrets
+              </span>
+              <h3 className="font-head text-xl font-900 text-[#1E293B] uppercase mt-2">
+                Topper Notes
+              </h3>
+              <p className="text-xs sm:text-sm text-[#1E293B]/75 font-medium mt-2 leading-relaxed">
+                Step-by-step NCERT explanations, formula flashcards, and mnemonic tricks for
+                instant memory recall before tests.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t-2 border-dashed border-[#1E293B]/30">
+              <span className="text-xs font-head font-bold text-[#1E293B] flex items-center gap-1">
+                Real Numbers, Polynomials &amp; more <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          </div>
 
-        /* Lock-unlock animation */
-        @keyframes shackle-unlock {
-          0%, 40%, 100% {
-            transform: translateY(0) rotate(0deg);
-          }
-          50%, 90% {
-            transform: translateY(-8px) rotate(-18deg);
-          }
-        }
-        .lock-icon {
-          display: inline-block;
-          margin-left: 15px;
-          width: 3.5rem;
-          height: 3.5rem;
-          vertical-align: middle;
-          opacity: 1 !important;
-        }
-        .artistic-lock {
-          width: 100%;
-          height: 100%;
-          overflow: visible;
-          filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.7));
-        }
-        .lock-shackle {
-          animation: shackle-unlock 2.8s cubic-bezier(0.77, 0, 0.175, 1) infinite;
-          transform-origin: 32px 45px;
-        }
-      `}</style>
+          {/* Card 2: Timed Tests */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 sm:p-7 shadow-[4px_4px_0_#1E293B] flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              <div className="h-12 w-12 rounded-2xl bg-[#FF6B5E] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center mb-5">
+                <FileQuestion className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-[10px] font-head font-900 uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border border-[#1E293B] text-[#1E293B]">
+                Live Window
+              </span>
+              <h3 className="font-head text-xl font-900 text-[#1E293B] uppercase mt-2">
+                Timed Tests
+              </h3>
+              <p className="text-xs sm:text-sm text-[#1E293B]/75 font-medium mt-2 leading-relaxed">
+                Experience real board exam countdown pressure. Strict duration, instantaneous
+                grading, and batch percentile benchmarking.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t-2 border-dashed border-[#1E293B]/30">
+              <span className="text-xs font-head font-bold text-[#1E293B] flex items-center gap-1">
+                Instant Leaderboard Rankings <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          </div>
 
-      <div id="world" ref={worldRef}></div>
+          {/* Card 3: Daily Practice Problems */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 sm:p-7 shadow-[4px_4px_0_#1E293B] flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              <div className="h-12 w-12 rounded-2xl bg-[#4CAF7D] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center mb-5">
+                <Sparkles className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-[10px] font-head font-900 uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border border-[#1E293B] text-[#1E293B]">
+                Daily Habit
+              </span>
+              <h3 className="font-head text-xl font-900 text-[#1E293B] uppercase mt-2">
+                Daily Practice (DPP)
+              </h3>
+              <p className="text-xs sm:text-sm text-[#1E293B]/75 font-medium mt-2 leading-relaxed">
+                Untimed, repeatable question sets with instant step-by-step answers. Small daily
+                efforts produce massive exam results.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t-2 border-dashed border-[#1E293B]/30">
+              <span className="text-xs font-head font-bold text-[#1E293B] flex items-center gap-1">
+                Zero Stress Practice <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          </div>
+
+          {/* Card 4: Concept Analytics */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 sm:p-7 shadow-[4px_4px_0_#1E293B] flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              <div className="h-12 w-12 rounded-2xl bg-[#5B9BD5] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center mb-5">
+                <Target className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-[10px] font-head font-900 uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border border-[#1E293B] text-[#1E293B]">
+                Concept Radar
+              </span>
+              <h3 className="font-head text-xl font-900 text-[#1E293B] uppercase mt-2">
+                Smart Analytics
+              </h3>
+              <p className="text-xs sm:text-sm text-[#1E293B]/75 font-medium mt-2 leading-relaxed">
+                No more guessing where you stand. Pinpoint weak theorems and fix them fast with
+                topic-level radar telemetry.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t-2 border-dashed border-[#1E293B]/30">
+              <span className="text-xs font-head font-bold text-[#1E293B] flex items-center gap-1">
+                Visual Weak-Spot Detection <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 3. CLASS NEWS SECTION (SOLID TEAL GREEN #4CAF7D BLOCK) */}
+      {/* ======================================================== */}
+      <section className="bg-[#4CAF7D] border-y-[3px] border-[#1E293B] py-16 sm:py-20 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto space-y-10">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
+                📢 NOTICE BOARD
+              </div>
+              <h2 className="font-head text-3xl sm:text-5xl font-900 uppercase tracking-tight text-white">
+                Classroom Hub in Action
+              </h2>
+            </div>
+            <p className="text-white/90 text-sm max-w-md font-medium">
+              Every coaching batch receives structured syllabus announcements, curated teacher notes,
+              and live examination windows.
+            </p>
+          </div>
+
+          {/* 3 White Cards Side by Side */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+              <div>
+                <div className="bg-[#F5C842] border-b-2 border-[#1E293B] p-6 text-center">
+                  <span className="text-5xl block select-none">📐</span>
+                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-xs font-head font-900 uppercase text-[#1E293B]">
+                    Mathematics Core
+                  </span>
+                </div>
+                <div className="p-6 space-y-2">
+                  <span className="text-xs font-mono font-bold text-[#64748B]">Class 10 CBSE</span>
+                  <h3 className="font-head text-xl font-900 text-[#1E293B] leading-snug">
+                    Real Numbers &amp; Triangles Proofs
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#1E293B]/70 font-medium leading-relaxed">
+                    Detailed step-by-step proofs of irrationality, Basic Proportionality Theorem
+                    (BPT), and common exam traps.
+                  </p>
+                </div>
+              </div>
+              <div className="p-6 pt-0">
+                <Button
+                  onClick={() => nav("/auth?mode=register")}
+                  className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-10"
+                >
+                  Explore Study Notes <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+              <div>
+                <div className="bg-[#5B9BD5] border-b-2 border-[#1E293B] p-6 text-center">
+                  <span className="text-5xl block select-none">⚡</span>
+                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-xs font-head font-900 uppercase text-[#1E293B]">
+                    Batch Examination
+                  </span>
+                </div>
+                <div className="p-6 space-y-2">
+                  <span className="text-xs font-mono font-bold text-[#64748B]">Weekly Timed Test</span>
+                  <h3 className="font-head text-xl font-900 text-[#1E293B] leading-snug">
+                    Linear Equations &amp; Polynomials
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#1E293B]/70 font-medium leading-relaxed">
+                    Test your speed and precision under strict examination timers. Get instant
+                    batch rankings and detailed answer keys.
+                  </p>
+                </div>
+              </div>
+              <div className="p-6 pt-0">
+                <Button
+                  onClick={() => nav("/auth?mode=register")}
+                  className="w-full rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-10"
+                >
+                  Take a Timed Test <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+              <div>
+                <div className="bg-[#FF6B5E] border-b-2 border-[#1E293B] p-6 text-center">
+                  <span className="text-5xl block select-none">📚</span>
+                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-xs font-head font-900 uppercase text-[#1E293B]">
+                    Resource Repository
+                  </span>
+                </div>
+                <div className="p-6 space-y-2">
+                  <span className="text-xs font-mono font-bold text-[#64748B]">Class Handouts</span>
+                  <h3 className="font-head text-xl font-900 text-[#1E293B] leading-snug">
+                    Teacher Chalkboard Notes &amp; PDFs
+                  </h3>
+                  <p className="text-xs sm:text-sm text-[#1E293B]/70 font-medium leading-relaxed">
+                    Teachers can share PDF documents, handwritten board solution sheets, and
+                    assignments with their batches seamlessly.
+                  </p>
+                </div>
+              </div>
+              <div className="p-6 pt-0">
+                <Button
+                  onClick={() => nav("/auth?mode=register")}
+                  className="w-full rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-10"
+                >
+                  Access Class Notes <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 4. STUDENT SUCCESS SECTION (SKY BLUE #5B9BD5 BLOCK) */}
+      {/* ======================================================== */}
+      <section className="bg-[#5B9BD5] border-b-[3px] border-[#1E293B] py-16 sm:py-20 px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto space-y-8">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
+              ⭐ HALL OF FAME
+            </div>
+            <h2 className="font-head text-3xl sm:text-5xl font-900 uppercase tracking-tight text-white flex items-center justify-center gap-2">
+              Student of the Week <span>✨</span>
+            </h2>
+          </div>
+
+          {/* Spotlight Card */}
+          <div className="rounded-3xl bg-white border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-10 flex flex-col sm:flex-row items-center gap-6 sm:gap-10">
+            {/* Avatar with Sparkles */}
+            <div className="relative shrink-0">
+              <span className="absolute -top-3 -right-2 text-2xl select-none animate-bounce">✨</span>
+              <span className="absolute -bottom-2 -left-2 text-xl select-none">🌟</span>
+              <div className="h-32 w-32 sm:h-40 sm:w-40 rounded-full border-[3px] border-[#1E293B] bg-[#F5C842] shadow-[4px_4px_0_#1E293B] flex items-center justify-center text-6xl sm:text-7xl">
+                🎓
+              </div>
+            </div>
+
+            <div className="space-y-3 text-center sm:text-left flex-1">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <span className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full bg-[#FF6B5E] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
+                  <Award className="h-3.5 w-3.5" /> CBSE Class 10 Topper
+                </span>
+                <span className="text-xs font-mono font-bold text-[#64748B]">Batch: Alpha Scholars</span>
+              </div>
+
+              <h3 className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B]">
+                Aarav Sharma — 98% Accuracy
+              </h3>
+
+              <p className="text-xs sm:text-sm text-[#1E293B]/80 font-medium leading-relaxed">
+                "Solving daily chapterwise questions with instant reasoning helped me turn Quadratic
+                Equations and Triangles from my weakest topics into my highest-scoring board exam areas!"
+              </p>
+
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2">
+                <span className="px-3 py-1 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B] text-xs font-head font-bold text-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+                  🔥 7-Day Active Streak
+                </span>
+                <span className="px-3 py-1 rounded-full bg-[#4CAF7D] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
+                  🎯 96% Mock Test Score
+                </span>
+                <span className="px-3 py-1 rounded-full bg-[#9B7EDE] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
+                  ⭐ 14 DPPs Completed
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 5. CLASS SCHEDULE PREVIEW SECTION */}
+      {/* ======================================================== */}
+      <section className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto space-y-8">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#9B7EDE] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
+            📅 WEEKLY CURRICULUM
+          </div>
+          <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-[#1E293B]">
+            Structured CBSE Weekly Timetable
+          </h2>
+          <p className="text-xs sm:text-sm text-[#1E293B]/70 font-medium max-w-xl mx-auto">
+            Stay aligned with your coaching cohorts through an organized, colorful weekly schedule.
+          </p>
+        </div>
+
+        {/* Timetable Table */}
+        <div className="overflow-x-auto rounded-3xl border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] bg-white">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b-[3px] border-[#1E293B]">
+                <th className="p-4 bg-[#FFF9E8] text-[#1E293B] font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[120px]">
+                  Time Slot
+                </th>
+                <th className="p-4 bg-[#FF6B5E] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Monday (Coral)
+                </th>
+                <th className="p-4 bg-[#F5C842] text-[#1E293B] font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Tuesday (Yellow)
+                </th>
+                <th className="p-4 bg-[#4CAF7D] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Wednesday (Green)
+                </th>
+                <th className="p-4 bg-[#5B9BD5] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Thursday (Blue)
+                </th>
+                <th className="p-4 bg-[#9B7EDE] text-white font-head font-900 text-xs uppercase tracking-wider min-w-[160px]">
+                  Friday (Purple)
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y-2 divide-[#1E293B]">
+              <tr>
+                <td className="p-4 bg-[#FFF9E8] font-head font-bold text-xs text-[#1E293B] border-r-2 border-[#1E293B] align-top">
+                  4:00 PM – 5:00 PM
+                  <div className="text-[10px] font-mono text-[#64748B] mt-0.5">Core Lecture</div>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Real Numbers &amp; Euclid</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Irrationality drills</span>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Polynomials &amp; Zeroes</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Factorization theorems</span>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Quadratic Equations</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Discriminant analysis</span>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Arithmetic Progressions</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Sum of n terms</span>
+                </td>
+                <td className="p-4 bg-white align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Triangles &amp; BPT</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Similarity proofs</span>
+                </td>
+              </tr>
+              <tr>
+                <td className="p-4 bg-[#FFF9E8] font-head font-bold text-xs text-[#1E293B] border-r-2 border-[#1E293B] align-top">
+                  5:15 PM – 6:00 PM
+                  <div className="text-[10px] font-mono text-[#64748B] mt-0.5">Practice Sprint</div>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/60 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">DPP Sprint #1</span>
+                  <span className="text-[11px] text-[#64748B]">10 Questions</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/60 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">DPP Sprint #2</span>
+                  <span className="text-[11px] text-[#64748B]">10 Questions</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/60 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">DPP Sprint #3</span>
+                  <span className="text-[11px] text-[#64748B]">10 Questions</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/60 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">DPP Sprint #4</span>
+                  <span className="text-[11px] text-[#64748B]">10 Questions</span>
+                </td>
+                <td className="p-4 bg-[#F5C842]/30 align-top">
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Weekly Timed Mock Exam</span>
+                  <span className="text-[11px] text-[#FF6B5E] font-bold">Live Ranked Window</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 6. BOTTOM CALL-TO-ACTION (MUSTARD YELLOW #F5C842 BLOCK) */}
+      {/* ======================================================== */}
+      <section className="bg-[#F5C842] border-t-[3px] border-[#1E293B] py-16 sm:py-24 px-4 sm:px-6">
+        <div className="max-w-4xl mx-auto text-center space-y-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
+            🚀 READY TO CRUSH YOUR BOARD EXAMS?
+          </div>
+          <h2 className="font-head text-3xl sm:text-5xl md:text-6xl font-900 uppercase tracking-tight text-[#1E293B] leading-[1.08]">
+            Join Your Coaching Batch in Under 30 Seconds
+          </h2>
+          <p className="text-sm sm:text-lg text-[#1E293B]/85 font-medium max-w-2xl mx-auto leading-relaxed">
+            Create a free student or teacher account, explore our interactive question bank,
+            and start mastering CBSE Class 9 &amp; 10 Mathematics today.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
+            <Button
+              size="lg"
+              onClick={() => nav("/auth?mode=register")}
+              className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-900 text-sm sm:text-base px-8 h-14 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              Sign Up as Student <ArrowRight className="h-5 w-5 ml-2" />
+            </Button>
+            <Button
+              size="lg"
+              variant="dark"
+              onClick={() => nav("/auth?mode=register&role=teacher")}
+              className="rounded-full !text-white font-head font-900 text-sm sm:text-base px-7 h-14 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              Teacher Sign Up
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-white border-t-[3px] border-[#1E293B] py-8 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-head font-bold text-[#1E293B]">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">📐</span>
+            <span>VidyaLab • School of Maths Classroom Hub</span>
+          </div>
+          <div className="flex items-center gap-4 text-xs font-medium text-[#1E293B]/70">
+            <Link to="/auth" className="hover:underline">Student Login</Link>
+            <span>•</span>
+            <Link to="/auth?role=teacher" className="hover:underline">Teacher Portal</Link>
+            <span>•</span>
+            <span>CBSE Classes 9–10 Coaching</span>
+          </div>
+          <div className="text-[11px] font-mono text-[#1E293B]/60">
+            © {new Date().getFullYear()} VidyaLab
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

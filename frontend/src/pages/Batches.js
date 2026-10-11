@@ -781,7 +781,7 @@ export default function Batches() {
     );
   }, [batchStudentsData, studentSearch]);
 
-  const inp = "rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B] text-white";
+  const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] font-semibold focus:ring-2 focus:ring-[#F5C842]";
 
   const renderBatchFeeFields = (data, setter, isEdit = false) => {
     const scheduleSum = (data.fee_schedule || []).reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
@@ -921,32 +921,31 @@ export default function Batches() {
   return (
     <div className="space-y-8 pb-16">
       {/* 1. Header & Create Batch Action */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div className="rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] p-6 sm:p-8 shadow-[4px_4px_0_#1E293B] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-700 font-mono">
+            <span className="inline-block px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] text-xs font-900 uppercase tracking-widest shadow-[2px_2px_0_#1E293B]">
               Cohort Management
             </span>
-            <span className="h-1.5 w-1.5 rounded-full bg-[#06B6D4]" />
-            <span className="text-xs text-[#94A3B8] font-mono">{batches.length} Active Batches</span>
+            <span className="text-xs font-bold text-[#1E293B] font-mono">{batches.length} Active Batches</span>
           </div>
-          <h1 className="font-head text-3xl sm:text-4xl font-800 tracking-tight text-white mt-1">
-            Active Coaching Batches
+          <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight text-[#1E293B] mt-2">
+            ACTIVE COACHING BATCHES
           </h1>
-          <p className="text-[#94A3B8] text-sm mt-1">
+          <p className="text-[#1E293B]/80 font-medium text-sm mt-1">
             View enrolled students, batch leaderboard rankings, and in-depth student concept analysis.
           </p>
         </div>
 
         <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
-            <Button className="rounded-full bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-800 text-sm h-11 px-6 glow-blue shadow-lg shadow-[#3B82F6]/25 shrink-0">
-              <Plus className="h-4 w-4 mr-1.5" /> Create New Batch
+            <Button className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-900 text-sm h-11 px-6 border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none shrink-0">
+              <Plus className="h-4 w-4 mr-1.5 text-[#1E293B]" /> Create New Batch
             </Button>
           </DialogTrigger>
-          <DialogContent className="rounded-3xl border border-[#1E293B] bg-[#111827] text-white max-w-lg max-h-[90vh] overflow-y-auto p-6 sm:p-8">
+          <DialogContent className="rounded-3xl border-[2.5px] border-[#1E293B] bg-white text-[#1E293B] max-w-lg max-h-[90vh] overflow-y-auto p-6 sm:p-8 shadow-[6px_6px_0_#1E293B]">
             <DialogHeader>
-              <DialogTitle className="font-head text-2xl font-800 text-white">Create a Coaching Batch</DialogTitle>
+              <DialogTitle className="font-head text-2xl font-900 text-[#1E293B]">CREATE A COACHING BATCH</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-3">
               <div>
@@ -1005,42 +1004,42 @@ export default function Batches() {
               <div
                 key={b.id}
                 onClick={() => setSelectedBatchId(b.id)}
-                className={`group cursor-pointer rounded-3xl p-5 sm:p-6 transition-all duration-300 border relative overflow-hidden flex flex-col justify-between ${
+                className={`group cursor-pointer rounded-3xl p-5 sm:p-6 transition-all duration-150 border-[2.5px] border-[#1E293B] relative overflow-hidden flex flex-col justify-between ${
                   isSelected
-                    ? "bg-gradient-to-b from-[#172554]/90 to-[#0F172A] border-[#3B82F6] shadow-xl shadow-[#3B82F6]/15 ring-1 ring-[#3B82F6]"
-                    : "glass-panel-interactive border-[#1E293B] hover:border-[#3B82F6]/50"
+                    ? "bg-[#F5C842] shadow-[4px_4px_0_#1E293B] translate-x-[-1px] translate-y-[-1px]"
+                    : "bg-white hover:bg-[#FFF9E8] shadow-[3px_3px_0_#1E293B]"
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <div className="h-10 w-10 rounded-2xl bg-[#0B0F19] border border-[#06B6D4]/30 flex items-center justify-center">
-                      <Orbit className="h-5 w-5 text-[#06B6D4]" />
+                    <div className="h-10 w-10 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex items-center justify-center shadow-[2px_2px_0_#1E293B]">
+                      <Orbit className="h-5 w-5 text-[#1E293B]" />
                     </div>
-                    <Badge className="bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30 text-xs font-mono font-700 px-2.5 py-0.5">
+                    <Badge className="bg-white text-[#1E293B] border-2 border-[#1E293B] text-xs font-mono font-900 px-2.5 py-0.5 shadow-[1px_1px_0_#1E293B]">
                       Class {b.class_level}
                     </Badge>
                   </div>
 
-                  <h3 className="font-head text-lg font-700 text-white mt-4 truncate group-hover:text-[#60A5FA] transition-colors">
+                  <h3 className="font-head text-lg font-800 text-[#1E293B] mt-4 truncate">
                     {b.name}
                   </h3>
 
-                  <div className="text-xs text-[#94A3B8] flex items-center gap-1.5 mt-1 font-mono">
-                    <Users className="h-3.5 w-3.5 text-[#3B82F6]" />
-                    <span className="text-white font-700">{b.student_count || 0}</span> students enrolled
+                  <div className="text-xs text-[#1E293B]/80 flex items-center gap-1.5 mt-1 font-mono font-bold">
+                    <Users className="h-4 w-4 text-[#1E293B]" />
+                    <span className="text-[#1E293B] font-900">{b.student_count || 0}</span> students enrolled
                   </div>
 
-                  <div className="mt-2.5 flex items-center gap-2 text-[11px] font-mono text-[#94A3B8] bg-[#0B0F19]/60 px-2.5 py-1 rounded-xl border border-[#1E293B]">
-                    <span className="text-[#34D399] font-700">₹{Number(b.fee_amount || 0).toLocaleString()} <span className="text-[10px] text-[#94A3B8] font-normal">/yr</span></span>
-                    <span className="text-[#64748B]">•</span>
-                    <span className="text-[#60A5FA] font-600">₹{Number(b.monthly_fee || 0).toLocaleString()} <span className="text-[10px] text-[#94A3B8] font-normal">/mo</span></span>
+                  <div className="mt-2.5 flex items-center gap-2 text-[11px] font-mono text-[#1E293B] bg-[#FFF9E8] px-2.5 py-1 rounded-xl border-2 border-[#1E293B]">
+                    <span className="text-[#4CAF7D] font-900">₹{Number(b.fee_amount || 0).toLocaleString()} <span className="text-[10px] text-[#1E293B]/60 font-bold">/yr</span></span>
+                    <span className="text-[#1E293B]/40">•</span>
+                    <span className="text-[#5B9BD5] font-900">₹{Number(b.monthly_fee || 0).toLocaleString()} <span className="text-[10px] text-[#1E293B]/60 font-bold">/mo</span></span>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3.5 border-t border-[#1E293B]/70 flex items-center justify-between gap-2">
-                  <div className="text-[11px] text-[#94A3B8] font-mono">
+                <div className="mt-4 pt-3.5 border-t-2 border-[#1E293B]/20 flex items-center justify-between gap-2">
+                  <div className="text-[11px] text-[#1E293B] font-mono font-bold">
                     Code:{" "}
-                    <code className="text-[#3B82F6] font-bold bg-[#0B0F19] px-2 py-0.5 rounded border border-[#1E293B]">
+                    <code className="text-[#1E293B] font-900 bg-white px-2 py-0.5 rounded border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B]">
                       {b.code}
                     </code>
                   </div>

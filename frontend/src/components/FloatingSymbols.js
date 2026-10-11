@@ -8,12 +8,12 @@ const SYMBOLS = [
 ];
 
 const COLORS = [
-  'text-[#3B82F6]', // Blue
-  'text-[#06B6D4]', // Cyan
-  'text-[#FBBF24]', // Yellow
-  'text-[#34D399]', // Green
-  'text-white',
-  'text-[#94A3B8]'  // Slate
+  'text-[#1E293B]', // Dark Slate
+  'text-[#FF6B5E]', // Coral Red
+  'text-[#4CAF7D]', // Teal Green
+  'text-[#5B9BD5]', // Sky Blue
+  'text-[#9B7EDE]', // Soft Purple
+  'text-[#D9A014]'  // Dark Mustard
 ];
 
 export default function FloatingSymbols({ count = 35 }) {

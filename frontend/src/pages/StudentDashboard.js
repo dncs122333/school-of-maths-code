@@ -5,29 +5,26 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Skeleton } from "../components/ui/skeleton";
 import {
   Flame,
-  Trophy,
   Target,
-  TrendingUp,
-  Clock,
   BookOpen,
   FileQuestion,
   Sparkles,
-  Users,
   ArrowRight,
   Orbit,
   AlertCircle,
   Loader2,
-  FileText,
   ChevronRight,
   ShieldCheck,
   Zap,
   FolderOpen,
   Award,
-  CheckCircle2,
-  Layers,
+  Calendar,
+  Clock,
+  Pin,
+  FileText,
+  Star,
   Compass,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -164,47 +161,43 @@ export default function StudentDashboard() {
   const activeDayIndex = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
 
   return (
-    <div className="space-y-8 pb-16">
-      {/* 1. HERO GREETING CARD (Cinematic Cosmic Glassmorphism) */}
-      <div className="relative rounded-3xl glass-panel p-6 sm:p-8 lg:p-10 border border-[#1E293B] overflow-hidden shadow-2xl">
-        {/* Subtle Ambient Cosmic Glow */}
-        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#3B82F6]/20 blur-3xl pointer-events-none animate-pulse" />
-        <div className="absolute -left-24 -bottom-24 h-72 w-72 rounded-full bg-[#06B6D4]/15 blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+    <div className="space-y-10 pb-16">
+      {/* ======================================================== */}
+      {/* 1. GREETING HEADER (YELLOW BANNER - CLASSROOM HUB STYLE) */}
+      {/* ======================================================== */}
+      <div className="rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-700 font-mono">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase">
+                🏫 CLASSROOM HUB
+              </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#5B9BD5] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
                 {formattedDate}
               </span>
-              <span className="text-[#94A3B8]/60 text-xs">•</span>
-              <Badge className="bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30 font-700 text-xs px-3 py-0.5 rounded-full">
-                CBSE Class 9 & 10 Explorer
+              <Badge className="bg-[#4CAF7D] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
+                CBSE Class 9 & 10
               </Badge>
-              <span className="text-[#94A3B8]/60 text-xs">•</span>
-              <span className="text-xs text-[#34D399] font-mono font-600 flex items-center gap-1">
-                <ShieldCheck className="h-3.5 w-3.5" /> Board Prep Calibrated
-              </span>
             </div>
 
-            <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-800 tracking-tight text-white flex items-center gap-3">
-              {greeting}, <span className="text-gradient-cyan">{user?.name?.split(" ")[0]}</span>!{" "}
-              <span className="animate-floaty inline-block">🚀</span>
+            <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-900 tracking-tight text-[#1E293B] uppercase">
+              {greeting}, {user?.name?.split(" ")[0]}!{" "}
+              <span className="inline-block animate-floaty">🎒</span>
             </h1>
 
-            <p className="text-[#94A3B8] text-sm sm:text-base max-w-xl leading-relaxed">
+            <p className="text-[#1E293B] font-medium text-sm sm:text-base max-w-xl leading-relaxed">
               {weakTopics.length > 0
-                ? `You have ${weakTopics.length} priority topics flagged for revision. Target them today to maximize your mock exam percentile.`
-                : "Your syllabus retention is looking stellar. Keep up daily practice sprints to lock in full board marks!"}
+                ? `You have ${weakTopics.length} priority topics flagged for revision today. Solve chapter DPPs to solidify your board exam score!`
+                : "Your syllabus retention is looking fantastic! Keep up the daily practice sprint to secure full CBSE board marks."}
             </p>
           </div>
 
           {/* Quick Streak & Metrics Capsule */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 bg-[#0B0F19]/90 border border-[#1E293B] p-4 rounded-3xl shrink-0 shadow-xl">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 bg-white border-[2.5px] border-[#1E293B] p-4 rounded-3xl shrink-0 shadow-[4px_4px_0_#1E293B]">
             {/* Streak Counter with weekly mini dots */}
-            <div className="px-4 py-2.5 rounded-2xl bg-[#111827] border border-[#1E293B] flex flex-col justify-center text-center min-w-[120px]">
-              <div className="flex items-center justify-center gap-1.5 text-base font-800 text-[#FBBF24]">
-                <Flame className="h-5 w-5 text-[#FBBF24] animate-bounce" /> 7-Day Streak
+            <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex flex-col justify-center text-center min-w-[120px]">
+              <div className="flex items-center justify-center gap-1.5 text-sm font-head font-900 text-[#1E293B]">
+                <Flame className="h-5 w-5 text-[#FF6B5E] fill-[#FF6B5E]" /> 7-Day Streak
               </div>
               {/* Day Dots */}
               <div className="flex items-center justify-center gap-1 mt-1.5">
@@ -212,10 +205,10 @@ export default function StudentDashboard() {
                   <span
                     key={i}
                     title={d}
-                    className={`h-2 w-2 rounded-full transition-all ${
+                    className={`h-2.5 w-2.5 rounded-full border border-[#1E293B] transition-all ${
                       i <= activeDayIndex
-                        ? "bg-[#FBBF24] shadow-sm shadow-[#FBBF24]/50"
-                        : "bg-[#1E293B]"
+                        ? "bg-[#F5C842]"
+                        : "bg-white"
                     }`}
                   />
                 ))}
@@ -223,15 +216,15 @@ export default function StudentDashboard() {
             </div>
 
             {/* Total Tests Metric */}
-            <div className="px-4 py-2.5 rounded-2xl bg-[#111827] border border-[#1E293B] text-center min-w-[95px]">
-              <div className="font-head font-800 text-xl text-white">{stats.tests_taken ?? 0}</div>
-              <div className="text-[10px] text-[#94A3B8] font-mono uppercase tracking-wider mt-0.5">Tests Taken</div>
+            <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] text-center min-w-[95px]">
+              <div className="font-head font-900 text-xl text-[#1E293B]">{stats.tests_taken ?? 0}</div>
+              <div className="text-[10px] text-[#64748B] font-head font-bold uppercase tracking-wider mt-0.5">Tests Taken</div>
             </div>
 
             {/* Accuracy Rate */}
-            <div className="px-4 py-2.5 rounded-2xl bg-[#111827] border border-[#1E293B] text-center min-w-[95px]">
-              <div className="font-head font-800 text-xl text-[#34D399]">{stats.avg_score ?? 0}%</div>
-              <div className="text-[10px] text-[#94A3B8] font-mono uppercase tracking-wider mt-0.5">Accuracy</div>
+            <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] text-center min-w-[95px]">
+              <div className="font-head font-900 text-xl text-[#4CAF7D]">{stats.avg_score ?? 0}%</div>
+              <div className="text-[10px] text-[#64748B] font-head font-bold uppercase tracking-wider mt-0.5">Accuracy</div>
             </div>
 
             {/* Recalibrate CTA Button */}
@@ -239,7 +232,7 @@ export default function StudentDashboard() {
               size="sm"
               onClick={handleStartDiagnostic}
               disabled={diagnosticBusy}
-              className="rounded-2xl bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700 text-xs px-4 h-12 glow-blue transition-all hover:scale-105 shrink-0"
+              className="rounded-2xl bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-4 h-12 transition-transform active:translate-x-[2px] active:translate-y-[2px] shrink-0"
             >
               {diagnosticBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -248,120 +241,555 @@ export default function StudentDashboard() {
                   <span className="flex items-center gap-1">
                     <Target className="h-3.5 w-3.5" /> Diagnostic
                   </span>
-                  <span className="text-[10px] font-normal opacity-80">Recalibrate</span>
+                  <span className="text-[10px] font-normal opacity-90">Recalibrate</span>
                 </div>
               )}
             </Button>
           </div>
         </div>
-      </div>
 
-      {/* 2. UPCOMING & LIVE TESTS BANNER (Conditional) */}
-      {activeTests.length > 0 && (
-        <div className="rounded-3xl bg-gradient-to-r from-[#0F172A] via-[#1E1B4B]/80 to-[#0F172A] border border-[#06B6D4]/50 p-5 sm:p-6 shadow-2xl relative overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="h-11 w-11 rounded-2xl bg-[#06B6D4]/20 border border-[#06B6D4]/50 flex items-center justify-center shrink-0">
-                <span className="relative flex h-3.5 w-3.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#06B6D4] opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-[#06B6D4]" />
-                </span>
-              </div>
+        {/* Live Test Alert Banner if any */}
+        {activeTests.length > 0 && (
+          <div className="mt-6 rounded-2xl bg-[#FF6B5E] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-white">
+            <div className="flex items-center gap-3">
+              <span className="h-3 w-3 rounded-full bg-white animate-ping" />
               <div>
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-[#06B6D4]/20 text-[#22D3EE] border-[#06B6D4]/40 text-[10px] uppercase font-mono tracking-wider font-700">
-                    Live Assessment Active
-                  </Badge>
-                  <span className="text-xs text-[#94A3B8] font-mono">
-                    Duration: {activeTests[0].duration_minutes} mins
-                  </span>
-                </div>
-                <h3 className="font-head text-lg sm:text-xl font-800 text-white mt-1">
-                  {activeTests[0].title}
-                </h3>
+                <span className="text-xs font-head font-black uppercase tracking-wider bg-white text-[#FF6B5E] px-2 py-0.5 rounded-full border border-[#1E293B]">
+                  LIVE TEST ACTIVE
+                </span>
+                <h4 className="font-head text-base sm:text-lg font-900 mt-1">{activeTests[0].title}</h4>
               </div>
             </div>
-
             <Button
               asChild
-              className="rounded-full bg-[#06B6D4] hover:bg-[#22D3EE] text-black font-800 px-6 h-11 glow-cyan shrink-0 transition-transform hover:scale-105"
+              className="rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:bg-[#FFF9E8] font-head font-bold text-xs px-5 h-9 shrink-0"
             >
-              <Link to={`/quiz/${activeTests[0].id}`} className="flex items-center gap-2">
-                Start Test Now <ArrowRight className="h-4 w-4" />
+              <Link to={`/quiz/${activeTests[0].id}`}>
+                Start Now <ArrowRight className="h-3.5 w-3.5 ml-1" />
               </Link>
             </Button>
           </div>
-        </div>
-      )}
-
-      {/* 3. QUICK STUDY SPRINTS (Action Cards) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
-        {/* Sprint 1: DPP */}
-        <Link
-          to="/dpp"
-          className="group relative rounded-3xl glass-panel-interactive p-5 border border-[#1E293B] hover:border-[#FBBF24]/50 overflow-hidden"
-        >
-          <div className="h-10 w-10 rounded-2xl bg-[#FBBF24]/15 border border-[#FBBF24]/30 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-            <Sparkles className="h-5 w-5 text-[#FBBF24]" />
-          </div>
-          <h4 className="font-head text-base font-700 text-white group-hover:text-[#FDE68A] transition-colors">
-            Chapterwise Tests
-          </h4>
-          <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
-            Chapterwise topic-level practice questions with step-by-step reasoning.
-          </p>
-        </Link>
-
-        {/* Sprint 2: Timed Tests */}
-        <Link
-          to="/tests"
-          className="group relative rounded-3xl glass-panel-interactive p-5 border border-[#1E293B] hover:border-[#06B6D4]/50 overflow-hidden"
-        >
-          <div className="h-10 w-10 rounded-2xl bg-[#06B6D4]/15 border border-[#06B6D4]/30 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-            <FileQuestion className="h-5 w-5 text-[#06B6D4]" />
-          </div>
-          <h4 className="font-head text-base font-700 text-white group-hover:text-[#67E8F9] transition-colors">
-            Class Tests
-          </h4>
-          <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
-            Real examination simulations with strict timers and leaderboards.
-          </p>
-        </Link>
-
-        {/* Sprint 3: Notes */}
-        <Link
-          to="/notes"
-          className="group relative rounded-3xl glass-panel-interactive p-5 border border-[#1E293B] hover:border-[#3B82F6]/50 overflow-hidden"
-        >
-          <div className="h-10 w-10 rounded-2xl bg-[#3B82F6]/15 border border-[#3B82F6]/30 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-            <BookOpen className="h-5 w-5 text-[#3B82F6]" />
-          </div>
-          <h4 className="font-head text-base font-700 text-white group-hover:text-[#93C5FD] transition-colors">
-            AI Study Notes
-          </h4>
-          <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
-            Visual concept breakdowns, formula sheets & mnemonics.
-          </p>
-        </Link>
-
-        {/* Sprint 4: Materials */}
-        <Link
-          to="/materials"
-          className="group relative rounded-3xl glass-panel-interactive p-5 border border-[#1E293B] hover:border-[#34D399]/50 overflow-hidden"
-        >
-          <div className="h-10 w-10 rounded-2xl bg-[#34D399]/15 border border-[#34D399]/30 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-            <FolderOpen className="h-5 w-5 text-[#34D399]" />
-          </div>
-          <h4 className="font-head text-base font-700 text-white group-hover:text-[#86EFAC] transition-colors">
-            Class Notes
-          </h4>
-          <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed">
-            Teacher-shared PDFs, notes & solved class material.
-          </p>
-        </Link>
+        )}
       </div>
 
-      {/* 4. MAIN COGNITIVE GRID (7 Cols Left / 5 Cols Right) */}
+      {/* ======================================================== */}
+      {/* 2. TODAY'S AGENDA SECTION (Yellow Pill Items + Purple Reminder) */}
+      {/* ======================================================== */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+              <Calendar className="h-4 w-4 text-[#1E293B]" />
+            </div>
+            <h2 className="font-head text-2xl sm:text-3xl font-900 uppercase tracking-tight text-[#1E293B]">
+              Today's Agenda
+            </h2>
+          </div>
+          <span className="text-xs font-mono font-bold text-[#64748B]">
+            {formattedDate}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          {/* Agenda Items (Yellow Pill Buttons / Action Blocks - 7 cols) */}
+          <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Agenda Item 1: DPP */}
+            <Link
+              to="/dpp"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+                    <Sparkles className="h-5 w-5 text-[#1E293B]" />
+                  </div>
+                  <span className="text-[10px] font-head font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-white border border-[#1E293B] text-[#1E293B]">
+                    Sprint #1
+                  </span>
+                </div>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                  Daily Chapter Practice (DPP)
+                </h3>
+                <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
+                  Topic-level board practice problems with instant step-by-step reasoning.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between text-xs font-head font-bold text-[#1E293B]">
+                <span>Start Today's Problems</span>
+                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </Link>
+
+            {/* Agenda Item 2: Class Tests */}
+            <Link
+              to="/tests"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+                    <FileQuestion className="h-5 w-5 text-[#1E293B]" />
+                  </div>
+                  <span className="text-[10px] font-head font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-white border border-[#1E293B] text-[#1E293B]">
+                    Sprint #2
+                  </span>
+                </div>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                  Timed Class Tests
+                </h3>
+                <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
+                  Real board simulation exams with strict timers and accuracy benchmarking.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between text-xs font-head font-bold text-[#1E293B]">
+                <span>Take Examination</span>
+                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </Link>
+
+            {/* Agenda Item 3: AI Notes */}
+            <Link
+              to="/notes"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+                    <BookOpen className="h-5 w-5 text-[#1E293B]" />
+                  </div>
+                  <span className="text-[10px] font-head font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-white border border-[#1E293B] text-[#1E293B]">
+                    Sprint #3
+                  </span>
+                </div>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                  Concept Study Notes
+                </h3>
+                <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
+                  Formula cheat sheets, diagram breakdowns & CBSE mnemonic summaries.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between text-xs font-head font-bold text-[#1E293B]">
+                <span>Review Chapter Notes</span>
+                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </Link>
+
+            {/* Agenda Item 4: Materials */}
+            <Link
+              to="/materials"
+              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+                    <FolderOpen className="h-5 w-5 text-[#1E293B]" />
+                  </div>
+                  <span className="text-[10px] font-head font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-white border border-[#1E293B] text-[#1E293B]">
+                    Sprint #4
+                  </span>
+                </div>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] uppercase">
+                  Teacher Class Notes
+                </h3>
+                <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
+                  Teacher-shared PDFs, solved chalkboard questions & batch assignments.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between text-xs font-head font-bold text-[#1E293B]">
+                <span>Open Repository</span>
+                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </Link>
+          </div>
+
+          {/* Purple Reminder Card with Dashed Border (5 cols) */}
+          <div className="lg:col-span-4 rounded-3xl bg-[#9B7EDE] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] p-6 text-[#1E293B] flex flex-col justify-between relative overflow-hidden">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
+                  <Pin className="h-3.5 w-3.5 text-[#FF6B5E]" /> BULLETIN NOTE
+                </div>
+                <span className="text-xs font-head font-bold uppercase tracking-wider text-white">
+                  IMPORTANT
+                </span>
+              </div>
+
+              <div className="rounded-2xl border-2 border-dashed border-[#1E293B] bg-white/40 p-4 space-y-2.5">
+                <h4 className="font-head text-lg font-900 uppercase text-[#1E293B]">
+                  Weekly Reminder!
+                </h4>
+                <p className="text-xs sm:text-sm font-medium leading-relaxed text-[#1E293B]">
+                  "Complete at least 5 Quadratic Equations and Triangle theorems DPP questions before Friday's weekly mock exam. Revision logs sync automatically with your teacher's radar."
+                </p>
+              </div>
+
+              <div className="space-y-2 text-xs font-head font-bold text-[#1E293B]">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#1E293B]" />
+                  <span>Class 10 Board Formula Sheet review: Pending</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#1E293B]" />
+                  <span>Next Timed Mock window opens Friday 5:00 PM</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between">
+              <span className="text-[11px] font-mono font-bold text-[#1E293B]/80">VidyaLab Desk</span>
+              <Button
+                size="sm"
+                onClick={() => nav("/dpp")}
+                className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-8 px-3"
+              >
+                Mark Done
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 3. CLASS NEWS SECTION (GREEN BACKGROUND + 3 WHITE CARDS) */}
+      {/* ======================================================== */}
+      <section className="rounded-3xl bg-[#4CAF7D] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
+              📢 NOTICE BOARD
+            </div>
+            <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-white">
+              Class News & Updates
+            </h2>
+          </div>
+          <p className="text-white/90 text-xs sm:text-sm max-w-sm font-medium">
+            Stay updated with curriculum announcements, topper strategies, and syllabus benchmarks.
+          </p>
+        </div>
+
+        {/* 3 White Cards Side by Side with Rounded Corners & Top Banner */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* News Card 1 */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              {/* Illustration Header with dashed inner border */}
+              <div className="bg-[#F5C842] border-b-2 border-[#1E293B] p-5 text-center relative">
+                <span className="text-4xl block animate-floaty">📐</span>
+                <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-900 uppercase text-[#1E293B]">
+                  Mathematics Core
+                </span>
+              </div>
+              <div className="p-5 space-y-2">
+                <span className="text-[11px] font-mono font-bold text-[#64748B]">Oct 11, 2026</span>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] leading-snug">
+                  Triangles & Similarity Theorems Cheat Sheet
+                </h3>
+                <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                  New high-yield concept breakdowns with proof mnemonics and common board pitfalls added to Notes.
+                </p>
+              </div>
+            </div>
+            <div className="p-5 pt-0">
+              <Button
+                asChild
+                className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
+              >
+                <Link to="/notes">
+                  Read Study Notes <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          {/* News Card 2 */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              <div className="bg-[#5B9BD5] border-b-2 border-[#1E293B] p-5 text-center relative">
+                <span className="text-4xl block animate-floaty">⚡</span>
+                <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-900 uppercase text-[#1E293B]">
+                  Mock Assessment
+                </span>
+              </div>
+              <div className="p-5 space-y-2">
+                <span className="text-[11px] font-mono font-bold text-[#64748B]">Upcoming Friday</span>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] leading-snug">
+                  All-India CBSE Mock Test #4 Live Window
+                </h3>
+                <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                  Timed 60-minute test covering Real Numbers, Polynomials & Linear Equations. Real percentile rankings.
+                </p>
+              </div>
+            </div>
+            <div className="p-5 pt-0">
+              <Button
+                asChild
+                className="w-full rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
+              >
+                <Link to="/tests">
+                  View Test Schedule <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          {/* News Card 3 */}
+          <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-all">
+            <div>
+              <div className="bg-[#FF6B5E] border-b-2 border-[#1E293B] p-5 text-center relative">
+                <span className="text-4xl block animate-floaty">📚</span>
+                <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-900 uppercase text-[#1E293B]">
+                  Resource Center
+                </span>
+              </div>
+              <div className="p-5 space-y-2">
+                <span className="text-[11px] font-mono font-bold text-[#64748B]">New Handouts</span>
+                <h3 className="font-head text-lg font-900 text-[#1E293B] leading-snug">
+                  Solved CBSE Exemplar PDFs Uploaded
+                </h3>
+                <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                  Your teachers have uploaded solved classroom handwritten notes and standard CBSE exemplar questions.
+                </p>
+              </div>
+            </div>
+            <div className="p-5 pt-0">
+              <Button
+                asChild
+                className="w-full rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
+              >
+                <Link to="/materials">
+                  Browse Materials <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 4. STUDENT OF THE WEEK SECTION (BLUE BACKGROUND) */}
+      {/* ======================================================== */}
+      <section className="rounded-3xl bg-[#5B9BD5] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
+              ⭐ HALL OF FAME
+            </div>
+            <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-white flex items-center gap-2">
+              Student of the Week <span>✨</span>
+            </h2>
+          </div>
+          <span className="text-white font-head font-bold text-xs bg-white/25 px-3 py-1.5 rounded-full border border-white/40">
+            CBSE Academic Sprint Week 4
+          </span>
+        </div>
+
+        {/* Spotlight Card */}
+        <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] p-6 sm:p-8 flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+          {/* Circular Photo with Sparkle Decorations */}
+          <div className="relative shrink-0">
+            {/* Sparkle Badges Around Circle */}
+            <span className="absolute -top-3 -right-2 text-2xl select-none animate-bounce">✨</span>
+            <span className="absolute -bottom-2 -left-2 text-xl select-none">🌟</span>
+            <span className="absolute top-1/2 -left-4 text-lg select-none">⭐</span>
+
+            <div className="h-28 w-28 sm:h-36 sm:w-36 rounded-full border-[3px] border-[#1E293B] bg-[#F5C842] shadow-[4px_4px_0_#1E293B] flex items-center justify-center text-5xl sm:text-6xl overflow-hidden relative">
+              <span>🎓</span>
+            </div>
+          </div>
+
+          <div className="space-y-3 text-center sm:text-left flex-1">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+              <span className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full bg-[#FF6B5E] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
+                <Award className="h-3.5 w-3.5" /> CBSE Class 10 Topper
+              </span>
+              <span className="text-xs font-mono font-bold text-[#64748B]">Batch: Alpha Olympiad</span>
+            </div>
+
+            <h3 className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B]">
+              {user?.name || "Aarav Sharma"}
+            </h3>
+
+            <p className="text-xs sm:text-sm text-[#1E293B] font-medium leading-relaxed max-w-xl">
+              "Completed 48 chapterwise practice questions this week with 96% accuracy on first attempt. Consistent daily practice transforms hard board concepts into easy marks!"
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2">
+              <span className="px-3 py-1 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B] text-xs font-head font-bold text-[#1E293B] shadow-[2px_2px_0_#1E293B]">
+                🔥 7-Day Active Streak
+              </span>
+              <span className="px-3 py-1 rounded-full bg-[#4CAF7D] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
+                🎯 94% Class Accuracy
+              </span>
+              <span className="px-3 py-1 rounded-full bg-[#9B7EDE] text-white border-2 border-[#1E293B] text-xs font-head font-bold shadow-[2px_2px_0_#1E293B]">
+                ⭐ 12 DPPs Mastered
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 5. CLASS SCHEDULE SECTION (COLORFUL WEEKLY TABLE) */}
+      {/* ======================================================== */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-[#9B7EDE] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+              <Clock className="h-4 w-4 text-white" />
+            </div>
+            <h2 className="font-head text-2xl sm:text-3xl font-900 uppercase tracking-tight text-[#1E293B]">
+              Class Schedule
+            </h2>
+          </div>
+          <span className="text-xs font-mono font-bold text-[#64748B]">
+            CBSE Weekly Timetable
+          </span>
+        </div>
+
+        {/* Weekly Timetable with Per-Column Colored Header Cells */}
+        <div className="overflow-x-auto rounded-3xl border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] bg-white">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b-[3px] border-[#1E293B]">
+                <th className="p-4 bg-[#FFF9E8] text-[#1E293B] font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[120px]">
+                  Time Slot
+                </th>
+                <th className="p-4 bg-[#FF6B5E] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Monday (Coral)
+                </th>
+                <th className="p-4 bg-[#F5C842] text-[#1E293B] font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Tuesday (Yellow)
+                </th>
+                <th className="p-4 bg-[#4CAF7D] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Wednesday (Green)
+                </th>
+                <th className="p-4 bg-[#5B9BD5] text-white font-head font-900 text-xs uppercase tracking-wider border-r-2 border-[#1E293B] min-w-[160px]">
+                  Thursday (Blue)
+                </th>
+                <th className="p-4 bg-[#9B7EDE] text-white font-head font-900 text-xs uppercase tracking-wider min-w-[160px]">
+                  Friday (Purple)
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y-2 divide-[#1E293B]">
+              {/* Row 1 */}
+              <tr>
+                <td className="p-4 bg-[#FFF9E8] font-head font-bold text-xs text-[#1E293B] border-r-2 border-[#1E293B] align-top">
+                  4:00 PM – 5:00 PM
+                  <div className="text-[10px] font-mono text-[#64748B] mt-0.5">Core Lecture</div>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Real Numbers & Euclid</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Proof of irrationality drills</span>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Polynomials & Factorization</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Zeroes & coefficients</span>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Quadratic Equations</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Discriminant & word problems</span>
+                </td>
+                <td className="p-4 bg-white border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Arithmetic Progressions</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Sum of n terms formulas</span>
+                </td>
+                <td className="p-4 bg-white align-top">
+                  <span className="font-head font-bold text-sm text-[#1E293B] block">Triangles & BPT Theorem</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Step-by-step theorem proofs</span>
+                </td>
+              </tr>
+
+              {/* Row 2 */}
+              <tr>
+                <td className="p-4 bg-[#FFF9E8] font-head font-bold text-xs text-[#1E293B] border-r-2 border-[#1E293B] align-top">
+                  5:15 PM – 6:15 PM
+                  <div className="text-[10px] font-mono text-[#64748B] mt-0.5">Sprint & Doubt Lab</div>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#FF6B5E] block">DPP Problem Lab #1</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Section A & B Speed Sprint</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#F5C842] block">NCERT Exemplar Review</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">High-difficulty challenges</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#4CAF7D] block">Formula Memorization</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Flashcard active recall</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/50 border-r-2 border-[#1E293B] align-top">
+                  <span className="font-head font-bold text-sm text-[#5B9BD5] block">Previous Year Questions</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">CBSE 2019-2024 board patterns</span>
+                </td>
+                <td className="p-4 bg-[#FFF9E8]/50 align-top">
+                  <span className="font-head font-bold text-sm text-[#9B7EDE] block">Weekly Timed Mock Test</span>
+                  <span className="text-xs text-[#64748B] block mt-0.5">Full syllabus sprint & analysis</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 6. CLASS RESOURCES SECTION (CENTERED COLORED PILL BUTTONS) */}
+      {/* ======================================================== */}
+      <section className="rounded-3xl bg-white border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 text-center space-y-6">
+        <div>
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 tracking-wider uppercase mb-2">
+            🔗 QUICK NAVIGATION
+          </div>
+          <h2 className="font-head text-3xl sm:text-4xl font-900 uppercase tracking-tight text-[#1E293B]">
+            Class Resources
+          </h2>
+          <p className="text-xs sm:text-sm text-[#64748B] font-medium max-w-md mx-auto mt-1">
+            Instant 1-click access to all CBSE syllabus study materials, tests, and radars.
+          </p>
+        </div>
+
+        {/* Centered Colored Pill Buttons */}
+        <div className="flex flex-wrap items-center justify-center gap-3.5 max-w-4xl mx-auto">
+          <Link
+            to="/notes"
+            className="hub-btn hub-btn-yellow px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
+          >
+            📘 AI Study Notes
+          </Link>
+
+          <Link
+            to="/materials"
+            className="hub-btn hub-btn-green px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
+          >
+            📁 Teacher Handouts & PDFs
+          </Link>
+
+          <Link
+            to="/dpp"
+            className="hub-btn hub-btn-blue px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
+          >
+            ⚡ Chapterwise DPP Practice
+          </Link>
+
+          <Link
+            to="/tests"
+            className="hub-btn hub-btn-purple px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
+          >
+            ⏱️ Timed Examination Mocks
+          </Link>
+
+          <Link
+            to="/mastery"
+            className="hub-btn hub-btn-red px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
+          >
+            🎯 Syllabus Mastery Radar
+          </Link>
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 7. MAIN MASTERY & ACTIVITY GRID */}
+      {/* ======================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* LEFT COLUMN: Mastery Map & Weak Topics (7 Cols) */}
         <div className="lg:col-span-7 space-y-8">
@@ -376,22 +804,22 @@ export default function StudentDashboard() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-[#F87171]" />
-                <h3 className="font-head text-xl font-800 text-white">Targeted Weak Topics</h3>
+                <AlertCircle className="h-5 w-5 text-[#FF6B5E]" />
+                <h3 className="font-head text-xl font-900 text-[#1E293B]">Targeted Weak Topics</h3>
               </div>
               <Link
                 to="/mastery"
-                className="text-xs font-700 text-[#3B82F6] hover:text-[#60A5FA] flex items-center gap-1"
+                className="text-xs font-head font-bold text-[#5B9BD5] hover:underline flex items-center gap-1"
               >
                 Full syllabus radar <ChevronRight className="h-3.5 w-3.5" />
               </Link>
             </div>
 
             {weakTopics.length === 0 ? (
-              <div className="rounded-3xl glass-panel p-8 text-center space-y-2 border border-[#1E293B]">
-                <ShieldCheck className="h-9 w-9 text-[#34D399] mx-auto animate-twinkle" />
-                <h4 className="font-head text-base font-700 text-white">No Critical Weaknesses!</h4>
-                <p className="text-xs text-[#94A3B8] max-w-sm mx-auto leading-relaxed">
+              <div className="rounded-3xl bg-white p-8 text-center space-y-2 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
+                <ShieldCheck className="h-9 w-9 text-[#4CAF7D] mx-auto" />
+                <h4 className="font-head text-base font-800 text-[#1E293B]">No Critical Weaknesses!</h4>
+                <p className="text-xs text-[#64748B] max-w-sm mx-auto leading-relaxed">
                   All attempted concepts are currently above 55% accuracy. Challenge yourself with fresh board mocks!
                 </p>
               </div>
@@ -414,22 +842,22 @@ export default function StudentDashboard() {
           {/* Recent Activity Timeline */}
           <ActivityTimeline submissions={submissions} />
 
-          {/* Learning Queue: AI Study Notes Carousel */}
-          <div className="rounded-3xl glass-panel p-6 sm:p-7 space-y-4 border border-[#1E293B]">
+          {/* Learning Queue: AI Study Notes */}
+          <div className="rounded-3xl bg-white p-6 sm:p-7 space-y-4 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-xl bg-[#3B82F6]/15 border border-[#3B82F6]/30 flex items-center justify-center">
-                  <BookOpen className="h-4 w-4 text-[#3B82F6]" />
+                <div className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+                  <BookOpen className="h-4 w-4 text-[#1E293B]" />
                 </div>
-                <h3 className="font-head text-lg font-700 text-white">Learning Queue</h3>
+                <h3 className="font-head text-lg font-900 text-[#1E293B]">Learning Queue</h3>
               </div>
-              <Link to="/notes" className="text-xs font-700 text-[#3B82F6] hover:text-[#60A5FA]">
+              <Link to="/notes" className="text-xs font-head font-bold text-[#5B9BD5] hover:underline">
                 All notes →
               </Link>
             </div>
 
             {notes.length === 0 ? (
-              <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-6 text-center text-xs text-[#94A3B8]">
+              <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-6 text-center text-xs text-[#64748B]">
                 No study notes published yet. Notes created by your teacher appear here!
               </div>
             ) : (
@@ -438,18 +866,18 @@ export default function StudentDashboard() {
                   <Link
                     key={n.id}
                     to={`/notes/${n.id}`}
-                    className="group block p-3.5 sm:p-4 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B] hover:border-[#3B82F6]/50 hover:bg-[#172033]/80 transition-all hover:translate-x-1"
+                    className="group block p-3.5 sm:p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-all"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <Badge className="bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30 text-[10px] font-700">
+                      <Badge className="bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] text-[10px] font-bold">
                         {n.subject}
                       </Badge>
-                      <span className="text-[11px] font-mono text-[#94A3B8]">Class {n.class_level}</span>
+                      <span className="text-[11px] font-mono font-bold text-[#64748B]">Class {n.class_level}</span>
                     </div>
-                    <h4 className="font-head text-sm font-700 text-white mt-1.5 truncate group-hover:text-[#60A5FA] transition-colors">
+                    <h4 className="font-head text-sm font-800 text-[#1E293B] mt-1.5 truncate">
                       {n.title}
                     </h4>
-                    <p className="text-xs text-[#94A3B8] truncate mt-0.5">{n.chapter}</p>
+                    <p className="text-xs text-[#64748B] truncate mt-0.5">{n.chapter}</p>
                   </Link>
                 ))}
               </div>
@@ -457,14 +885,14 @@ export default function StudentDashboard() {
           </div>
 
           {/* Batch Enrolment / Join Card */}
-          <div className="rounded-3xl glass-panel p-6 sm:p-7 space-y-4 border border-[#06B6D4]/30 relative overflow-hidden">
+          <div className="rounded-3xl bg-[#FFF9E8] p-6 sm:p-7 space-y-4 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] relative overflow-hidden">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-2xl bg-[#06B6D4]/15 border border-[#06B6D4]/40 flex items-center justify-center shrink-0">
-                <Orbit className="h-5 w-5 text-[#06B6D4]" />
+              <div className="h-10 w-10 rounded-2xl bg-[#4CAF7D] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center shrink-0">
+                <Orbit className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h4 className="font-head text-base font-800 text-white">Join Coaching Batch</h4>
-                <p className="text-xs text-[#94A3B8]">
+                <h4 className="font-head text-base font-900 text-[#1E293B]">Join Coaching Batch</h4>
+                <p className="text-xs text-[#64748B] font-medium">
                   Enter the 6-character code provided by your teacher.
                 </p>
               </div>
@@ -476,12 +904,12 @@ export default function StudentDashboard() {
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 placeholder="e.g. 7F29B1"
                 maxLength={8}
-                className="rounded-xl bg-[#0B0F19] border-[#1E293B] text-white font-mono text-sm uppercase tracking-widest focus:border-[#06B6D4] focus:ring-1 focus:ring-[#06B6D4]"
+                className="rounded-xl bg-white border-2 border-[#1E293B] text-[#1E293B] font-mono font-bold text-sm uppercase tracking-widest"
               />
               <Button
                 type="submit"
                 disabled={joining || !joinCode.trim()}
-                className="rounded-xl bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700 text-xs px-5 shrink-0 glow-blue transition-transform hover:scale-105"
+                className="rounded-xl bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-5 shrink-0"
               >
                 {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : "Join"}
               </Button>

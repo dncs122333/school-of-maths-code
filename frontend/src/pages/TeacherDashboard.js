@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -13,15 +13,9 @@ import {
   Plus,
   TrendingDown,
   TrendingUp,
-  BarChart3,
   Award,
   ArrowRight,
-  HelpCircle,
-  FileText,
-  AlertTriangle,
-  Zap,
   FolderOpen,
-  Layers,
   CheckCircle2,
   Orbit,
 } from "lucide-react";
@@ -33,7 +27,6 @@ import ImportQuestionsModal from "../components/dashboard/ImportQuestionsModal";
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
-  const nav = useNavigate();
 
   // State
   const [stats, setStats] = useState({});
@@ -107,138 +100,128 @@ export default function TeacherDashboard() {
   return (
     <div className="space-y-8 pb-16">
       {/* 1. TEACHER COMMAND HERO & STATS BANNER */}
-      <div className="relative rounded-3xl glass-panel p-6 sm:p-8 lg:p-10 border border-[#1E293B] overflow-hidden shadow-2xl">
-        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#06B6D4]/15 blur-3xl pointer-events-none animate-pulse" />
-        <div className="absolute -left-24 -bottom-24 h-72 w-72 rounded-full bg-[#3B82F6]/10 blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 space-y-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-700 font-mono">
-                  {formattedDate}
-                </span>
-                <span className="text-[#94A3B8]/60 text-xs">•</span>
-                <Badge className="bg-[#06B6D4]/15 text-[#22D3EE] border-[#06B6D4]/30 font-700 text-xs px-3 py-0.5 rounded-full">
-                  Educator Command Hub
-                </Badge>
-                <span className="text-[#94A3B8]/60 text-xs">•</span>
-                <span className="text-xs text-[#34D399] font-mono font-600 flex items-center gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Question Bank Verified
-                </span>
-              </div>
-
-              <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-800 tracking-tight text-white flex items-center gap-3">
-                {greeting}, <span className="text-gradient-cyan">{user?.name?.split(" ")[0]}</span> sir!{" "}
-                <span className="animate-floaty inline-block">👨‍🏫</span>
-              </h1>
-
-              <p className="text-[#94A3B8] text-sm sm:text-base max-w-xl leading-relaxed">
-                Live mastery telemetry across your coaching cohorts. Monitor weak concepts, share study notes, and launch timed tests from verified question banks.
-              </p>
+      <div className="rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
+                👨‍🏫 EDUCATOR COCKPIT
+              </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#5B9BD5] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
+                {formattedDate}
+              </span>
+              <Badge className="bg-[#4CAF7D] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> CBSE Calibrated
+              </Badge>
             </div>
 
-            {/* Quick Action Creation Toolkit */}
-            <div className="flex flex-wrap items-center gap-2.5 shrink-0 bg-[#0B0F19]/80 p-3 rounded-3xl border border-[#1E293B] shadow-xl">
-              <Button
-                asChild
-                className="rounded-2xl bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-800 text-xs h-11 px-4 glow-blue transition-transform hover:scale-105"
-              >
-                <Link to="/materials" className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" /> Class Notes
-                </Link>
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                className="rounded-2xl border-[#1E293B] bg-[#111827] text-white hover:bg-[#1E293B] font-700 text-xs h-11 px-4 transition-transform hover:scale-105"
-              >
-                <Link to="/tests/new" className="flex items-center gap-2">
-                  <FileQuestion className="h-4 w-4 text-[#06B6D4]" /> + Class Test
-                </Link>
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                className="rounded-2xl border-[#1E293B] bg-[#111827] text-white hover:bg-[#1E293B] font-700 text-xs h-11 px-4 transition-transform hover:scale-105"
-              >
-                <Link to="/dpp/new" className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-[#FBBF24]" /> + Chapterwise Test
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                onClick={() => setImportModalOpen(true)}
-                variant="outline"
-                className="rounded-2xl border-[#1E293B] bg-[#111827] text-white hover:bg-[#1E293B] font-700 text-xs h-11 px-4 transition-transform hover:scale-105"
-              >
-                <UploadCloud className="h-4 w-4 text-[#34D399] mr-1.5" /> Import CSV
-              </Button>
+            <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-900 tracking-tight text-[#1E293B] uppercase">
+              {greeting}, {user?.name?.split(" ")[0]} sir!{" "}
+              <span className="inline-block animate-floaty">📚</span>
+            </h1>
+
+            <p className="text-[#1E293B] font-medium text-sm sm:text-base max-w-xl leading-relaxed">
+              Live mastery telemetry across your coaching cohorts. Monitor weak concepts, share study notes, and launch timed tests from verified question banks.
+            </p>
+          </div>
+
+          {/* Quick Action Creation Toolkit */}
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0 bg-white p-3.5 rounded-3xl border-2 border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
+            <Button
+              asChild
+              className="rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
+            >
+              <Link to="/materials" className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4" /> Class Notes
+              </Link>
+            </Button>
+            <Button
+              asChild
+              className="rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
+            >
+              <Link to="/tests/new" className="flex items-center gap-2">
+                <FileQuestion className="h-4 w-4" /> + Class Test
+              </Link>
+            </Button>
+            <Button
+              asChild
+              className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
+            >
+              <Link to="/dpp/new" className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4" /> + Chapterwise Test
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setImportModalOpen(true)}
+              className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
+            >
+              <UploadCloud className="h-4 w-4 mr-1.5" /> Import CSV
+            </Button>
+          </div>
+        </div>
+
+        {/* 4 Metric Cards with Key Telemetry */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t-2 border-[#1E293B]/20">
+          {/* Metric 1: Total Students */}
+          <Link
+            to={selectedBatchId ? `/batches?batch_id=${selectedBatchId}` : "/batches"}
+            className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] hover:-translate-y-1 transition-all block"
+          >
+            <div className="flex items-center justify-between text-xs text-[#64748B]">
+              <span className="font-head font-bold uppercase tracking-wider text-[10px]">
+                Active Students
+              </span>
+              <Users className="h-4 w-4 text-[#5B9BD5]" />
+            </div>
+            <div className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B] mt-1 flex items-center justify-between">
+              <span>{stats.students ?? (reportData?.students?.length || 0)}</span>
+              <ArrowRight className="h-4 w-4 text-[#1E293B]" />
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px] text-[#4CAF7D] font-mono font-bold mt-1">
+              <TrendingUp className="h-3.5 w-3.5" /> Enrolled across {batches.length} cohorts
+            </div>
+          </Link>
+
+          {/* Metric 2: Active Assessments */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+            <div className="flex items-center justify-between text-xs text-[#64748B]">
+              <span className="font-head font-bold uppercase tracking-wider text-[10px]">Live Tests</span>
+              <FileQuestion className="h-4 w-4 text-[#FF6B5E]" />
+            </div>
+            <div className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B] mt-1">
+              {(stats.tests || 0) + (stats.dpps || 0)}
+            </div>
+            <div className="text-[11px] text-[#64748B] font-mono font-bold mt-1">
+              <span>{stats.tests ?? 0} Tests • {stats.dpps ?? 0} DPPs</span>
             </div>
           </div>
 
-          {/* 4 Metric Cards with Key Telemetry */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 pt-4 border-t border-[#1E293B]/70">
-            {/* Metric 1: Total Students (Clickable to /batches) */}
-            <Link
-              to={selectedBatchId ? `/batches?batch_id=${selectedBatchId}` : "/batches"}
-              className="p-4 sm:p-5 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B] relative overflow-hidden group hover:border-[#3B82F6] hover:bg-[#172033]/80 transition-all hover:scale-[1.02] cursor-pointer block"
-            >
-              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
-                <span className="font-mono uppercase tracking-wider text-[10px] group-hover:text-[#60A5FA] transition-colors">
-                  Active Students
-                </span>
-                <Users className="h-4 w-4 text-[#3B82F6]" />
-              </div>
-              <div className="font-head text-2xl sm:text-3xl font-800 text-white mt-1.5 flex items-center justify-between">
-                <span>{stats.students ?? (reportData?.students?.length || 0)}</span>
-                <ArrowRight className="h-4 w-4 text-[#3B82F6] opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-[#34D399] font-mono mt-1">
-                <TrendingUp className="h-3.5 w-3.5" /> Enrolled across {batches.length} cohorts
-              </div>
-            </Link>
-
-            {/* Metric 2: Active Assessments */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B] relative overflow-hidden group hover:border-[#06B6D4]/50 transition-all hover:scale-[1.02]">
-              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
-                <span className="font-mono uppercase tracking-wider text-[10px]">Live Assessments</span>
-                <FileQuestion className="h-4 w-4 text-[#06B6D4]" />
-              </div>
-              <div className="font-head text-2xl sm:text-3xl font-800 text-white mt-1.5">
-                {(stats.tests || 0) + (stats.dpps || 0)}
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-[#06B6D4] font-mono mt-1">
-                <span>{stats.tests ?? 0} Class Tests • {stats.dpps ?? 0} Chapterwise Tests</span>
-              </div>
+          {/* Metric 3: Avg Class Score */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+            <div className="flex items-center justify-between text-xs text-[#64748B]">
+              <span className="font-head font-bold uppercase tracking-wider text-[10px]">Class Average</span>
+              <Award className="h-4 w-4 text-[#4CAF7D]" />
             </div>
-
-            {/* Metric 3: Avg Class Score */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B] relative overflow-hidden group hover:border-[#34D399]/50 transition-all hover:scale-[1.02]">
-              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
-                <span className="font-mono uppercase tracking-wider text-[10px]">Class Mastery Avg</span>
-                <Award className="h-4 w-4 text-[#34D399]" />
-              </div>
-              <div className="font-head text-2xl sm:text-3xl font-800 text-[#34D399] mt-1.5">
-                {avgClassScore}%
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-[#34D399] font-mono mt-1">
-                <span>Developing ➔ Strong retention</span>
-              </div>
+            <div className="font-head text-2xl sm:text-3xl font-900 text-[#4CAF7D] mt-1">
+              {avgClassScore}%
             </div>
+            <div className="text-[11px] text-[#4CAF7D] font-mono font-bold mt-1">
+              <span>Cohort Retention Index</span>
+            </div>
+          </div>
 
-            {/* Metric 4: AI Notes Generated */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B] relative overflow-hidden group hover:border-[#FBBF24]/50 transition-all hover:scale-[1.02]">
-              <div className="flex items-center justify-between text-xs text-[#94A3B8]">
-                <span className="font-mono uppercase tracking-wider text-[10px]">AI Study Notes</span>
-                <BookOpen className="h-4 w-4 text-[#FBBF24]" />
-              </div>
-              <div className="font-head text-2xl sm:text-3xl font-800 text-white mt-1.5">
-                {stats.notes ?? 0}
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-[#FBBF24] font-mono mt-1">
-                <span>100% CBSE 2025–26 Aligned</span>
-              </div>
+          {/* Metric 4: AI Notes Generated */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+            <div className="flex items-center justify-between text-xs text-[#64748B]">
+              <span className="font-head font-bold uppercase tracking-wider text-[10px]">AI Study Notes</span>
+              <BookOpen className="h-4 w-4 text-[#F5C842]" />
+            </div>
+            <div className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B] mt-1">
+              {stats.notes ?? 0}
+            </div>
+            <div className="text-[11px] text-[#64748B] font-mono font-bold mt-1">
+              <span>100% CBSE 2025–26 Aligned</span>
             </div>
           </div>
         </div>
@@ -246,19 +229,19 @@ export default function TeacherDashboard() {
 
       {/* 2. BATCH SWITCHER CAPSULE STRIP */}
       {batches.length > 0 && (
-        <div className="rounded-3xl glass-panel p-4 sm:p-5 border border-[#1E293B] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="rounded-3xl bg-white p-4 sm:p-5 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-2 flex-wrap">
-            <Orbit className="h-5 w-5 text-[#06B6D4]" />
-            <span className="font-head text-sm font-700 text-white">Active Cohort:</span>
-            <span className="text-xs text-[#94A3B8] font-mono">
-              {activeBatch?.name} (Class {activeBatch?.class_level}) • Join Code:{" "}
-              <code className="text-[#06B6D4] font-bold bg-[#0B0F19] px-2 py-0.5 rounded-md border border-[#1E293B]">
+            <Orbit className="h-5 w-5 text-[#5B9BD5]" />
+            <span className="font-head text-sm font-800 text-[#1E293B]">Active Cohort:</span>
+            <span className="text-xs text-[#64748B] font-mono font-bold">
+              {activeBatch?.name} (Class {activeBatch?.class_level}) • Code:{" "}
+              <code className="text-[#1E293B] font-bold bg-[#FFF9E8] px-2 py-0.5 rounded-md border-2 border-[#1E293B]">
                 {activeBatch?.code}
               </code>
             </span>
             <Link
               to={`/batches?batch_id=${selectedBatchId || ""}`}
-              className="text-xs font-700 text-[#3B82F6] hover:text-[#60A5FA] flex items-center gap-1 ml-2 transition-colors"
+              className="text-xs font-head font-bold text-[#5B9BD5] hover:underline flex items-center gap-1 ml-2"
             >
               View Roster & Ranks →
             </Link>
@@ -270,14 +253,14 @@ export default function TeacherDashboard() {
                 key={b.id}
                 type="button"
                 onClick={() => setSelectedBatchId(b.id)}
-                className={`px-4 py-2 rounded-2xl text-xs font-700 transition-all whitespace-nowrap flex items-center gap-2 border ${
+                className={`px-4 py-1.5 rounded-full text-xs font-head font-bold transition-all whitespace-nowrap flex items-center gap-2 border-2 border-[#1E293B] ${
                   selectedBatchId === b.id
-                    ? "bg-[#3B82F6] text-white border-[#3B82F6] shadow-lg shadow-[#3B82F6]/30 glow-blue"
-                    : "bg-[#0B0F19] text-[#94A3B8] border-[#1E293B] hover:text-white hover:border-[#3B82F6]/40"
+                    ? "bg-[#F5C842] text-[#1E293B] shadow-[2px_2px_0_#1E293B] -translate-y-0.5"
+                    : "bg-[#FFF9E8] text-[#1E293B] hover:bg-white"
                 }`}
               >
                 <span>{b.name}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/30 font-mono">
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white border border-[#1E293B] font-mono font-bold">
                   Class {b.class_level}
                 </span>
               </button>
@@ -286,7 +269,7 @@ export default function TeacherDashboard() {
               size="sm"
               variant="outline"
               asChild
-              className="rounded-2xl border-[#1E293B] bg-[#0B0F19] text-[#94A3B8] hover:text-white text-xs h-9 px-3 shrink-0"
+              className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] text-xs h-8 px-3 shrink-0 font-head font-bold"
             >
               <Link to="/batches">
                 <Plus className="h-3.5 w-3.5 mr-1" /> New Batch
@@ -310,28 +293,28 @@ export default function TeacherDashboard() {
         {/* LEFT COLUMN: Class Weak Topics Leaderboard & Pending Reviews (7 Cols) */}
         <div className="lg:col-span-7 space-y-8">
           {/* Class Weak Topics Leaderboard */}
-          <div className="rounded-3xl glass-panel p-6 sm:p-8 space-y-5 border border-[#1E293B] shadow-2xl">
+          <div className="rounded-3xl bg-white p-6 sm:p-8 space-y-5 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-xl bg-[#F87171]/15 border border-[#F87171]/30 flex items-center justify-center">
-                  <TrendingDown className="h-4 w-4 text-[#F87171]" />
+                <div className="h-8 w-8 rounded-xl bg-[#FF6B5E] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
+                  <TrendingDown className="h-4 w-4 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-head text-xl font-800 text-white">
+                  <h3 className="font-head text-xl font-900 text-[#1E293B]">
                     Class Weak Topics Leaderboard
                   </h3>
-                  <span className="text-xs text-[#94A3B8]">Concepts with lowest cohort accuracy</span>
+                  <span className="text-xs text-[#64748B] font-bold">Concepts with lowest cohort accuracy</span>
                 </div>
               </div>
-              <Badge className="bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30 font-mono text-[10px] px-2.5 py-0.5">
+              <Badge className="bg-[#FF6B5E] text-white border-2 border-[#1E293B] font-mono text-[10px] px-2.5 py-0.5">
                 Auto-Ranked
               </Badge>
             </div>
 
             {!reportData || (reportData.weak_topics || []).length === 0 ? (
-              <div className="rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-8 text-center text-xs text-[#94A3B8] space-y-1">
-                <CheckCircle2 className="h-8 w-8 text-[#34D399] mx-auto opacity-70" />
-                <p className="font-700 text-white">No Critical Weaknesses Identified</p>
+              <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-8 text-center text-xs text-[#64748B] space-y-1">
+                <CheckCircle2 className="h-8 w-8 text-[#4CAF7D] mx-auto opacity-70" />
+                <p className="font-bold text-[#1E293B]">No Critical Weaknesses Identified</p>
                 <p>All student submissions in this batch are currently above the 55% threshold.</p>
               </div>
             ) : (
@@ -341,17 +324,17 @@ export default function TeacherDashboard() {
                   return (
                     <div
                       key={`${w.subject}|${w.chapter}|${w.topic}|${idx}`}
-                      className="group flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#0B0F19]/90 border border-[#1E293B] hover:border-[#F87171]/50 transition-all hover:translate-x-1"
+                      className="group flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-all"
                     >
                       <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-xs font-800 text-[#F87171]">#{idx + 1}</span>
-                          <Badge className="bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30 text-[10px] font-700">
+                          <span className="font-mono text-xs font-900 text-[#FF6B5E]">#{idx + 1}</span>
+                          <Badge className="bg-[#5B9BD5] text-white border-2 border-[#1E293B] text-[10px] font-bold">
                             {w.subject}
                           </Badge>
-                          <span className="text-xs text-[#94A3B8] font-mono">{w.chapter}</span>
+                          <span className="text-xs text-[#64748B] font-mono font-bold">{w.chapter}</span>
                         </div>
-                        <h4 className="font-head text-sm sm:text-base font-700 text-white truncate group-hover:text-[#60A5FA] transition-colors">
+                        <h4 className="font-head text-sm sm:text-base font-800 text-[#1E293B] truncate">
                           {w.topic}
                         </h4>
                       </div>
@@ -359,19 +342,19 @@ export default function TeacherDashboard() {
                       <div className="flex items-center gap-4 shrink-0">
                         <div className="text-right font-mono">
                           <div
-                            className={`font-head text-xl font-800 ${
-                              isSevere ? "text-[#F87171]" : "text-[#FBBF24]"
+                            className={`font-head text-xl font-900 ${
+                              isSevere ? "text-[#FF6B5E]" : "text-[#1E293B]"
                             }`}
                           >
                             {w.class_avg}%
                           </div>
-                          <span className="text-[10px] text-[#94A3B8] uppercase">Class Avg</span>
+                          <span className="text-[10px] text-[#64748B] uppercase font-bold">Class Avg</span>
                         </div>
 
                         <Button
                           size="sm"
                           asChild
-                          className="rounded-full bg-[#3B82F6]/20 hover:bg-[#3B82F6] text-[#60A5FA] hover:text-white border border-[#3B82F6]/40 text-xs h-9 px-3.5 font-700 transition-all"
+                          className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs h-8 px-3.5 font-head font-bold"
                         >
                           <Link to="/dpp/new">
                             <Plus className="h-3.5 w-3.5 mr-1" /> + Chapterwise Test
@@ -399,22 +382,22 @@ export default function TeacherDashboard() {
           <StudentRosterRadar students={reportData?.students || []} />
 
           {/* Educator Toolkit Shortcuts */}
-          <div className="rounded-3xl glass-panel p-6 sm:p-7 space-y-4 border border-[#1E293B]">
+          <div className="rounded-3xl bg-white p-6 sm:p-7 space-y-4 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-[#FBBF24]" />
-              <h3 className="font-head text-base font-800 text-white">Educator Studio Toolkit</h3>
+              <Sparkles className="h-4 w-4 text-[#F5C842]" />
+              <h3 className="font-head text-base font-900 text-[#1E293B]">Educator Studio Toolkit</h3>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <Button
                 asChild
                 variant="outline"
-                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#0B0F19] border-[#1E293B] hover:border-[#3B82F6]/60 flex flex-col items-start text-left justify-start transition-transform hover:scale-105"
+                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
-                <Link to="/notes/new" className="space-y-1.5 w-full">
-                  <BookOpen className="h-4 w-4 text-[#3B82F6]" />
-                  <span className="font-700 text-xs text-white block">Generate Note</span>
-                  <span className="text-[10px] text-[#94A3B8] font-normal block leading-tight">
+                <Link to="/notes/new" className="space-y-1 w-full">
+                  <BookOpen className="h-4 w-4 text-[#5B9BD5]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Generate Note</span>
+                  <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
                     Multi-pass AI extractor
                   </span>
                 </Link>
@@ -423,12 +406,12 @@ export default function TeacherDashboard() {
               <Button
                 asChild
                 variant="outline"
-                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#0B0F19] border-[#1E293B] hover:border-[#06B6D4]/60 flex flex-col items-start text-left justify-start transition-transform hover:scale-105"
+                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
-                <Link to="/tests/new" className="space-y-1.5 w-full">
-                  <FileQuestion className="h-4 w-4 text-[#06B6D4]" />
-                  <span className="font-700 text-xs text-white block">Timed Exam</span>
-                  <span className="text-[10px] text-[#94A3B8] font-normal block leading-tight">
+                <Link to="/tests/new" className="space-y-1 w-full">
+                  <FileQuestion className="h-4 w-4 text-[#FF6B5E]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Timed Exam</span>
+                  <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
                     Snapshot from bank
                   </span>
                 </Link>
@@ -437,12 +420,12 @@ export default function TeacherDashboard() {
               <Button
                 asChild
                 variant="outline"
-                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#0B0F19] border-[#1E293B] hover:border-[#34D399]/60 flex flex-col items-start text-left justify-start transition-transform hover:scale-105"
+                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
-                <Link to="/materials" className="space-y-1.5 w-full">
-                  <FolderOpen className="h-4 w-4 text-[#34D399]" />
-                  <span className="font-700 text-xs text-white block">Batch Materials</span>
-                  <span className="text-[10px] text-[#94A3B8] font-normal block leading-tight">
+                <Link to="/materials" className="space-y-1 w-full">
+                  <FolderOpen className="h-4 w-4 text-[#4CAF7D]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Class Materials</span>
+                  <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
                     Upload PDFs & sheets
                   </span>
                 </Link>
@@ -452,12 +435,12 @@ export default function TeacherDashboard() {
                 type="button"
                 onClick={() => setImportModalOpen(true)}
                 variant="outline"
-                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#0B0F19] border-[#1E293B] hover:border-[#FBBF24]/60 flex flex-col items-start text-left justify-start transition-transform hover:scale-105"
+                className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
-                <div className="space-y-1.5 w-full">
-                  <UploadCloud className="h-4 w-4 text-[#FBBF24]" />
-                  <span className="font-700 text-xs text-white block">Import CSV</span>
-                  <span className="text-[10px] text-[#94A3B8] font-normal block leading-tight">
+                <div className="space-y-1 w-full">
+                  <UploadCloud className="h-4 w-4 text-[#F5C842]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Import CSV</span>
+                  <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
                     Add MCQs to bank
                   </span>
                 </div>

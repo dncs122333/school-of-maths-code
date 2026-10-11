@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { PlusCircle, Trash2, BookOpen, ArrowLeft, GripVertical, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
-const inp = "rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B] text-white placeholder:text-[#475569]";
+const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] placeholder:text-[#64748B]";
 const EMPTY_SECTION = () => ({ heading: "", content: "" });
 
 export default function CreateNote() {
@@ -77,26 +77,28 @@ export default function CreateNote() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto pb-20">
-      <button onClick={() => nav("/notes")} className="flex items-center gap-1 text-sm text-[#94A3B8] hover:text-white mb-4 transition-colors">
+    <div className="max-w-3xl mx-auto pb-20 space-y-6">
+      <button onClick={() => nav("/notes")} className="flex items-center gap-1.5 text-xs font-head font-bold text-[#1E293B] hover:underline transition-colors">
         <ArrowLeft className="h-4 w-4" /> Back to library
       </button>
 
-      <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Teacher Studio</span>
-      <h1 className="font-head text-3xl font-700 tracking-tight flex items-center gap-2 text-white mt-1">
-        Create Class Notes <BookOpen className="h-6 w-6 text-[#06B6D4]" />
-      </h1>
-      <p className="text-[#94A3B8] mt-2">
-        Write structured notes for your students — add sections, quick revision bullets, and key terms.
-        Notes are published instantly.
-      </p>
+      {/* Top Banner */}
+      <div className="p-6 sm:p-8 rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B]">
+        <span className="text-xs uppercase tracking-widest text-[#1E293B] font-head font-extrabold px-3 py-1 bg-white rounded-full border-2 border-[#1E293B]">Teacher Studio</span>
+        <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight flex items-center gap-2 text-[#1E293B] uppercase mt-2">
+          Create Class Notes <BookOpen className="h-7 w-7 text-[#1E293B]" />
+        </h1>
+        <p className="text-xs sm:text-sm text-[#1E293B] font-medium mt-1 leading-relaxed">
+          Write structured notes for your students — add sections, quick revision bullets, and key terms.
+        </p>
+      </div>
 
       {/* ── Metadata ── */}
-      <div className="mt-6 space-y-5 rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
-        <h2 className="text-sm font-700 uppercase tracking-widest text-[#94A3B8]">Details</h2>
+      <div className="space-y-5 rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6 sm:p-8">
+        <h2 className="text-xs font-head font-bold uppercase tracking-wider text-[#64748B]">Chapter Details</h2>
 
         <div>
-          <Label className="font-600 text-[#94A3B8]">Title</Label>
+          <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Title</Label>
           <Input data-testid="note-title" className={inp} value={meta.title}
             onChange={(e) => setMeta({ ...meta, title: e.target.value })}
             placeholder="e.g. Chemical Reactions — Complete Notes" />
@@ -104,43 +106,43 @@ export default function CreateNote() {
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
-            <Label className="font-600 text-[#94A3B8]">Class</Label>
+            <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Class</Label>
             <Select value={meta.class_level}
               onValueChange={(v) => setMeta({ ...meta, class_level: v, subject: "", chapter: "" })}>
               <SelectTrigger data-testid="note-class" className={inp}><SelectValue /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-white border-2 border-[#1E293B]">
                 <SelectItem value="9">Class 9</SelectItem>
                 <SelectItem value="10">Class 10</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label className="font-600 text-[#94A3B8]">Subject</Label>
+            <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Subject</Label>
             <Select value={meta.subject} onValueChange={(v) => setMeta({ ...meta, subject: v, chapter: "" })}>
               <SelectTrigger data-testid="note-subject" className={inp}><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>{subjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              <SelectContent className="bg-white border-2 border-[#1E293B]">{subjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div>
-            <Label className="font-600 text-[#94A3B8]">Chapter</Label>
+            <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Chapter</Label>
             <Select value={meta.chapter} onValueChange={(v) => setMeta({ ...meta, chapter: v })}>
               <SelectTrigger data-testid="note-chapter" className={inp}><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>{chapters.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              <SelectContent className="bg-white border-2 border-[#1E293B]">{chapters.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div>
-            <Label className="font-600 text-[#94A3B8]">Topic <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+            <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Topic (optional)</Label>
             <Input data-testid="note-topic" className={inp} value={meta.topic}
               onChange={(e) => setMeta({ ...meta, topic: e.target.value })}
               placeholder="e.g. Redox reactions" />
           </div>
           <div className="sm:col-span-2">
-            <Label className="font-600 text-[#94A3B8]">Batch Access</Label>
+            <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Batch Access</Label>
             <Select value={meta.batch_id || "all"} onValueChange={(v) => setMeta({ ...meta, batch_id: v === "all" ? "" : v })}>
               <SelectTrigger data-testid="note-batch" className={inp}>
                 <SelectValue placeholder="All Batches (General)" />
               </SelectTrigger>
-              <SelectContent className="bg-[#111827] border-[#1E293B] text-white">
+              <SelectContent className="bg-white border-2 border-[#1E293B] text-[#1E293B]">
                 <SelectItem value="all">All Batches (General Notes)</SelectItem>
                 {batches
                   .filter((b) => String(b.class_level) === String(meta.class_level))
@@ -151,7 +153,7 @@ export default function CreateNote() {
                   ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-1.5 mt-2 text-xs text-[#34D399]">
+            <div className="flex items-center gap-1.5 mt-2 text-xs text-[#4CAF7D] font-bold">
               <ShieldCheck className="h-3.5 w-3.5" />
               {meta.batch_id ? "Only students in the selected batch can read this note." : "Visible to all your students."}
             </div>
@@ -159,7 +161,7 @@ export default function CreateNote() {
         </div>
 
         <div>
-          <Label className="font-600 text-[#94A3B8]">Introduction <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+          <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Introduction (optional)</Label>
           <Textarea className={inp + " mt-1.5"} rows={3} value={meta.intro}
             onChange={(e) => setMeta({ ...meta, intro: e.target.value })}
             placeholder="Brief introduction or overview for this chapter…" />
@@ -167,11 +169,11 @@ export default function CreateNote() {
       </div>
 
       {/* ── Sections ── */}
-      <div className="mt-4 rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-700 uppercase tracking-widest text-[#94A3B8]">Sections</h2>
+      <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6 sm:p-8 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-head font-bold uppercase tracking-wider text-[#64748B]">Sections</h2>
           <Button type="button" variant="outline" size="sm"
-            className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600"
+            className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold text-xs"
             onClick={addSection}>
             <PlusCircle className="h-4 w-4 mr-1" /> Add Section
           </Button>
@@ -179,17 +181,17 @@ export default function CreateNote() {
 
         <div className="space-y-4">
           {sections.map((sec, i) => (
-            <div key={i} className="group rounded-2xl bg-[#0B0F19] border border-[#1E293B] p-4 space-y-3 relative">
+            <div key={i} className="group rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-4 space-y-3 relative shadow-[2px_2px_0_#1E293B]">
               <div className="flex items-center gap-2">
-                <GripVertical className="h-4 w-4 text-[#334155] shrink-0" />
+                <GripVertical className="h-4 w-4 text-[#64748B] shrink-0" />
                 <Input
                   placeholder={`Section ${i + 1} heading — e.g. "What is a chemical reaction?"`}
-                  className="flex-1 rounded-lg bg-[#111827] border-[#1E293B] text-white placeholder:text-[#475569]"
+                  className="flex-1 rounded-xl bg-white border-2 border-[#1E293B] text-[#1E293B] placeholder:text-[#64748B] font-bold"
                   value={sec.heading}
                   onChange={(e) => updateSection(i, "heading", e.target.value)}
                 />
                 {sections.length > 1 && (
-                  <button onClick={() => removeSection(i)} className="text-[#475569] hover:text-red-400 transition-colors p-1">
+                  <button onClick={() => removeSection(i)} className="text-[#FF6B5E] hover:text-[#EE594B] transition-colors p-1">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
@@ -197,7 +199,7 @@ export default function CreateNote() {
               <Textarea
                 placeholder="Write the section content here. You can use plain text — lists, formulas, explanations…"
                 rows={5}
-                className="rounded-lg bg-[#111827] border-[#1E293B] text-white placeholder:text-[#475569] font-mono text-sm"
+                className="rounded-xl bg-white border-2 border-[#1E293B] text-[#1E293B] placeholder:text-[#64748B] text-sm"
                 value={sec.content}
                 onChange={(e) => updateSection(i, "content", e.target.value)}
               />
@@ -207,14 +209,14 @@ export default function CreateNote() {
       </div>
 
       {/* ── Quick Revision ── */}
-      <div className="mt-4 rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
-        <div className="flex items-center justify-between mb-4">
+      <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6 sm:p-8 space-y-4">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-700 uppercase tracking-widest text-[#94A3B8]">Quick Revision Points</h2>
-            <p className="text-xs text-[#475569] mt-0.5">Bullet points students should memorise</p>
+            <h2 className="text-xs font-head font-bold uppercase tracking-wider text-[#64748B]">Quick Revision Points</h2>
+            <p className="text-xs text-[#64748B]">Bullet points students should memorise</p>
           </div>
           <Button type="button" variant="outline" size="sm"
-            className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600"
+            className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold text-xs"
             onClick={listAdder(setQr)}>
             <PlusCircle className="h-4 w-4 mr-1" /> Add Point
           </Button>
@@ -222,12 +224,12 @@ export default function CreateNote() {
         <div className="space-y-2">
           {qr.map((point, i) => (
             <div key={i} className="flex items-center gap-2">
-              <span className="text-[#06B6D4] font-700 text-sm w-4 shrink-0">•</span>
-              <Input className="flex-1 rounded-lg bg-[#0B0F19] border-[#1E293B] text-white placeholder:text-[#475569]"
+              <span className="text-[#4CAF7D] font-black text-sm w-4 shrink-0">•</span>
+              <Input className="flex-1 rounded-xl bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] placeholder:text-[#64748B]"
                 placeholder={`Revision point ${i + 1}`} value={point}
                 onChange={(e) => listUpdater(setQr)(i, e.target.value)} />
               {qr.length > 1 && (
-                <button onClick={() => listRemover(setQr)(i)} className="text-[#475569] hover:text-red-400 transition-colors p-1">
+                <button onClick={() => listRemover(setQr)(i)} className="text-[#FF6B5E] hover:text-[#EE594B] transition-colors p-1">
                   <Trash2 className="h-4 w-4" />
                 </button>
               )}
@@ -237,26 +239,26 @@ export default function CreateNote() {
       </div>
 
       {/* ── Key Terms ── */}
-      <div className="mt-4 rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
-        <div className="flex items-center justify-between mb-4">
+      <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-6 sm:p-8 space-y-4">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-700 uppercase tracking-widest text-[#94A3B8]">Key Terms</h2>
-            <p className="text-xs text-[#475569] mt-0.5">Important vocabulary from this chapter</p>
+            <h2 className="text-xs font-head font-bold uppercase tracking-wider text-[#64748B]">Key Terms</h2>
+            <p className="text-xs text-[#64748B]">Important vocabulary from this chapter</p>
           </div>
           <Button type="button" variant="outline" size="sm"
-            className="rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600"
+            className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold text-xs"
             onClick={listAdder(setKt)}>
             <PlusCircle className="h-4 w-4 mr-1" /> Add Term
           </Button>
         </div>
         <div className="flex flex-wrap gap-2">
           {kt.map((term, i) => (
-            <div key={i} className="flex items-center gap-1 bg-[#0B0F19] border border-[#1E293B] rounded-full px-3 py-1">
-              <Input className="bg-transparent border-none text-white text-sm p-0 h-auto w-28 placeholder:text-[#475569] focus-visible:ring-0"
+            <div key={i} className="flex items-center gap-1 bg-[#FFF9E8] border-2 border-[#1E293B] rounded-full px-3 py-1 shadow-[2px_2px_0_#1E293B]">
+              <Input className="bg-transparent border-none text-[#1E293B] font-bold text-xs p-0 h-auto w-28 placeholder:text-[#64748B] focus-visible:ring-0 shadow-none"
                 placeholder="Term…" value={term}
                 onChange={(e) => listUpdater(setKt)(i, e.target.value)} />
               {kt.length > 1 && (
-                <button onClick={() => listRemover(setKt)(i)} className="text-[#475569] hover:text-red-400 transition-colors ml-1">
+                <button onClick={() => listRemover(setKt)(i)} className="text-[#FF6B5E] hover:text-[#EE594B] transition-colors ml-1">
                   <Trash2 className="h-3 w-3" />
                 </button>
               )}
@@ -266,10 +268,10 @@ export default function CreateNote() {
       </div>
 
       {/* ── Submit ── */}
-      <div className="mt-6">
+      <div className="pt-2">
         <Button data-testid="generate-note-btn" onClick={submit} disabled={busy}
-          className="w-full rounded-full bg-[#3B82F6] text-white font-700 h-12 hover:bg-[#60A5FA] glow-blue">
-          {busy ? "Publishing…" : "Publish Note"}
+          className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[4px_4px_0_#1E293B] font-head font-900 text-sm h-12 uppercase tracking-wider">
+          {busy ? "Publishing…" : "Publish Note to Classroom Hub"}
         </Button>
       </div>
     </div>

@@ -49,7 +49,7 @@ export default function Materials() {
     load();
     api.get("/catalog").then((r) => setCatalog(r.data));
     if (isTeacher) api.get("/batches").then((r) => setBatches(r.data));
-  }, []);
+  }, [isTeacher]);
 
   const releaseViewerUrl = () => {
     if (viewerUrlRef.current) { URL.revokeObjectURL(viewerUrlRef.current); viewerUrlRef.current = ""; }
@@ -62,7 +62,7 @@ export default function Materials() {
 
   const subjects = catalog[f.class_level] ? Object.keys(catalog[f.class_level]) : [];
   const chapters = catalog[f.class_level]?.[f.subject] || [];
-  const inp = "rounded-xl mt-1.5 bg-[#0B0F19] border-[#1E293B]";
+  const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] font-semibold focus:ring-2 focus:ring-[#F5C842]";
   const pickedExt = extOf(file?.name);
 
   const upload = async () => {
@@ -212,89 +212,89 @@ export default function Materials() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <span className="text-xs uppercase tracking-widest text-[#06B6D4] font-600">Resources</span>
-        <h1 className="font-head text-3xl font-700 tracking-tight text-white">Class Notes</h1>
-        <p className="text-[#94A3B8] mt-1">Class notes &amp; documents shared with a batch — exactly as uploaded.</p>
+      <div className="rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] p-6 sm:p-8 shadow-[4px_4px_0_#1E293B]">
+        <span className="inline-block px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] text-xs font-900 uppercase tracking-widest shadow-[2px_2px_0_#1E293B]">Resources</span>
+        <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight text-[#1E293B] mt-2">CLASS NOTES</h1>
+        <p className="text-[#1E293B]/80 font-medium mt-1">Class notes &amp; documents shared with a batch — exactly as uploaded.</p>
       </div>
 
       {!isTeacher && ENABLE_WATERMARKING && (
-        <div data-testid="watermark-notice" className="flex items-start gap-2.5 rounded-2xl border border-[#3B82F6]/25 bg-[#3B82F6]/5 px-4 py-3">
-          <ShieldCheck className="h-4 w-4 text-[#3B82F6] mt-0.5 shrink-0" />
-          <p className="text-sm text-[#94A3B8]">
+        <div data-testid="watermark-notice" className="flex items-start gap-2.5 rounded-2xl border-2 border-[#1E293B] bg-white px-4 py-3 shadow-[3px_3px_0_#1E293B]">
+          <ShieldCheck className="h-5 w-5 text-[#4CAF7D] mt-0.5 shrink-0" />
+          <p className="text-sm font-semibold text-[#1E293B]">
             PDFs and images you open or download carry your name and email across every page.
-            Your copy is traceable to you — please don't share it on.
+            Your copy is traceable to you — please don&apos;t share it on.
           </p>
         </div>
       )}
 
       {isTeacher && (
-        <div className="rounded-3xl bg-[#111827] border border-[#1E293B] p-6 sm:p-8">
-          <div className="flex items-center gap-2 mb-5">
-            <div className="h-10 w-10 rounded-2xl bg-[#0B0F19] border border-[#3B82F6]/30 flex items-center justify-center"><Upload className="h-5 w-5 text-[#3B82F6]" /></div>
+        <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 sm:p-8 shadow-[4px_4px_0_#1E293B]">
+          <div className="flex items-center gap-2.5 mb-5">
+            <div className="h-10 w-10 rounded-2xl bg-[#F5C842] border-2 border-[#1E293B] flex items-center justify-center shadow-[2px_2px_0_#1E293B]"><Upload className="h-5 w-5 text-[#1E293B]" /></div>
             <div>
-              <div className="font-head font-600 text-lg text-white">Upload a file to a batch</div>
-              <div className="text-sm text-[#94A3B8]">PDF, image, DOCX or PPTX — shared as-is with the batch.</div>
+              <div className="font-head font-800 text-lg text-[#1E293B]">Upload a file to a batch</div>
+              <div className="text-sm font-medium text-[#1E293B]/70">PDF, image, DOCX or PPTX — shared as-is with the batch.</div>
             </div>
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <Label className="font-600 text-[#94A3B8]">Title</Label>
+              <Label className="font-800 text-[#1E293B]">Title</Label>
               <Input data-testid="material-title" className={inp} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Chapter 3 — Handwritten Notes" />
             </div>
             <div>
-              <Label className="font-600 text-[#94A3B8]">Batch</Label>
+              <Label className="font-800 text-[#1E293B]">Batch</Label>
               <Select value={f.batch_id} onValueChange={(v) => setF({ ...f, batch_id: v })}>
                 <SelectTrigger data-testid="material-batch" className={inp}><SelectValue placeholder="Choose batch" /></SelectTrigger>
                 <SelectContent>{batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="font-600 text-[#94A3B8]">Class</Label>
+              <Label className="font-800 text-[#1E293B]">Class</Label>
               <Select value={f.class_level} onValueChange={(v) => setF({ ...f, class_level: v, subject: "", chapter: "" })}>
                 <SelectTrigger data-testid="material-class" className={inp}><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="9">Class 9</SelectItem><SelectItem value="10">Class 10</SelectItem></SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="font-600 text-[#94A3B8]">Subject</Label>
+              <Label className="font-800 text-[#1E293B]">Subject</Label>
               <Select value={f.subject} onValueChange={(v) => setF({ ...f, subject: v, chapter: "" })}>
                 <SelectTrigger data-testid="material-subject" className={inp}><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>{subjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="font-600 text-[#94A3B8]">Chapter <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+              <Label className="font-800 text-[#1E293B]">Chapter <span className="text-[#1E293B]/50 font-normal">(optional)</span></Label>
               <Select value={f.chapter || undefined} onValueChange={(v) => setF({ ...f, chapter: v })}>
                 <SelectTrigger data-testid="material-chapter" className={inp}><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>{chapters.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="sm:col-span-2">
-              <Label className="font-600 text-[#94A3B8]">File</Label>
+              <Label className="font-800 text-[#1E293B]">File</Label>
               <input ref={fileRef} data-testid="material-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.pptx,.txt"
                 onChange={(e) => setFile(e.target.files[0])}
-                className="mt-1.5 block w-full text-sm text-[#94A3B8] file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:bg-[#3B82F6] file:text-white file:font-600 file:cursor-pointer bg-[#0B0F19] border border-[#1E293B] rounded-xl py-1.5 px-2" />
+                className="mt-1.5 block w-full text-sm text-[#1E293B] font-semibold file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-2 file:border-[#1E293B] file:bg-[#F5C842] file:text-[#1E293B] file:font-800 file:cursor-pointer bg-[#FFF9E8] border-2 border-[#1E293B] rounded-xl py-1.5 px-2" />
               {ENABLE_WATERMARKING && NO_MARK_EXTS.has(pickedExt) && (
-                <div data-testid="no-watermark-hint" className="mt-2.5 flex items-start gap-2 rounded-xl border border-[#FBBF24]/30 bg-[#FBBF24]/5 px-3 py-2.5">
-                  <Info className="h-4 w-4 text-[#FBBF24] mt-0.5 shrink-0" />
-                  <p className="text-xs text-[#94A3B8]">
+                <div data-testid="no-watermark-hint" className="mt-2.5 flex items-start gap-2 rounded-xl border-2 border-[#1E293B] bg-[#FFF9E8] px-3 py-2.5">
+                  <Info className="h-4 w-4 text-[#1E293B] mt-0.5 shrink-0" />
+                  <p className="text-xs font-semibold text-[#1E293B]/80">
                     Word and PowerPoint files can&apos;t carry a student watermark and won&apos;t preview in the app —
-                    students will download them as-is. <span className="text-white font-600">Export to PDF</span> if you want the
+                    students will download them as-is. <span className="text-[#1E293B] font-800">Export to PDF</span> if you want the
                     file marked with each student&apos;s name.
                   </p>
                 </div>
               )}
             </div>
           </div>
-          <Button data-testid="upload-material-btn" onClick={upload} disabled={busy} className="mt-5 w-full sm:w-auto rounded-full bg-[#3B82F6] text-white font-700 hover:bg-[#60A5FA] glow-blue">
-            {busy ? "Uploading…" : <><Upload className="h-4 w-4 mr-1" /> Share with batch</>}
+          <Button data-testid="upload-material-btn" onClick={upload} disabled={busy} className="mt-5 w-full sm:w-auto rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] font-800 border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none">
+            {busy ? "Uploading…" : <><Upload className="h-4 w-4 mr-1 text-[#1E293B]" /> Share with batch</>}
           </Button>
         </div>
       )}
 
       <div>
-        <h2 className="font-head text-xl font-600 mb-4 text-white">{isTeacher ? "Your shared class notes" : "Available class notes"}</h2>
+        <h2 className="font-head text-2xl font-800 mb-4 text-[#1E293B]">{isTeacher ? "Your shared class notes" : "Available class notes"}</h2>
         {items.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-[#1E293B] p-16 text-center">
             <FolderOpen className="h-10 w-10 mx-auto text-[#94A3B8]/40" />
@@ -346,60 +346,60 @@ export default function Materials() {
                                       const previewable = canPreview(r);
                                       return (
                                         <motion.div key={r.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                                          className="relative group rounded-3xl bg-[#111827] border border-[#1E293B] p-6 flex flex-col hover:border-[#3B82F6]/40 transition-colors">
+                                          className="relative group rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 flex flex-col shadow-[4px_4px_0_#1E293B] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0_#1E293B] transition-all">
                                           {/* Teacher quick action buttons */}
                                           {isTeacher && (
                                             <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                               <button
                                                 data-testid={`edit-material-top-${r.id}`}
                                                 onClick={(e) => { e.preventDefault(); openEdit(r); }}
-                                                className="h-7 w-7 rounded-full bg-[#1E293B] hover:bg-[#3B82F6]/20 border border-[#3B82F6]/30 flex items-center justify-center text-[#3B82F6] transition-colors"
+                                                className="h-8 w-8 rounded-full bg-[#FFF9E8] hover:bg-[#F5C842] border-2 border-[#1E293B] flex items-center justify-center text-[#1E293B] transition-colors shadow-[1px_1px_0_#1E293B]"
                                                 title="Edit material">
                                                 <Pencil className="h-3.5 w-3.5" />
                                               </button>
                                             </div>
                                           )}
                                           <div className="flex items-start justify-between gap-3">
-                                            <div className="h-11 w-11 rounded-2xl bg-[#0B0F19] border border-[#06B6D4]/30 flex items-center justify-center shrink-0"><Icon className="h-5 w-5 text-[#06B6D4]" /></div>
-                                            <span className="text-[11px] font-600 uppercase tracking-wide px-2.5 py-1 rounded-full border border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#3B82F6]">{r.subject}</span>
+                                            <div className="h-11 w-11 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex items-center justify-center shrink-0 shadow-[2px_2px_0_#1E293B]"><Icon className="h-5 w-5 text-[#1E293B]" /></div>
+                                            <span className="text-[11px] font-900 uppercase tracking-wide px-3 py-1 rounded-full border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B] shadow-[2px_2px_0_#1E293B]">{r.subject}</span>
                                           </div>
-                                          <h4 className="font-head text-lg font-600 mt-4 leading-snug text-white">{r.title}</h4>
-                                          <div className="text-xs text-[#94A3B8] mt-1 font-500 truncate">{r.filename} • {fmtSize(r.size)}</div>
-                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#94A3B8]/80 font-mono">
+                                          <h4 className="font-head text-lg font-800 mt-4 leading-snug text-[#1E293B]">{r.title}</h4>
+                                          <div className="text-xs text-[#1E293B]/70 mt-1 font-semibold truncate">{r.filename} • {fmtSize(r.size)}</div>
+                                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#1E293B]/80 font-mono">
                                             {!isTeacher && isWatermarked(r) && (
-                                              <span data-testid={`watermark-badge-${r.id}`} className="px-2 py-0.5 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/30 text-[#3B82F6] inline-flex items-center gap-1">
-                                                <ShieldCheck className="h-3 w-3" /> watermarked
+                                              <span data-testid={`watermark-badge-${r.id}`} className="px-2 py-0.5 rounded-full bg-[#4CAF7D]/20 border-2 border-[#1E293B] text-[#1E293B] font-bold inline-flex items-center gap-1">
+                                                <ShieldCheck className="h-3.5 w-3.5 text-[#4CAF7D]" /> watermarked
                                               </span>
                                             )}
                                           </div>
                                           {!previewable && (
-                                            <div data-testid={`download-only-${r.id}`} className="mt-3 flex items-start gap-1.5 text-xs text-[#94A3B8]/80">
-                                              <Info className="h-3.5 w-3.5 text-[#FBBF24] mt-0.5 shrink-0" />
+                                            <div data-testid={`download-only-${r.id}`} className="mt-3 flex items-start gap-1.5 text-xs text-[#1E293B]/80 font-medium">
+                                              <Info className="h-4 w-4 text-[#1E293B] mt-0.5 shrink-0" />
                                               <span>Download only — {extOf(r.filename).toUpperCase()} files can&apos;t be previewed{!isTeacher && ENABLE_WATERMARKING && " or watermarked"}.</span>
                                             </div>
                                           )}
                                           <div className="mt-auto pt-5 flex items-center gap-2">
                                             {previewable && (
-                                              <Button data-testid={`view-material-${r.id}`} onClick={() => openView(r)} variant="outline" className="flex-1 rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
-                                                <Eye className="h-4 w-4 mr-1" /> View
+                                              <Button data-testid={`view-material-${r.id}`} onClick={() => openView(r)} variant="outline" className="flex-1 rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-800 shadow-[2px_2px_0_#1E293B] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none">
+                                                <Eye className="h-4 w-4 mr-1 text-[#1E293B]" /> View
                                               </Button>
                                             )}
                                             <Button data-testid={`download-material-${r.id}`} onClick={() => download(r)} disabled={busyId === r.id}
-                                              className={`rounded-full bg-[#3B82F6] text-white font-600 hover:bg-[#60A5FA] ${previewable ? "" : "flex-1"}`}>
-                                              {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Download className="h-4 w-4" />{!previewable && <span className="ml-1">Download</span>}</>}
+                                              className={`rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] font-800 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${previewable ? "" : "flex-1"}`}>
+                                              {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin text-[#1E293B]" /> : <><Download className="h-4 w-4 text-[#1E293B]" />{!previewable && <span className="ml-1">Download</span>}</>}
                                             </Button>
                                             {isTeacher && (
                                               <>
-                                                <Button data-testid={`edit-material-${r.id}`} onClick={() => openEdit(r)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#3B82F6] hover:bg-[#3B82F6]/10" title="Edit material">
+                                                <Button data-testid={`edit-material-${r.id}`} onClick={() => openEdit(r)} variant="outline" className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] shadow-[2px_2px_0_#1E293B]" title="Edit material">
                                                   <Pencil className="h-4 w-4" />
                                                 </Button>
-                                                <Button data-testid={`delete-material-${r.id}`} onClick={() => remove(r.id)} variant="outline" className="rounded-full border-[#1E293B] bg-transparent text-[#F87171] hover:bg-[#F87171]/10" title="Delete material">
+                                                <Button data-testid={`delete-material-${r.id}`} onClick={() => remove(r.id)} variant="outline" className="rounded-full border-2 border-[#1E293B] bg-white text-[#FF6B5E] hover:bg-[#FF6B5E]/20 shadow-[2px_2px_0_#1E293B]" title="Delete material">
                                                   <Trash2 className="h-4 w-4" />
                                                 </Button>
                                               </>
                                             )}
                                           </div>
-                                          <div className="mt-3 flex items-center gap-1 text-xs text-[#94A3B8]/60"><User className="h-3 w-3" /> {r.teacher_name}</div>
+                                          <div className="mt-3 flex items-center gap-1 text-xs text-[#1E293B]/60 font-semibold"><User className="h-3 w-3" /> {r.teacher_name}</div>
                                         </motion.div>
                                       );
                                     })}
@@ -421,39 +421,39 @@ export default function Materials() {
 
 
       <Dialog open={viewer.open} onOpenChange={(o) => { if (!o) closeViewer(); }}>
-        <DialogContent data-testid="material-viewer" className="max-w-4xl w-[92vw] bg-[#111827] border-[#1E293B] p-0 overflow-hidden">
-          <DialogHeader className="px-5 py-3 border-b border-[#1E293B]">
-            <DialogTitle className="font-head text-white text-base truncate pr-8">{viewer.name}</DialogTitle>
+        <DialogContent data-testid="material-viewer" className="max-w-4xl w-[92vw] bg-white border-[2.5px] border-[#1E293B] p-0 overflow-hidden shadow-[6px_6px_0_#1E293B]">
+          <DialogHeader className="px-5 py-3 border-b-2 border-[#1E293B] bg-[#F5C842]">
+            <DialogTitle className="font-head text-[#1E293B] text-base truncate pr-8 font-900">{viewer.name}</DialogTitle>
           </DialogHeader>
           {/* items-start, not items-center: centering inside an overflow-auto container clips
               the top of tall content (the PDF toolbar) out of the scrollable area entirely */}
-          <div className="p-4 bg-[#0B0F19] max-h-[78vh] overflow-auto flex items-start justify-center">
+          <div className="p-4 bg-[#FFF9E8] max-h-[78vh] overflow-auto flex items-start justify-center">
             {viewer.error ? (
-              <div data-testid="material-viewer-error" className="py-20 text-center text-[#94A3B8]">
-                <AlertTriangle className="h-10 w-10 mx-auto text-[#FBBF24]" />
-                <p className="mt-3 font-600 text-white">{viewer.error}</p>
+              <div data-testid="material-viewer-error" className="py-20 text-center text-[#1E293B]">
+                <AlertTriangle className="h-10 w-10 mx-auto text-[#FF6B5E]" />
+                <p className="mt-3 font-800 text-[#1E293B]">{viewer.error}</p>
                 <Button data-testid="material-viewer-retry" onClick={retryView} variant="outline"
-                  className="mt-4 rounded-full border-[#1E293B] bg-transparent text-white hover:bg-white/5 font-600">
-                  <RotateCw className="h-4 w-4 mr-1" /> Try again
+                  className="mt-4 rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-800 shadow-[2px_2px_0_#1E293B]">
+                  <RotateCw className="h-4 w-4 mr-1 text-[#1E293B]" /> Try again
                 </Button>
               </div>
             ) : viewer.loading ? (
               <div data-testid="material-viewer-skeleton" className="w-full flex flex-col items-center gap-3 py-6">
-                <div className="w-[min(100%,620px)] h-[64vh] rounded-xl bg-[#1E293B]/60 animate-pulse" />
-                <span className="text-xs text-[#94A3B8]">Preparing your copy…</span>
+                <div className="w-[min(100%,620px)] h-[64vh] rounded-xl bg-white border-2 border-[#1E293B] animate-pulse" />
+                <span className="text-xs font-bold text-[#1E293B]">Preparing your copy…</span>
               </div>
             ) : viewer.kind === "pdf" ? (
               <PdfCanvasViewer data={viewer.data} onRetry={retryView} />
             ) : viewer.kind === "image" ? (
-              <img src={viewer.url} alt={viewer.name} data-testid="material-viewer-image" className="max-w-full rounded-xl border border-[#1E293B]" />
+              <img src={viewer.url} alt={viewer.name} data-testid="material-viewer-image" className="max-w-full rounded-xl border-2 border-[#1E293B]" />
             ) : viewer.kind === "text" ? (
-              <pre data-testid="material-viewer-text" className="w-full max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[#111827] border border-[#1E293B] p-4 text-sm text-[#E2E8F0] font-mono">
+              <pre data-testid="material-viewer-text" className="w-full max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white border-2 border-[#1E293B] p-4 text-sm text-[#1E293B] font-mono">
                 {viewer.text}
               </pre>
             ) : (
-              <div className="py-20 text-center text-[#94A3B8]">
-                <FileText className="h-10 w-10 mx-auto text-[#94A3B8]/40" />
-                <p className="mt-3">This file type can&apos;t be previewed here.</p>
+              <div className="py-20 text-center text-[#1E293B]">
+                <FileText className="h-10 w-10 mx-auto text-[#1E293B]/40" />
+                <p className="mt-3 font-bold">This file type can&apos;t be previewed here.</p>
               </div>
             )}
           </div>
@@ -461,13 +461,13 @@ export default function Materials() {
       </Dialog>
       {/* ---- Edit Dialog ---- */}
       <Dialog open={!!editItem} onOpenChange={(o) => { if (!o) setEditItem(null); }}>
-        <DialogContent data-testid="edit-material-modal" className="bg-[#111827] border-[#1E293B] max-w-lg">
+        <DialogContent data-testid="edit-material-modal" className="bg-white border-[2.5px] border-[#1E293B] max-w-lg shadow-[6px_6px_0_#1E293B]">
           <DialogHeader>
-            <DialogTitle className="text-white font-head text-xl">Edit shared material</DialogTitle>
+            <DialogTitle className="text-[#1E293B] font-head text-2xl font-900">EDIT SHARED MATERIAL</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label className="font-600 text-[#94A3B8]">Title / Name</Label>
+              <Label className="font-800 text-[#1E293B]">Title / Name</Label>
               <Input
                 data-testid="edit-material-title"
                 className={inp}
@@ -478,7 +478,7 @@ export default function Materials() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="font-600 text-[#94A3B8]">Class</Label>
+                <Label className="font-800 text-[#1E293B]">Class</Label>
                 <Select value={editForm.class_level} onValueChange={(v) => setEditForm({ ...editForm, class_level: v, subject: "" })}>
                   <SelectTrigger className={inp}><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -488,7 +488,7 @@ export default function Materials() {
                 </Select>
               </div>
               <div>
-                <Label className="font-600 text-[#94A3B8]">Subject</Label>
+                <Label className="font-800 text-[#1E293B]">Subject</Label>
                 <Select value={editForm.subject} onValueChange={(v) => setEditForm({ ...editForm, subject: v })}>
                   <SelectTrigger className={inp}><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>{editSubjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
@@ -497,16 +497,16 @@ export default function Materials() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="font-600 text-[#94A3B8]">Chapter <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+                <Label className="font-800 text-[#1E293B]">Chapter <span className="text-[#1E293B]/50 font-normal">(optional)</span></Label>
                 <Input className={inp} value={editForm.chapter || ""} onChange={(e) => setEditForm({ ...editForm, chapter: e.target.value })} />
               </div>
               <div>
-                <Label className="font-600 text-[#94A3B8]">Topic <span className="text-[#94A3B8]/50 font-400">(optional)</span></Label>
+                <Label className="font-800 text-[#1E293B]">Topic <span className="text-[#1E293B]/50 font-normal">(optional)</span></Label>
                 <Input className={inp} value={editForm.topic || ""} onChange={(e) => setEditForm({ ...editForm, topic: e.target.value })} />
               </div>
             </div>
             <div>
-              <Label className="font-600 text-[#94A3B8]">Batch</Label>
+              <Label className="font-800 text-[#1E293B]">Batch</Label>
               <Select value={editForm.batch_id || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, batch_id: v === "__none__" ? "" : v })}>
                 <SelectTrigger className={inp}><SelectValue placeholder="Select batch" /></SelectTrigger>
                 <SelectContent>
@@ -517,11 +517,11 @@ export default function Materials() {
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" className="rounded-full border-[#1E293B] text-[#94A3B8]"
+            <Button variant="outline" className="rounded-full border-2 border-[#1E293B] text-[#1E293B] font-bold"
               onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button data-testid="save-material-btn" className="rounded-full bg-[#3B82F6] hover:bg-[#60A5FA] text-white font-700"
+            <Button data-testid="save-material-btn" className="rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] font-900 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
               disabled={saving} onClick={saveEdit}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1 text-[#1E293B]" /> : null}
               Save changes
             </Button>
           </DialogFooter>
