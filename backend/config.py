@@ -24,3 +24,10 @@ DIFFICULTIES = ("easy", "medium", "hard")
 _VALID_STATUSES = ("active", "pending_review", "inactive")
 ENABLE_WATERMARKING = os.environ.get("ENABLE_WATERMARKING", "false").strip().lower() in ("true", "1", "yes")
 
+import zoneinfo
+APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Asia/Kolkata").strip() or "Asia/Kolkata"
+try:
+    APP_TIMEZONE = zoneinfo.ZoneInfo(APP_TIMEZONE_NAME)
+except Exception:
+    APP_TIMEZONE = zoneinfo.ZoneInfo("Asia/Kolkata")
+

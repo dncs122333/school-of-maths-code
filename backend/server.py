@@ -21,7 +21,7 @@ from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING
+from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
 from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, CreateNoteInput, GenerateTestInput,
@@ -1810,11 +1810,13 @@ async def stats(user: dict = Depends(get_current_user)):
             if ca:
                 try:
                     dt = datetime.fromisoformat(ca.replace("Z", "+00:00"))
-                    active_dates.add(dt.date())
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    active_dates.add(dt.astimezone(APP_TIMEZONE).date())
                 except Exception:
                     pass
 
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(APP_TIMEZONE).date()
         yesterday = today - timedelta(days=1)
         streak_days = 0
         if today in active_dates:
@@ -1853,6 +1855,13 @@ async def stats(user: dict = Depends(get_current_user)):
 
 @api_router.get("/batches/{batch_id}/topper")
 async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
+    user_role = user.get("role")
+    if user_role == "student":
+        if batch_id not in user.get("batch_ids", []):
+            raise HTTPException(status_code=403, detail="Not authorized to access this batch")
+    elif user_role not in ["teacher", "admin"]:
+        raise HTTPException(status_code=403, detail="Not authorized to access this batch")
+
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         return {"topper": None}
@@ -1886,7 +1895,10 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
         ca = sub.get("created_at")
         if ca:
             try:
-                student_stats[sid]["dates"].add(datetime.fromisoformat(ca.replace("Z", "+00:00")).date())
+                dt = datetime.fromisoformat(ca.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                student_stats[sid]["dates"].add(dt.astimezone(APP_TIMEZONE).date())
             except Exception:
                 pass
 
@@ -1894,7 +1906,7 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
         return {"topper": None}
 
     toppers = []
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(APP_TIMEZONE).date()
     yesterday = today - timedelta(days=1)
     for sid, data in student_stats.items():
         if not data["scores"]:

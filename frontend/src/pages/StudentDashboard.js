@@ -241,7 +241,7 @@ export default function StudentDashboard() {
                     key={i}
                     title={d}
                     className={`h-2.5 w-2.5 rounded-full border border-[#1E293B] transition-all ${
-                      activeWeekDays.includes(i)
+                      activeWeekDays[i]
                         ? "bg-[#F5C842]"
                         : "bg-white"
                     }`}
@@ -552,7 +552,7 @@ export default function StudentDashboard() {
                 </div>
                 <div className="p-5 space-y-2">
                   <span className="text-[11px] font-mono font-bold text-[#64748B]">
-                    {activeTests[0]?.duration_mins ? `${activeTests[0].duration_mins} Minutes` : "Examination Portal"}
+                    {activeTests[0]?.duration_minutes ? `${activeTests[0].duration_minutes} Minutes` : "Examination Portal"}
                   </span>
                   <h3 className="font-head text-lg font-black text-[#1E293B] leading-snug">
                     {activeTests[0]?.title || "CBSE Timed Examination Mocks"}
