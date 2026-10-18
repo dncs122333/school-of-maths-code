@@ -9,8 +9,10 @@ import csv
 import hashlib
 import random
 import re
+import time
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError, PyMongoError
@@ -274,28 +276,67 @@ def _derive_paid_months(payments: list, schedule: list) -> list:
     return _derive_fee_allocation(payments, schedule)["paid_months"]
 
 
+async def generate_unique_batch_code() -> str:
+    for _ in range(20):
+        code = secrets.token_hex(3).upper()
+        existing = await db.batches.find_one({"code": code})
+        if not existing:
+            return code
+    for _ in range(20):
+        code = secrets.token_hex(4).upper()
+        existing = await db.batches.find_one({"code": code})
+        if not existing:
+            return code
+    return secrets.token_hex(5).upper()
+
+
+_join_rate_limit_lock = asyncio.Lock()
+_join_attempts: Dict[str, List[float]] = defaultdict(list)
+
+
+async def _check_join_rate_limit(user_id: str, client_ip: str, max_attempts: int = 10, window_seconds: int = 60) -> bool:
+    now = time.time()
+    cutoff = now - window_seconds
+    async with _join_rate_limit_lock:
+        keys = [f"user:{user_id}"]
+        if client_ip and client_ip not in ("unknown", "", "127.0.0.1", "localhost"):
+            keys.append(f"ip:{client_ip}")
+        for k in keys:
+            _join_attempts[k] = [t for t in _join_attempts[k] if t > cutoff]
+            if len(_join_attempts[k]) >= max_attempts:
+                return False
+        for k in keys:
+            _join_attempts[k].append(now)
+        return True
+
+
 @api_router.post("/batches")
 async def create_batch(body: BatchInput, user: dict = Depends(require_role("teacher", "admin"))):
-    code = secrets.token_hex(3).upper()
     fee_amount = float(body.fee_amount) if body.fee_amount is not None else 0.0
     monthly_fee = float(body.monthly_fee) if body.monthly_fee is not None else (round(fee_amount / 12.0, 2) if fee_amount > 0 else 0.0)
     fee_schedule = body.fee_schedule if (body.fee_schedule and len(body.fee_schedule) > 0) else get_batch_default_schedule(fee_amount, monthly_fee)
 
-    doc = {
-        "id": str(uuid.uuid4()),
-        "name": body.name,
-        "class_level": body.class_level,
-        "fee_amount": fee_amount,
-        "monthly_fee": monthly_fee,
-        "fee_schedule": fee_schedule,
-        "code": code,
-        "teacher_id": user["id"],
-        "teacher_name": user["name"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.batches.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    for _ in range(10):
+        code = await generate_unique_batch_code()
+        doc = {
+            "id": str(uuid.uuid4()),
+            "name": body.name,
+            "class_level": body.class_level,
+            "fee_amount": fee_amount,
+            "monthly_fee": monthly_fee,
+            "fee_schedule": fee_schedule,
+            "code": code,
+            "teacher_id": user["id"],
+            "teacher_name": user["name"],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        try:
+            await db.batches.insert_one(doc)
+            doc.pop("_id", None)
+            return doc
+        except DuplicateKeyError:
+            continue
+    raise HTTPException(status_code=500, detail="Failed to generate unique batch code")
 
 
 @api_router.put("/batches/{batch_id}")
@@ -354,7 +395,11 @@ async def list_batches(user: dict = Depends(get_current_user)):
 
 
 @api_router.post("/batches/join")
-async def join_batch(body: JoinInput, user: dict = Depends(require_role("student"))):
+async def join_batch(body: JoinInput, request: Request, user: dict = Depends(require_role("student"))):
+    client_ip = request.client.host if request.client else "unknown"
+    if not await _check_join_rate_limit(user["id"], client_ip, max_attempts=10, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Too many join attempts. Please try again later.")
+
     batch = await db.batches.find_one({"code": body.code.upper().strip()}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Invalid batch code")
@@ -376,6 +421,7 @@ class RecordPaymentInput(BaseModel):
     fee_schedule: Optional[List[dict]] = None
     is_partial: Optional[bool] = False
     partial_amount: Optional[float] = None
+    idempotency_key: Optional[str] = None
 
 
 @api_router.get("/batches/{batch_id}/students")
@@ -508,287 +554,380 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
     }
 
 
+_fee_locks: Dict[str, asyncio.Lock] = {}
+_fee_locks_guard = asyncio.Lock()
+
+
+async def _get_fee_lock(batch_id: str, student_id: str) -> asyncio.Lock:
+    key = f"{batch_id}:{student_id}"
+    async with _fee_locks_guard:
+        if key not in _fee_locks:
+            _fee_locks[key] = asyncio.Lock()
+        return _fee_locks[key]
+
+
 @api_router.post("/batches/{batch_id}/students/{student_id}/fee")
-async def record_student_fee(batch_id: str, student_id: str, body: RecordPaymentInput, user: dict = Depends(require_role("teacher", "admin"))):
+async def record_student_fee(
+    batch_id: str,
+    student_id: str,
+    body: RecordPaymentInput,
+    request: Request,
+    user: dict = Depends(require_role("teacher", "admin"))
+):
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="You do not own this batch")
 
+    if not ObjectId.is_valid(student_id):
+        raise HTTPException(status_code=400, detail="Invalid student id")
     student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    batch_default_fee = float(batch.get("fee_amount", 0) or 0)
-    batch_monthly_fee_val = float(batch.get("monthly_fee", 0) or 0)
-    stored_sched = batch.get("fee_schedule")
-    if stored_sched and batch_monthly_fee_val > 0:
-        stored_amts = set(float(it.get("amount", 0)) for it in stored_sched if it.get("amount") is not None)
-        if len(stored_amts) == 1:
-            stored_s = next(iter(stored_amts))
-            if abs(stored_s - batch_monthly_fee_val) > 0.01:
-                stored_sched = get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
-    schedule = stored_sched or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    payment_date = body.payment_date or now_iso
+    student_batch_ids = student.get("batch_ids", [])
+    if batch_id not in student_batch_ids:
+        raise HTTPException(status_code=400, detail="Student is not enrolled in this batch")
 
-    record = await db.batch_fees.find_one({"batch_id": batch_id, "student_id": student_id}, {"_id": 0})
-    if not record:
-        record = {
-            "batch_id": batch_id,
-            "student_id": student_id,
-            "total_fee": batch_default_fee,
-            "paid_fee": 0.0,
-            "due_fee": batch_default_fee,
-            "status": "due",
-            "payments": [],
-            "paid_months": []
-        }
-
-    total_fee = float(body.total_fee) if body.total_fee is not None else float(record.get("total_fee", batch_default_fee))
-    payments = list(record.get("payments", []))
-    last_date = record.get("last_payment_date")
-
-    # If legacy fee record had paid_fee > 0 but payments was empty, initialize payment
-    if not payments and float(record.get("paid_fee", 0.0)) > 0:
-        legacy_paid = float(record.get("paid_fee", 0.0))
-        payments = [{
-            "id": "legacy",
-            "amount": legacy_paid,
-            "date": record.get("last_payment_date"),
-            "month": "All Months" if legacy_paid >= total_fee else "",
-            "notes": "Imported payment"
-        }]
-
-    # Resolve student schedule (custom or proportional)
-    if body.fee_schedule and len(body.fee_schedule) > 0:
-        student_schedule = body.fee_schedule
-    elif record.get("fee_schedule"):
-        if body.total_fee is not None and abs(total_fee - float(record.get("total_fee", 0))) > 0.01:
-            student_schedule = get_proportional_schedule(record.get("fee_schedule"), total_fee)
-        else:
-            student_schedule = record.get("fee_schedule")
-    elif abs(total_fee - batch_default_fee) > 0.01:
-        student_schedule = get_proportional_schedule(schedule, total_fee)
-    else:
-        student_schedule = schedule
-
-    if body.unmark_month:
-        month_to_remove = body.unmark_month.strip()
-        month_item = next((it for it in student_schedule if it["month"] == month_to_remove), None)
-        sched_amt = float(month_item.get("amount", 0.0)) if month_item else round(total_fee / 12.0, 2)
-
-        rem_deduct = sched_amt
-        new_payments = []
-
-        has_covering_payment = any(
-            (p.get("month") == "All Months" or month_to_remove in [m.strip() for m in (p.get("month") or "").split(",") if m.strip()])
-            for p in payments
-        )
-
-        if has_covering_payment:
-            for p in payments:
-                p_month = (p.get("month") or "").strip()
-                p_amt = float(p.get("amount", 0.0))
-                is_all = (p_month == "All Months")
-                p_months_list = [it["month"] for it in student_schedule] if is_all else [m.strip() for m in p_month.split(",") if m.strip()]
-
-                if month_to_remove in p_months_list and rem_deduct > 0.001:
-                    deduct_this = min(rem_deduct, p_amt)
-                    new_amt = round(p_amt - deduct_this, 2)
-                    rem_deduct = round(rem_deduct - deduct_this, 2)
-                    remaining_months = [m for m in p_months_list if m != month_to_remove]
-                    if new_amt > 0.001 and remaining_months:
-                        p["amount"] = new_amt
-                        p["month"] = ", ".join(remaining_months)
-                        new_payments.append(p)
-                    elif new_amt > 0.001:
-                        p["amount"] = new_amt
-                        p["month"] = ""
-                        new_payments.append(p)
-                    # If new_amt <= 0.001, payment is dropped
-                else:
-                    new_payments.append(p)
-        else:
-            for p in reversed(payments):
-                p_amt = float(p.get("amount", 0.0))
-                if rem_deduct > 0.001:
-                    deduct_this = min(rem_deduct, p_amt)
-                    new_amt = round(p_amt - deduct_this, 2)
-                    rem_deduct = round(rem_deduct - deduct_this, 2)
-                    p["amount"] = new_amt
-                if float(p.get("amount", 0.0)) > 0.001:
-                    new_payments.append(p)
-            new_payments.reverse()
-
-        payments = new_payments
-    elif body.mark_as_paid:
-        current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
-        diff = max(0.0, round(total_fee - current_sum, 2))
-        if diff > 0 or not payments:
-            payments.append({
-                "id": str(uuid.uuid4()),
-                "amount": diff if diff > 0 else total_fee,
-                "date": payment_date,
-                "month": "All Months",
-                "notes": body.notes.strip() if body.notes else "Marked as paid in full",
-                "recorded_by": user["name"]
-            })
-            last_date = payment_date
-    elif body.is_partial and (body.month or (body.months_paid and len(body.months_paid) > 0)):
-        target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
-        target_months = [m for m in target_months if m]
+    # Amount validation
+    if body.is_partial:
         part_amt = float(body.partial_amount if body.partial_amount is not None else (body.amount or 0.0))
         part_amt = round(part_amt, 2)
-        payments.append({
-            "id": str(uuid.uuid4()),
-            "amount": part_amt,
-            "date": payment_date,
-            "month": ", ".join(target_months),
-            "is_partial": True,
-            "notes": body.notes.strip() if body.notes else f"Partial payment for {', '.join(target_months)}",
-            "recorded_by": user["name"]
-        })
-        last_date = payment_date
-    elif body.paid_fee is not None:
-        target_paid = max(0.0, round(float(body.paid_fee), 2))
-        if target_paid <= 0.001:
-            payments = []
+        if part_amt <= 0:
+            raise HTTPException(status_code=400, detail="Partial payment amount must be greater than zero")
+        if not (body.month or (body.months_paid and len(body.months_paid) > 0)):
+            raise HTTPException(status_code=400, detail="Partial payment requires month or months_paid")
+    elif body.amount is not None and float(body.amount) <= 0 and not (
+        body.unmark_month or body.mark_as_paid or body.paid_fee is not None or body.due_fee is not None
+    ):
+        raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+
+    idem_key = (
+        body.idempotency_key
+        or request.headers.get("x-idempotency-key")
+        or request.headers.get("idempotency-key")
+        or ""
+    ).strip()
+
+    lock = await _get_fee_lock(batch_id, student_id)
+    async with lock:
+        record = await db.batch_fees.find_one({"batch_id": batch_id, "student_id": student_id}, {"_id": 0})
+        if record and idem_key:
+            recorded_keys = set(record.get("idempotency_keys", []))
+            for p in record.get("payments", []):
+                if p.get("idempotency_key"):
+                    recorded_keys.add(p["idempotency_key"])
+            if idem_key in recorded_keys:
+                return {
+                    "id": student_id,
+                    "name": student.get("name"),
+                    "email": student.get("email"),
+                    "total_fee": float(record.get("total_fee", 0.0)),
+                    "fee_schedule": record.get("fee_schedule", []),
+                    "paid_fee": float(record.get("paid_fee", 0.0)),
+                    "due_fee": float(record.get("due_fee", 0.0)),
+                    "status": record.get("status", "due"),
+                    "payments": record.get("payments", []),
+                    "paid_months": record.get("paid_months", []),
+                    "last_payment_date": record.get("last_payment_date")
+                }
+
+        batch_default_fee = float(batch.get("fee_amount", 0) or 0)
+        batch_monthly_fee_val = float(batch.get("monthly_fee", 0) or 0)
+        stored_sched = batch.get("fee_schedule")
+        if stored_sched and batch_monthly_fee_val > 0:
+            stored_amts = set(float(it.get("amount", 0)) for it in stored_sched if it.get("amount") is not None)
+            if len(stored_amts) == 1:
+                stored_s = next(iter(stored_amts))
+                if abs(stored_s - batch_monthly_fee_val) > 0.01:
+                    stored_sched = get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
+        schedule = stored_sched or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        payment_date = body.payment_date or now_iso
+
+        if not record:
+            record = {
+                "batch_id": batch_id,
+                "student_id": student_id,
+                "total_fee": batch_default_fee,
+                "paid_fee": 0.0,
+                "due_fee": batch_default_fee,
+                "status": "due",
+                "payments": [],
+                "paid_months": [],
+                "version": 0,
+                "idempotency_keys": []
+            }
+
+        total_fee = float(body.total_fee) if body.total_fee is not None else float(record.get("total_fee", batch_default_fee))
+        payments = list(record.get("payments", []))
+        last_date = record.get("last_payment_date")
+        version = int(record.get("version", 0))
+        idempotency_keys = list(record.get("idempotency_keys", []))
+
+        # If legacy fee record had paid_fee > 0 but payments was empty, initialize payment
+        if not payments and float(record.get("paid_fee", 0.0)) > 0:
+            legacy_paid = float(record.get("paid_fee", 0.0))
+            payments = [{
+                "id": "legacy",
+                "amount": legacy_paid,
+                "date": record.get("last_payment_date"),
+                "month": "All Months" if legacy_paid >= total_fee else "",
+                "notes": "Imported payment"
+            }]
+
+        # Resolve student schedule (custom or proportional)
+        if body.fee_schedule and len(body.fee_schedule) > 0:
+            student_schedule = body.fee_schedule
+        elif record.get("fee_schedule"):
+            if body.total_fee is not None and abs(total_fee - float(record.get("total_fee", 0))) > 0.01:
+                student_schedule = get_proportional_schedule(record.get("fee_schedule"), total_fee)
+            else:
+                student_schedule = record.get("fee_schedule")
+        elif abs(total_fee - batch_default_fee) > 0.01:
+            student_schedule = get_proportional_schedule(schedule, total_fee)
         else:
-            current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
-            diff = round(target_paid - current_sum, 2)
-            if diff > 0.001:
-                payments.append({
-                    "id": str(uuid.uuid4()),
-                    "amount": diff,
-                    "date": payment_date,
-                    "month": "All Months" if target_paid >= total_fee else "",
-                    "notes": body.notes.strip() if body.notes else "Direct paid fee adjustment",
-                    "recorded_by": user["name"]
-                })
-                last_date = payment_date
-            elif diff < -0.001:
-                to_remove = abs(diff)
+            student_schedule = schedule
+
+        if body.unmark_month:
+            month_to_remove = body.unmark_month.strip()
+            month_item = next((it for it in student_schedule if it["month"] == month_to_remove), None)
+            sched_amt = float(month_item.get("amount", 0.0)) if month_item else round(total_fee / 12.0, 2)
+
+            rem_deduct = sched_amt
+            new_payments = []
+
+            has_covering_payment = any(
+                (p.get("month") == "All Months" or month_to_remove in [m.strip() for m in (p.get("month") or "").split(",") if m.strip()])
+                for p in payments
+            )
+
+            if has_covering_payment:
+                for p in payments:
+                    p_month = (p.get("month") or "").strip()
+                    p_amt = float(p.get("amount", 0.0))
+                    is_all = (p_month == "All Months")
+                    p_months_list = [it["month"] for it in student_schedule] if is_all else [m.strip() for m in p_month.split(",") if m.strip()]
+
+                    if month_to_remove in p_months_list and rem_deduct > 0.001:
+                        deduct_this = min(rem_deduct, p_amt)
+                        new_amt = round(p_amt - deduct_this, 2)
+                        rem_deduct = round(rem_deduct - deduct_this, 2)
+                        remaining_months = [m for m in p_months_list if m != month_to_remove]
+                        if new_amt > 0.001 and remaining_months:
+                            p["amount"] = new_amt
+                            p["month"] = ", ".join(remaining_months)
+                            new_payments.append(p)
+                        elif new_amt > 0.001:
+                            p["amount"] = new_amt
+                            p["month"] = ""
+                            new_payments.append(p)
+                        # If new_amt <= 0.001, payment is dropped
+                    else:
+                        new_payments.append(p)
+            else:
                 for p in reversed(payments):
                     p_amt = float(p.get("amount", 0.0))
-                    if p_amt <= to_remove:
-                        to_remove = round(to_remove - p_amt, 2)
-                        p["amount"] = 0.0
-                    else:
-                        p["amount"] = round(p_amt - to_remove, 2)
-                        to_remove = 0.0
-                        break
-                payments = [p for p in payments if float(p.get("amount", 0.0)) > 0.001]
-    elif body.due_fee is not None:
-        target_due = max(0.0, round(float(body.due_fee), 2))
-        target_paid = max(0.0, round(total_fee - target_due, 2))
-        if target_paid <= 0.001:
-            payments = []
-        else:
+                    if rem_deduct > 0.001:
+                        deduct_this = min(rem_deduct, p_amt)
+                        new_amt = round(p_amt - deduct_this, 2)
+                        rem_deduct = round(rem_deduct - deduct_this, 2)
+                        p["amount"] = new_amt
+                    if float(p.get("amount", 0.0)) > 0.001:
+                        new_payments.append(p)
+                new_payments.reverse()
+
+            payments = new_payments
+        elif body.mark_as_paid:
             current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
-            diff = round(target_paid - current_sum, 2)
-            if diff > 0.001:
-                payments.append({
+            diff = max(0.0, round(total_fee - current_sum, 2))
+            if diff > 0 or not payments:
+                new_p = {
                     "id": str(uuid.uuid4()),
-                    "amount": diff,
+                    "amount": diff if diff > 0 else total_fee,
                     "date": payment_date,
-                    "month": "All Months" if target_paid >= total_fee else "",
-                    "notes": body.notes.strip() if body.notes else "Direct due fee adjustment",
+                    "month": "All Months",
+                    "notes": body.notes.strip() if body.notes else "Marked as paid in full",
                     "recorded_by": user["name"]
-                })
+                }
+                if idem_key:
+                    new_p["idempotency_key"] = idem_key
+                payments.append(new_p)
                 last_date = payment_date
-            elif diff < -0.001:
-                to_remove = abs(diff)
-                for p in reversed(payments):
-                    p_amt = float(p.get("amount", 0.0))
-                    if p_amt <= to_remove:
-                        to_remove = round(to_remove - p_amt, 2)
-                        p["amount"] = 0.0
+        elif body.is_partial and (body.month or (body.months_paid and len(body.months_paid) > 0)):
+            target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
+            target_months = [m for m in target_months if m]
+            part_amt = float(body.partial_amount if body.partial_amount is not None else (body.amount or 0.0))
+            part_amt = round(part_amt, 2)
+            new_p = {
+                "id": str(uuid.uuid4()),
+                "amount": part_amt,
+                "date": payment_date,
+                "month": ", ".join(target_months),
+                "is_partial": True,
+                "notes": body.notes.strip() if body.notes else f"Partial payment for {', '.join(target_months)}",
+                "recorded_by": user["name"]
+            }
+            if idem_key:
+                new_p["idempotency_key"] = idem_key
+            payments.append(new_p)
+            last_date = payment_date
+        elif body.paid_fee is not None:
+            target_paid = max(0.0, round(float(body.paid_fee), 2))
+            if target_paid <= 0.001:
+                payments = []
+            else:
+                current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+                diff = round(target_paid - current_sum, 2)
+                if diff > 0.001:
+                    new_p = {
+                        "id": str(uuid.uuid4()),
+                        "amount": diff,
+                        "date": payment_date,
+                        "month": "All Months" if target_paid >= total_fee else "",
+                        "notes": body.notes.strip() if body.notes else "Direct paid fee adjustment",
+                        "recorded_by": user["name"]
+                    }
+                    if idem_key:
+                        new_p["idempotency_key"] = idem_key
+                    payments.append(new_p)
+                    last_date = payment_date
+                elif diff < -0.001:
+                    to_remove = abs(diff)
+                    for p in reversed(payments):
+                        p_amt = float(p.get("amount", 0.0))
+                        if p_amt <= to_remove:
+                            to_remove = round(to_remove - p_amt, 2)
+                            p["amount"] = 0.0
+                        else:
+                            p["amount"] = round(p_amt - to_remove, 2)
+                            to_remove = 0.0
+                            break
+                    payments = [p for p in payments if float(p.get("amount", 0.0)) > 0.001]
+        elif body.due_fee is not None:
+            target_due = max(0.0, round(float(body.due_fee), 2))
+            target_paid = max(0.0, round(total_fee - target_due, 2))
+            if target_paid <= 0.001:
+                payments = []
+            else:
+                current_sum = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+                diff = round(target_paid - current_sum, 2)
+                if diff > 0.001:
+                    new_p = {
+                        "id": str(uuid.uuid4()),
+                        "amount": diff,
+                        "date": payment_date,
+                        "month": "All Months" if target_paid >= total_fee else "",
+                        "notes": body.notes.strip() if body.notes else "Direct due fee adjustment",
+                        "recorded_by": user["name"]
+                    }
+                    if idem_key:
+                        new_p["idempotency_key"] = idem_key
+                    payments.append(new_p)
+                    last_date = payment_date
+                elif diff < -0.001:
+                    to_remove = abs(diff)
+                    for p in reversed(payments):
+                        p_amt = float(p.get("amount", 0.0))
+                        if p_amt <= to_remove:
+                            to_remove = round(to_remove - p_amt, 2)
+                            p["amount"] = 0.0
+                        else:
+                            p["amount"] = round(p_amt - to_remove, 2)
+                            to_remove = 0.0
+                            break
+                    payments = [p for p in payments if float(p.get("amount", 0.0)) > 0.001]
+        elif body.month or (body.months_paid and len(body.months_paid) > 0):
+            target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
+            target_months = [m for m in target_months if m]
+            added = 0.0
+            if body.amount is not None and body.amount > 0:
+                added = float(body.amount)
+            else:
+                for tm in target_months:
+                    sch_item = next((it for it in student_schedule if it["month"] == tm), None)
+                    if sch_item:
+                        added += float(sch_item.get("amount", 0.0))
                     else:
-                        p["amount"] = round(p_amt - to_remove, 2)
-                        to_remove = 0.0
-                        break
-                payments = [p for p in payments if float(p.get("amount", 0.0)) > 0.001]
-    elif body.month or (body.months_paid and len(body.months_paid) > 0):
-        target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
-        target_months = [m for m in target_months if m]
-        added = 0.0
-        if body.amount is not None and body.amount > 0:
-            added = float(body.amount)
-        else:
-            for tm in target_months:
-                sch_item = next((it for it in student_schedule if it["month"] == tm), None)
-                if sch_item:
-                    added += float(sch_item.get("amount", 0.0))
-                else:
-                    added += round(total_fee / 12.0, 2)
-        added = round(added, 2)
-        payments.append({
-            "id": str(uuid.uuid4()),
-            "amount": added,
-            "date": payment_date,
-            "month": ", ".join(target_months),
-            "notes": body.notes.strip() if body.notes else f"Payment for {', '.join(target_months)}",
-            "recorded_by": user["name"]
-        })
-        last_date = payment_date
-    elif body.amount is not None and body.amount > 0:
-        added = round(float(body.amount), 2)
-        payments.append({
-            "id": str(uuid.uuid4()),
-            "amount": added,
-            "date": payment_date,
-            "month": body.month or "",
-            "notes": body.notes.strip() if body.notes else "Payment received",
-            "recorded_by": user["name"]
-        })
-        last_date = payment_date
+                        added += round(total_fee / 12.0, 2)
+            added = round(added, 2)
+            new_p = {
+                "id": str(uuid.uuid4()),
+                "amount": added,
+                "date": payment_date,
+                "month": ", ".join(target_months),
+                "notes": body.notes.strip() if body.notes else f"Payment for {', '.join(target_months)}",
+                "recorded_by": user["name"]
+            }
+            if idem_key:
+                new_p["idempotency_key"] = idem_key
+            payments.append(new_p)
+            last_date = payment_date
+        elif body.amount is not None and body.amount > 0:
+            added = round(float(body.amount), 2)
+            new_p = {
+                "id": str(uuid.uuid4()),
+                "amount": added,
+                "date": payment_date,
+                "month": body.month or "",
+                "notes": body.notes.strip() if body.notes else "Payment received",
+                "recorded_by": user["name"]
+            }
+            if idem_key:
+                new_p["idempotency_key"] = idem_key
+            payments.append(new_p)
+            last_date = payment_date
 
-    # Invariant: paid_fee == sum(p.amount for p in payments)
-    current_paid = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
-    new_due = max(0.0, round(total_fee - current_paid, 2))
-    status = "paid" if new_due == 0 and total_fee > 0 else "partial" if current_paid > 0 else "due"
-    if total_fee == 0 and current_paid == 0:
-        status = "paid"
+        if idem_key and idem_key not in idempotency_keys:
+            idempotency_keys.append(idem_key)
 
-    # Derive paid_months from payments list + schedule
-    derived = _derive_fee_allocation(payments, student_schedule)
-    paid_months = derived["paid_months"]
+        # Invariant: paid_fee == sum(p.amount for p in payments)
+        current_paid = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+        new_due = max(0.0, round(total_fee - current_paid, 2))
+        status = "paid" if new_due == 0 and total_fee > 0 else "partial" if current_paid > 0 else "due"
+        if total_fee == 0 and current_paid == 0:
+            status = "paid"
 
-    update_doc = {
-        "batch_id": batch_id,
-        "student_id": student_id,
-        "total_fee": total_fee,
-        "fee_schedule": student_schedule,
-        "paid_fee": current_paid,
-        "due_fee": new_due,
-        "status": status,
-        "payments": payments,
-        "paid_months": paid_months,
-        "last_payment_date": last_date,
-        "updated_at": now_iso
-    }
+        # Derive paid_months from payments list + schedule
+        derived = _derive_fee_allocation(payments, student_schedule)
+        paid_months = derived["paid_months"]
 
-    await db.batch_fees.update_one(
-        {"batch_id": batch_id, "student_id": student_id},
-        {"$set": update_doc},
-        upsert=True
-    )
+        update_doc = {
+            "batch_id": batch_id,
+            "student_id": student_id,
+            "total_fee": total_fee,
+            "fee_schedule": student_schedule,
+            "paid_fee": current_paid,
+            "due_fee": new_due,
+            "status": status,
+            "payments": payments,
+            "paid_months": paid_months,
+            "last_payment_date": last_date,
+            "updated_at": now_iso,
+            "version": version + 1,
+            "idempotency_keys": idempotency_keys
+        }
 
-    return {
-        "id": student_id,
-        "name": student.get("name"),
-        "email": student.get("email"),
-        "total_fee": total_fee,
-        "fee_schedule": student_schedule,
-        "paid_fee": current_paid,
-        "due_fee": new_due,
-        "status": status,
-        "payments": payments,
-        "paid_months": paid_months,
-        "last_payment_date": last_date
-    }
+        await db.batch_fees.update_one(
+            {"batch_id": batch_id, "student_id": student_id},
+            {"$set": update_doc},
+            upsert=True
+        )
+
+        return {
+            "id": student_id,
+            "name": student.get("name"),
+            "email": student.get("email"),
+            "total_fee": total_fee,
+            "fee_schedule": student_schedule,
+            "paid_fee": current_paid,
+            "due_fee": new_due,
+            "status": status,
+            "payments": payments,
+            "paid_months": paid_months,
+            "last_payment_date": last_date
+        }
 
 
 @api_router.post("/batches/{batch_id}/students/{student_id}/status")
@@ -846,7 +985,7 @@ async def update_student_status(
 
     # If blocking the account, regenerate the batch code in which that student was there
     if regenerate_batch_code or (action == "block"):
-        new_batch_code = secrets.token_hex(3).upper()
+        new_batch_code = await generate_unique_batch_code()
         await db.batches.update_one(
             {"id": batch_id},
             {"$set": {"code": new_batch_code, "updated_at": now_iso}}
@@ -859,7 +998,7 @@ async def update_student_status(
             other_batch_query["teacher_id"] = user["id"]
         other_batches = await db.batches.find(other_batch_query, {"_id": 0}).to_list(100)
         for ob in other_batches:
-            ob_code = secrets.token_hex(3).upper()
+            ob_code = await generate_unique_batch_code()
             await db.batches.update_one(
                 {"id": ob["id"]},
                 {"$set": {"code": ob_code, "updated_at": now_iso}}
@@ -1725,6 +1864,12 @@ async def my_mastery(user: dict = Depends(require_role("student"))):
 
 @api_router.get("/mastery/teacher")
 async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+
     students_raw = await db.users.find({"role": "student", "batch_ids": batch_id}).to_list(500)
     students = [{"id": str(s["_id"]), "name": s["name"],
                  "is_disabled": bool(s.get("is_disabled", False)),
@@ -1856,15 +2001,19 @@ async def stats(user: dict = Depends(get_current_user)):
 @api_router.get("/batches/{batch_id}/topper")
 async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     user_role = user.get("role")
-    if user_role == "student":
-        if batch_id not in user.get("batch_ids", []):
-            raise HTTPException(status_code=403, detail="Not authorized to access this batch")
-    elif user_role not in ["teacher", "admin"]:
+    if user_role not in ["student", "teacher", "admin"]:
         raise HTTPException(status_code=403, detail="Not authorized to access this batch")
 
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
-        return {"topper": None}
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    if user_role == "student":
+        if batch_id not in user.get("batch_ids", []):
+            raise HTTPException(status_code=403, detail="Not authorized to access this batch")
+    elif user_role == "teacher":
+        if batch.get("teacher_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You do not own this batch")
 
     students = await db.users.find({"role": "student", "batch_ids": batch_id}, {"_id": 1, "name": 1}).to_list(500)
     student_map = {str(s["_id"]): s.get("name", "Student") for s in students}
@@ -2036,6 +2185,33 @@ async def startup():
         await db.question_bank.create_index([("class_level", 1), ("subject", 1), ("chapter", 1)])
     except Exception as e:
         logger.error(f"question_bank filter index: {e}")
+    try:
+        # Deduplicate any duplicate (batch_id, student_id) in batch_fees before unique index
+        pipeline = [
+            {"$group": {"_id": {"batch_id": "$batch_id", "student_id": "$student_id"}, "count": {"$sum": 1}, "docs": {"$push": "$_id"}}},
+            {"$match": {"count": {"$gt": 1}}}
+        ]
+        async for dup in db.batch_fees.aggregate(pipeline):
+            for doc_id in dup["docs"][1:]:
+                await db.batch_fees.delete_one({"_id": doc_id})
+        await db.batch_fees.create_index([("batch_id", 1), ("student_id", 1)], unique=True)
+    except Exception as e:
+        logger.error(f"batch_fees unique index: {e}")
+    try:
+        # Deduplicate any duplicate batch codes before unique index
+        pipeline = [
+            {"$group": {"_id": "$code", "count": {"$sum": 1}, "docs": {"$push": "$_id"}}},
+            {"$match": {"count": {"$gt": 1}}}
+        ]
+        async for dup in db.batches.aggregate(pipeline):
+            for doc_id in dup["docs"][1:]:
+                new_c = secrets.token_hex(4).upper()
+                while await db.batches.find_one({"code": new_c}):
+                    new_c = secrets.token_hex(4).upper()
+                await db.batches.update_one({"_id": doc_id}, {"$set": {"code": new_c}})
+        await db.batches.create_index("code", unique=True)
+    except Exception as e:
+        logger.error(f"batches unique code index: {e}")
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@vidya.com").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})
