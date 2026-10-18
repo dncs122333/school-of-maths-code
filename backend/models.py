@@ -20,6 +20,7 @@ class BatchInput(BaseModel):
     fee_amount: Optional[float] = None
     monthly_fee: Optional[float] = None
     fee_schedule: Optional[List[dict]] = None
+    academic_year: Optional[str] = None
 
 
 class BatchUpdateInput(BaseModel):
@@ -28,6 +29,7 @@ class BatchUpdateInput(BaseModel):
     fee_amount: Optional[float] = None
     monthly_fee: Optional[float] = None
     fee_schedule: Optional[List[dict]] = None
+    academic_year: Optional[str] = None
 
 
 class JoinInput(BaseModel):

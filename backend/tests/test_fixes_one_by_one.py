@@ -488,3 +488,176 @@ class TestFixesOneByOne:
         for forbidden in ["code", "teacher_id", "fee_amount", "monthly_fee", "fee_schedule"]:
             assert forbidden not in b_data, f"Leaked '{forbidden}' in GET /batches response"
 
+    # ------------------ 9. Delete Batch & Remove Student ------------------
+    def test_22_delete_batch_endpoint(self):
+        """DELETE /batches/{batch_id} handles ownership and cascades properly."""
+        teacher = _register("teacher", "Batch Del Teacher")
+        r_b = requests.post(f"{API}/batches", json={
+            "name": "Deletable Batch",
+            "class_level": "9",
+            "fee_amount": 10000,
+            "monthly_fee": 1000
+        }, headers=teacher["headers"], timeout=15)
+        batch = r_b.json()
+        bid = batch["id"]
+
+        student = _register("student", "Enrolled In Deletable")
+        r_join = requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=student["headers"], timeout=15)
+        assert r_join.status_code == 200
+
+        # Outsider teacher cannot delete
+        r_del_403 = requests.delete(f"{API}/batches/{bid}", headers=self.teacher_b["headers"], timeout=15)
+        assert r_del_403.status_code == 403
+
+        # Owner teacher can delete
+        r_del = requests.delete(f"{API}/batches/{bid}", headers=teacher["headers"], timeout=15)
+        assert r_del.status_code == 200
+        assert r_del.json()["success"] is True
+
+        # Deleting again returns 404
+        r_del_404 = requests.delete(f"{API}/batches/{bid}", headers=teacher["headers"], timeout=15)
+        assert r_del_404.status_code == 404
+
+        # Student no longer has batch in batch_ids
+        r_st_batches = requests.get(f"{API}/batches", headers=student["headers"], timeout=15)
+        assert all(b["id"] != bid for b in r_st_batches.json())
+
+    def test_23_remove_student_from_batch_endpoint(self):
+        """DELETE /batches/{batch_id}/students/{student_id} removes student from batch."""
+        teacher = _register("teacher", "Remove Student Teacher")
+        r_b = requests.post(f"{API}/batches", json={
+            "name": "Remove Cohort",
+            "class_level": "11",
+            "fee_amount": 12000,
+            "monthly_fee": 1000
+        }, headers=teacher["headers"], timeout=15)
+        batch = r_b.json()
+        bid = batch["id"]
+
+        student = _register("student", "Removable Student")
+        requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=student["headers"], timeout=15)
+
+        # Non-owner teacher cannot remove student
+        r_rem_403 = requests.delete(f"{API}/batches/{bid}/students/{student['id']}", headers=self.teacher_b["headers"], timeout=15)
+        assert r_rem_403.status_code == 403
+
+        # Invalid student id -> 400
+        r_rem_bad = requests.delete(f"{API}/batches/{bid}/students/not-an-objectid", headers=teacher["headers"], timeout=15)
+        assert r_rem_bad.status_code == 400
+
+        # Owner can remove student
+        r_rem = requests.delete(f"{API}/batches/{bid}/students/{student['id']}", headers=teacher["headers"], timeout=15)
+        assert r_rem.status_code == 200
+        assert r_rem.json()["success"] is True
+
+        # Removing again -> 400 (not enrolled)
+        r_rem_again = requests.delete(f"{API}/batches/{bid}/students/{student['id']}", headers=teacher["headers"], timeout=15)
+        assert r_rem_again.status_code == 400
+
+    # ------------------ 10. Input Validation & Academic Year ------------------
+    def test_24_batch_input_validation(self):
+        """Batch name cannot be empty/whitespace; fees cannot be negative; schedule requires 'month'."""
+        teacher = _register("teacher", "Validation Teacher")
+
+        # Empty name
+        r1 = requests.post(f"{API}/batches", json={"name": "   ", "class_level": "10"}, headers=teacher["headers"], timeout=15)
+        assert r1.status_code == 400, f"Expected 400 for empty name, got {r1.status_code}"
+
+        # Negative fee_amount
+        r2 = requests.post(f"{API}/batches", json={"name": "Neg Batch", "class_level": "10", "fee_amount": -500}, headers=teacher["headers"], timeout=15)
+        assert r2.status_code == 400, f"Expected 400 for negative fee_amount, got {r2.status_code}"
+
+        # Negative monthly_fee
+        r3 = requests.post(f"{API}/batches", json={"name": "Neg Monthly", "class_level": "10", "monthly_fee": -100}, headers=teacher["headers"], timeout=15)
+        assert r3.status_code == 400, f"Expected 400 for negative monthly_fee, got {r3.status_code}"
+
+        # Missing 'month' key in fee_schedule
+        bad_sched = [{"amount": 1000}, {"month": "May", "amount": 1000}]
+        r4 = requests.post(f"{API}/batches", json={
+            "name": "Bad Sched",
+            "class_level": "10",
+            "fee_schedule": bad_sched
+        }, headers=teacher["headers"], timeout=15)
+        assert r4.status_code == 400, f"Expected 400 for missing 'month' key, got {r4.status_code}"
+
+        # Valid batch has academic_year and schedule items have academic_year
+        r_ok = requests.post(f"{API}/batches", json={
+            "name": "Year Batch",
+            "class_level": "10",
+            "fee_amount": 12000,
+            "monthly_fee": 1000
+        }, headers=teacher["headers"], timeout=15)
+        assert r_ok.status_code == 200
+        ok_data = r_ok.json()
+        assert "academic_year" in ok_data
+        sched = ok_data["fee_schedule"]
+        assert all("academic_year" in it and "year" in it and "month" in it for it in sched)
+
+    def test_25_fee_endpoint_validations_and_overpayment_rejected(self):
+        """Payment date must be ISO; negative amounts rejected; overpayment rejected."""
+        teacher = _register("teacher", "Overpay Teacher")
+        r_b = requests.post(f"{API}/batches", json={
+            "name": "Overpay Batch",
+            "class_level": "10",
+            "fee_amount": 5000,
+            "monthly_fee": 500
+        }, headers=teacher["headers"], timeout=15)
+        batch = r_b.json()
+        bid = batch["id"]
+
+        student = _register("student", "Overpay Student")
+        requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=student["headers"], timeout=15)
+        sid = student["id"]
+
+        # Negative amount -> 400
+        r_neg = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={"amount": -200}, headers=teacher["headers"], timeout=15)
+        assert r_neg.status_code == 400
+
+        # Invalid payment_date format -> 400
+        r_date = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={"amount": 100, "payment_date": "not-a-valid-date"}, headers=teacher["headers"], timeout=15)
+        assert r_date.status_code == 400
+
+        # Invalid schedule missing 'month' -> 400
+        r_bad_sched = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={
+            "fee_schedule": [{"amount": 5000}]
+        }, headers=teacher["headers"], timeout=15)
+        assert r_bad_sched.status_code == 400
+
+        # Pay 3000 -> succeeds
+        r_pay1 = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={"amount": 3000}, headers=teacher["headers"], timeout=15)
+        assert r_pay1.status_code == 200
+        assert r_pay1.json()["paid_fee"] == 3000
+        assert r_pay1.json()["due_fee"] == 2000
+
+        # Overpayment: attempt to pay 2500 when due fee is only 2000 -> 400
+        r_over = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={"amount": 2500}, headers=teacher["headers"], timeout=15)
+        assert r_over.status_code == 400
+        assert "exceeds remaining due fee" in r_over.text
+
+        # Overpayment via paid_fee > total_fee -> 400
+        r_over_paid = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={"paid_fee": 6000}, headers=teacher["headers"], timeout=15)
+        assert r_over_paid.status_code == 400
+        assert "exceeds total fee" in r_over_paid.text
+
+        # Exact payment of remaining 2000 -> succeeds
+        r_pay2 = requests.post(f"{API}/batches/{bid}/students/{sid}/fee", json={"amount": 2000}, headers=teacher["headers"], timeout=15)
+        assert r_pay2.status_code == 200
+        assert r_pay2.json()["paid_fee"] == 5000
+        assert r_pay2.json()["due_fee"] == 0
+        assert r_pay2.json()["status"] == "paid"
+
+    def test_26_paise_zero_drift_schedule(self):
+        """Proportional schedule and sum calculations use integer paise and sum up to total_fee without rounding drift."""
+        teacher = _register("teacher", "Paise Teacher")
+        # 10000 / 12 = 833.3333...
+        r_b = requests.post(f"{API}/batches", json={
+            "name": "Paise Cohort",
+            "class_level": "12",
+            "fee_amount": 10000,
+            "monthly_fee": 833.33
+        }, headers=teacher["headers"], timeout=15)
+        assert r_b.status_code == 200
+        sched = r_b.json()["fee_schedule"]
+        total_sched = round(sum(it["amount"] for it in sched), 2)
+        assert total_sched == 10000.0, f"Expected 10000.0, got {total_sched}"
+

@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   UserX,
   UserCheck,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CircularProgress } from "../components/dashboard/WeakTopicCard";
@@ -49,7 +50,7 @@ const ACADEMIC_MONTHS = [
   "October", "November", "December", "January", "February", "March"
 ];
 
-const makeDefaultSchedule = (monthly = 5000) =>
+const makeDefaultSchedule = (monthly = 0) =>
   ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(monthly || 0) }));
 
 export default function Batches() {
@@ -64,20 +65,20 @@ export default function Batches() {
   const [form, setForm] = useState({
     name: "",
     class_level: "10",
-    fee_amount: "60000",
-    monthly_fee: "5000",
+    fee_amount: "",
+    monthly_fee: "",
     show_advance: false,
-    fee_schedule: makeDefaultSchedule(5000),
+    fee_schedule: makeDefaultSchedule(0),
   });
   const [editModal, setEditModal] = useState({
     open: false,
     batchId: null,
     name: "",
     class_level: "10",
-    fee_amount: "60000",
-    monthly_fee: "5000",
+    fee_amount: "",
+    monthly_fee: "",
     show_advance: false,
-    fee_schedule: makeDefaultSchedule(5000),
+    fee_schedule: makeDefaultSchedule(0),
     saving: false,
   });
   const [studentSearch, setStudentSearch] = useState("");
@@ -190,11 +191,11 @@ export default function Batches() {
   }, [selectedBatchId]);
 
   const handleOpenEditBatch = (b) => {
-    const fAmt = b.fee_amount !== undefined && b.fee_amount !== null ? String(b.fee_amount) : "60000";
-    const mAmt = b.monthly_fee !== undefined && b.monthly_fee !== null ? String(b.monthly_fee) : "5000";
+    const fAmt = b.fee_amount !== undefined && b.fee_amount !== null ? String(b.fee_amount) : "";
+    const mAmt = b.monthly_fee !== undefined && b.monthly_fee !== null ? String(b.monthly_fee) : (b.fee_amount ? String(Math.round(Number(b.fee_amount) / 12)) : "");
     const existingSched = b.fee_schedule && b.fee_schedule.length > 0
       ? b.fee_schedule.map((item) => ({ month: item.month, amount: String(item.amount) }))
-      : makeDefaultSchedule(Number(mAmt) || 5000);
+      : makeDefaultSchedule(Number(mAmt) || 0);
 
     setEditModal({
       open: true,
@@ -239,14 +240,14 @@ export default function Batches() {
 
   const handleDistributeSchedule = (isEdit = false) => {
     if (isEdit) {
-      const mAmt = editModal.monthly_fee || (editModal.fee_amount ? Math.round(Number(editModal.fee_amount) / 12) : 5000);
+      const mAmt = editModal.monthly_fee || (editModal.fee_amount ? Math.round(Number(editModal.fee_amount) / 12) : 0);
       setEditModal((prev) => ({
         ...prev,
         _scheduleCustomized: false,
         fee_schedule: ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(mAmt) })),
       }));
     } else {
-      const mAmt = form.monthly_fee || (form.fee_amount ? Math.round(Number(form.fee_amount) / 12) : 5000);
+      const mAmt = form.monthly_fee || (form.fee_amount ? Math.round(Number(form.fee_amount) / 12) : 0);
       setForm((prev) => ({
         ...prev,
         _scheduleCustomized: false,
@@ -275,7 +276,7 @@ export default function Batches() {
     const target = Math.max(0, Number(targetTotal) || 0);
     const base = baseSchedule && baseSchedule.length > 0
       ? baseSchedule
-      : ACADEMIC_MONTHS.map((m) => ({ month: m, amount: "5000" }));
+      : ACADEMIC_MONTHS.map((m) => ({ month: m, amount: "0" }));
     const baseSum = base.reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
     const n = base.length;
 
@@ -306,13 +307,13 @@ export default function Batches() {
   };
 
   const handleOpenFeeModal = (student) => {
-    const sTotal = student.total_fee !== undefined && student.total_fee !== null ? Number(student.total_fee) : (batchStudentsData?.fee_amount || 60000);
+    const sTotal = student.total_fee !== undefined && student.total_fee !== null ? Number(student.total_fee) : Number(batchStudentsData?.fee_amount || 0);
     const sPaid = student.paid_fee !== undefined && student.paid_fee !== null ? Number(student.paid_fee) : 0;
     const sDue = student.due_fee !== undefined && student.due_fee !== null ? Number(student.due_fee) : Math.max(0, sTotal - sPaid);
 
     const baseSched = (student.fee_schedule && student.fee_schedule.length > 0)
       ? student.fee_schedule
-      : (batchStudentsData?.fee_schedule || makeDefaultSchedule(Math.round(sTotal / 12) || 5000));
+      : (batchStudentsData?.fee_schedule || makeDefaultSchedule(Math.round(sTotal / 12) || 0));
     const initialSched = calculateProportionalSchedule(baseSched, sTotal);
 
     setFeeModal({
@@ -397,7 +398,7 @@ export default function Batches() {
   const handleResetStudentScheduleToBatch = () => {
     setFeeModal((prev) => {
       const tot = Math.max(0, Number(prev.total_fee) || 0);
-      const batchSched = batchStudentsData?.fee_schedule || makeDefaultSchedule(5000);
+      const batchSched = batchStudentsData?.fee_schedule || makeDefaultSchedule(Number(batchStudentsData?.monthly_fee) || 0);
       const updated = calculateProportionalSchedule(batchSched, tot);
       return {
         ...prev,
@@ -606,15 +607,50 @@ export default function Batches() {
       setForm({
         name: "",
         class_level: "10",
-        fee_amount: "60000",
-        monthly_fee: "5000",
+        fee_amount: "",
+        monthly_fee: "",
         show_advance: false,
-        fee_schedule: makeDefaultSchedule(5000),
+        fee_schedule: makeDefaultSchedule(0),
       });
       await loadBatches();
       setSelectedBatchId(res.data.id);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    }
+  };
+
+  const handleDeleteBatch = async (batch) => {
+    if (!batch) return;
+    if (!window.confirm(`Are you sure you want to delete batch "${batch.name}"? This action will remove all student enrollments and fee records for this batch.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/batches/${batch.id}`);
+      toast.success(`Batch "${batch.name}" deleted successfully!`);
+      if (selectedBatchId === batch.id) {
+        setSelectedBatchId("");
+      }
+      await loadBatches();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to delete batch");
+    }
+  };
+
+  const handleRemoveStudentFromBatch = async (student) => {
+    if (!student || !selectedBatchId) return;
+    if (!window.confirm(`Are you sure you want to remove ${student.name} from this batch?`)) {
+      return;
+    }
+    setStatusBusyId(student.id);
+    try {
+      await api.delete(`/batches/${selectedBatchId}/students/${student.id}`);
+      toast.success(`Removed ${student.name} from batch!`);
+      await loadBatchStudents(selectedBatchId);
+      await loadBatches();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to remove student");
+    } finally {
+      setStatusBusyId(null);
     }
   };
 
@@ -1067,6 +1103,18 @@ export default function Batches() {
                     >
                       <Copy className="h-3.5 w-3.5 mr-1 text-[#1E293B]" /> Copy
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteBatch(b);
+                      }}
+                      className="h-8 px-2 rounded-xl text-[#E04A3C]/80 hover:text-[#E04A3C] hover:bg-[#FEE2E2] text-xs font-bold"
+                      title="Delete Batch"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1 text-[#E04A3C]" /> Delete
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1110,6 +1158,15 @@ export default function Batches() {
                 className="rounded-2xl border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] text-xs h-10 px-3.5 flex items-center gap-1.5 shrink-0 shadow-[2px_2px_0_#1E293B] font-bold"
               >
                 <Pencil className="h-3.5 w-3.5 text-[#3E7CB1]" /> Edit Batch
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleDeleteBatch(currentBatch)}
+                className="rounded-2xl border-2 border-[#E04A3C] bg-white text-[#E04A3C] hover:bg-[#FEE2E2] text-xs h-10 px-3 flex items-center gap-1.5 shrink-0 shadow-[2px_2px_0_#E04A3C] font-bold"
+                title="Delete this batch"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-[#E04A3C]" /> Delete Batch
               </Button>
 
               {/* Live Search Input */}
@@ -1455,8 +1512,23 @@ export default function Batches() {
                                     <ShieldAlert className="h-3.5 w-3.5" /> Block
                                   </Button>
                                 )}
+
+                                <Button
+                                  size="sm"
+                                    variant="outline"
+                                    data-testid={`remove-student-btn-${st.id}`}
+                                    disabled={statusBusyId === st.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveStudentFromBatch(st);
+                                    }}
+                                    className="h-8 px-2 rounded-xl border-2 border-[#1E293B] text-[#E04A3C] bg-white hover:bg-[#FEE2E2] text-xs font-bold shadow-[1px_1px_0_#1E293B] flex items-center gap-1 transition-all"
+                                    title="Remove student from this batch"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" /> Remove
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
                           </div>
                         </div>
 
