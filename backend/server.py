@@ -310,11 +310,33 @@ async def _check_join_rate_limit(user_id: str, client_ip: str, max_attempts: int
         return True
 
 
+def _sanitize_batch_for_student(b: dict) -> dict:
+    return {
+        "id": b.get("id"),
+        "name": b.get("name"),
+        "class_level": b.get("class_level"),
+        "teacher_name": b.get("teacher_name"),
+        "created_at": b.get("created_at"),
+        "student_count": b.get("student_count", 0)
+    }
+
+
 @api_router.post("/batches")
 async def create_batch(body: BatchInput, user: dict = Depends(require_role("teacher", "admin"))):
-    fee_amount = float(body.fee_amount) if body.fee_amount is not None else 0.0
-    monthly_fee = float(body.monthly_fee) if body.monthly_fee is not None else (round(fee_amount / 12.0, 2) if fee_amount > 0 else 0.0)
-    fee_schedule = body.fee_schedule if (body.fee_schedule and len(body.fee_schedule) > 0) else get_batch_default_schedule(fee_amount, monthly_fee)
+    if body.fee_schedule is not None and len(body.fee_schedule) > 0:
+        fee_schedule = body.fee_schedule
+        fee_amount = round(sum(float(it.get("amount", 0.0) or 0.0) for it in fee_schedule), 2)
+        monthly_fee = round(fee_amount / len(fee_schedule), 2) if fee_schedule else 0.0
+    else:
+        f_amt = float(body.fee_amount) if body.fee_amount is not None else 0.0
+        m_amt = float(body.monthly_fee) if body.monthly_fee is not None else 0.0
+        if f_amt > 0 and m_amt <= 0:
+            m_amt = round(f_amt / 12.0, 2)
+        elif m_amt > 0 and f_amt <= 0:
+            f_amt = round(m_amt * 12.0, 2)
+        fee_amount = f_amt
+        monthly_fee = m_amt
+        fee_schedule = get_batch_default_schedule(fee_amount, monthly_fee)
 
     for _ in range(10):
         code = await generate_unique_batch_code()
@@ -352,19 +374,61 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
         update_fields["name"] = body.name.strip()
     if body.class_level is not None:
         update_fields["class_level"] = body.class_level
-    if body.fee_amount is not None:
-        update_fields["fee_amount"] = float(body.fee_amount)
-    if body.monthly_fee is not None:
-        update_fields["monthly_fee"] = float(body.monthly_fee)
-    if body.fee_schedule is not None:
-        update_fields["fee_schedule"] = body.fee_schedule
-    elif (body.fee_amount is not None or body.monthly_fee is not None) and not batch.get("fee_schedule"):
-        f_amt = update_fields.get("fee_amount", batch.get("fee_amount", 0.0))
-        m_amt = update_fields.get("monthly_fee", batch.get("monthly_fee", 0.0))
+
+    fee_changed = False
+    if body.fee_schedule is not None and len(body.fee_schedule) > 0:
+        fee_schedule = body.fee_schedule
+        fee_amount = round(sum(float(it.get("amount", 0.0) or 0.0) for it in fee_schedule), 2)
+        monthly_fee = round(fee_amount / len(fee_schedule), 2) if fee_schedule else 0.0
+        update_fields["fee_schedule"] = fee_schedule
+        update_fields["fee_amount"] = fee_amount
+        update_fields["monthly_fee"] = monthly_fee
+        fee_changed = True
+    elif body.fee_amount is not None or body.monthly_fee is not None:
+        curr_f = float(batch.get("fee_amount", 0.0) or 0.0)
+        curr_m = float(batch.get("monthly_fee", 0.0) or 0.0)
+        if body.fee_amount is not None and body.monthly_fee is None:
+            f_amt = float(body.fee_amount)
+            m_amt = round(f_amt / 12.0, 2) if f_amt > 0 else 0.0
+        elif body.monthly_fee is not None and body.fee_amount is None:
+            m_amt = float(body.monthly_fee)
+            f_amt = round(m_amt * 12.0, 2) if m_amt > 0 else 0.0
+        else:
+            f_amt = float(body.fee_amount) if body.fee_amount is not None else curr_f
+            m_amt = float(body.monthly_fee) if body.monthly_fee is not None else curr_m
+        update_fields["fee_amount"] = f_amt
+        update_fields["monthly_fee"] = m_amt
         update_fields["fee_schedule"] = get_batch_default_schedule(f_amt, m_amt)
+        fee_changed = True
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.batches.update_one({"id": batch_id}, {"$set": update_fields})
+
+    # When batch fees change, update all batch_fees records that don't have a custom override
+    if fee_changed:
+        new_fee_amount = update_fields["fee_amount"]
+        new_schedule = update_fields["fee_schedule"]
+        cursor = db.batch_fees.find({"batch_id": batch_id, "is_custom_fee": {"$ne": True}})
+        async for r in cursor:
+            payments = r.get("payments", [])
+            current_paid = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
+            new_due = max(0.0, round(new_fee_amount - current_paid, 2))
+            new_status = "paid" if new_due == 0 and new_fee_amount > 0 else "partial" if current_paid > 0 else "due"
+            if new_fee_amount == 0 and current_paid == 0:
+                new_status = "paid"
+            derived = _derive_fee_allocation(payments, new_schedule)
+            await db.batch_fees.update_one(
+                {"_id": r["_id"]},
+                {"$set": {
+                    "total_fee": new_fee_amount,
+                    "fee_schedule": new_schedule,
+                    "paid_fee": current_paid,
+                    "due_fee": new_due,
+                    "status": new_status,
+                    "paid_months": derived["paid_months"],
+                    "updated_at": update_fields["updated_at"]
+                }}
+            )
 
     updated = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     return updated
@@ -375,7 +439,9 @@ async def list_batches(user: dict = Depends(get_current_user)):
     if user["role"] in ("teacher", "admin"):
         q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
     else:
-        q = {"id": {"$in": user.get("batch_ids", [])}}
+        blocked_batch_ids = set(user.get("blocked_batch_ids", []))
+        student_bids = [bid for bid in user.get("batch_ids", []) if bid not in blocked_batch_ids]
+        q = {"id": {"$in": student_bids}}
     batches = await db.batches.find(q, {"_id": 0}).to_list(500)
     if not batches:
         return []
@@ -391,6 +457,8 @@ async def list_batches(user: dict = Depends(get_current_user)):
         counts[doc["_id"]] = doc["count"]
     for b in batches:
         b["student_count"] = counts.get(b["id"], 0)
+    if user["role"] == "student":
+        return [_sanitize_batch_for_student(b) for b in batches]
     return batches
 
 
@@ -403,8 +471,10 @@ async def join_batch(body: JoinInput, request: Request, user: dict = Depends(req
     batch = await db.batches.find_one({"code": body.code.upper().strip()}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Invalid batch code")
+    if batch["id"] in user.get("blocked_batch_ids", []):
+        raise HTTPException(status_code=403, detail="You are blocked from joining this batch")
     await db.users.update_one({"_id": ObjectId(user["id"])}, {"$addToSet": {"batch_ids": batch["id"]}})
-    return batch
+    return _sanitize_batch_for_student(batch)
 
 
 class RecordPaymentInput(BaseModel):
@@ -434,19 +504,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
 
     batch_default_fee = float(batch.get("fee_amount", 0) or 0)
     batch_monthly_fee = float(batch.get("monthly_fee", 0) or 0)
-    stored_schedule = batch.get("fee_schedule")
-
-    # Validate stored schedule: if it exists but all amounts match a stale default (5000)
-    # while monthly_fee is set to something different, recompute it from monthly_fee
-    if stored_schedule and batch_monthly_fee > 0:
-        stored_amounts = set(float(it.get("amount", 0)) for it in stored_schedule if it.get("amount") is not None)
-        # If all months have the same amount AND it doesn't match monthly_fee, recompute
-        if len(stored_amounts) == 1:
-            stored_single = next(iter(stored_amounts))
-            if abs(stored_single - batch_monthly_fee) > 0.01:
-                stored_schedule = get_batch_default_schedule(batch_default_fee, batch_monthly_fee)
-
-    schedule = stored_schedule or get_batch_default_schedule(batch_default_fee, batch_monthly_fee)
+    schedule = batch.get("fee_schedule") or get_batch_default_schedule(batch_default_fee, batch_monthly_fee)
 
     students = await db.users.find({"role": "student", "batch_ids": batch_id}).sort("name", 1).to_list(500)
     student_ids = [str(s["_id"]) for s in students]
@@ -465,7 +523,12 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
         sid = str(s["_id"])
         fee = fee_records.get(sid)
         if fee:
-            t_fee = float(fee.get("total_fee", batch_default_fee))
+            if fee.get("is_custom_fee"):
+                t_fee = float(fee.get("total_fee", batch_default_fee))
+                custom_student_schedule = fee.get("fee_schedule")
+            else:
+                t_fee = batch_default_fee
+                custom_student_schedule = None
             payments = fee.get("payments", [])
             p_fee = round(sum(float(p.get("amount", 0.0)) for p in payments), 2)
             if not payments and float(fee.get("paid_fee", 0.0)) > 0:
@@ -483,7 +546,6 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             if t_fee == 0 and p_fee == 0:
                 status = "paid"
             last_date = payments[-1].get("date") if payments else fee.get("last_payment_date")
-            custom_student_schedule = fee.get("fee_schedule")
         else:
             t_fee = batch_default_fee
             p_fee = 0.0
@@ -512,12 +574,15 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
         due_months = derived["due_months"]
         paid_months_list = derived["paid_months"]
 
+        is_student_disabled = (batch_id in s.get("disabled_batch_ids", [])) or bool(s.get("is_disabled", False))
+        is_student_blocked = (batch_id in s.get("blocked_batch_ids", [])) or bool(s.get("is_blocked", False))
+
         results.append({
             "id": sid,
             "name": s.get("name", "Unnamed Student"),
             "email": s.get("email", ""),
-            "is_disabled": bool(s.get("is_disabled", False)),
-            "is_blocked": bool(s.get("is_blocked", False)),
+            "is_disabled": is_student_disabled,
+            "is_blocked": is_student_blocked,
             "joined_at": s.get("created_at"),
             "total_fee": t_fee,
             "paid_fee": p_fee,
@@ -635,14 +700,7 @@ async def record_student_fee(
 
         batch_default_fee = float(batch.get("fee_amount", 0) or 0)
         batch_monthly_fee_val = float(batch.get("monthly_fee", 0) or 0)
-        stored_sched = batch.get("fee_schedule")
-        if stored_sched and batch_monthly_fee_val > 0:
-            stored_amts = set(float(it.get("amount", 0)) for it in stored_sched if it.get("amount") is not None)
-            if len(stored_amts) == 1:
-                stored_s = next(iter(stored_amts))
-                if abs(stored_s - batch_monthly_fee_val) > 0.01:
-                    stored_sched = get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
-        schedule = stored_sched or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
+        schedule = batch.get("fee_schedule") or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val)
         now_iso = datetime.now(timezone.utc).isoformat()
         payment_date = body.payment_date or now_iso
 
@@ -657,10 +715,31 @@ async def record_student_fee(
                 "payments": [],
                 "paid_months": [],
                 "version": 0,
-                "idempotency_keys": []
+                "idempotency_keys": [],
+                "is_custom_fee": False
             }
 
-        total_fee = float(body.total_fee) if body.total_fee is not None else float(record.get("total_fee", batch_default_fee))
+        # Resolve student schedule (custom or batch default) and total_fee
+        if body.fee_schedule and len(body.fee_schedule) > 0:
+            student_schedule = body.fee_schedule
+            total_fee = float(body.total_fee) if body.total_fee is not None else round(sum(float(it.get("amount", 0.0) or 0.0) for it in student_schedule), 2)
+            is_custom_fee = True
+        elif body.total_fee is not None:
+            total_fee = float(body.total_fee)
+            is_custom_fee = True
+            if record.get("fee_schedule") and abs(total_fee - float(record.get("total_fee", 0))) > 0.01:
+                student_schedule = get_proportional_schedule(record.get("fee_schedule"), total_fee)
+            else:
+                student_schedule = record.get("fee_schedule") or get_proportional_schedule(schedule, total_fee)
+        elif record.get("is_custom_fee"):
+            total_fee = float(record.get("total_fee", batch_default_fee))
+            student_schedule = record.get("fee_schedule") or get_proportional_schedule(schedule, total_fee)
+            is_custom_fee = True
+        else:
+            total_fee = batch_default_fee
+            student_schedule = schedule
+            is_custom_fee = False
+
         payments = list(record.get("payments", []))
         last_date = record.get("last_payment_date")
         version = int(record.get("version", 0))
@@ -676,19 +755,6 @@ async def record_student_fee(
                 "month": "All Months" if legacy_paid >= total_fee else "",
                 "notes": "Imported payment"
             }]
-
-        # Resolve student schedule (custom or proportional)
-        if body.fee_schedule and len(body.fee_schedule) > 0:
-            student_schedule = body.fee_schedule
-        elif record.get("fee_schedule"):
-            if body.total_fee is not None and abs(total_fee - float(record.get("total_fee", 0))) > 0.01:
-                student_schedule = get_proportional_schedule(record.get("fee_schedule"), total_fee)
-            else:
-                student_schedule = record.get("fee_schedule")
-        elif abs(total_fee - batch_default_fee) > 0.01:
-            student_schedule = get_proportional_schedule(schedule, total_fee)
-        else:
-            student_schedule = schedule
 
         if body.unmark_month:
             month_to_remove = body.unmark_month.strip()
@@ -906,7 +972,8 @@ async def record_student_fee(
             "last_payment_date": last_date,
             "updated_at": now_iso,
             "version": version + 1,
-            "idempotency_keys": idempotency_keys
+            "idempotency_keys": idempotency_keys,
+            "is_custom_fee": is_custom_fee
         }
 
         await db.batch_fees.update_one(
@@ -954,37 +1021,54 @@ async def update_student_status(
     if batch_id not in student_batch_ids:
         raise HTTPException(status_code=400, detail="Student is not enrolled in this batch")
 
-    curr_disabled = bool(student.get("is_disabled", False))
-    curr_blocked = bool(student.get("is_blocked", False))
+    disabled_batch_ids = set(student.get("disabled_batch_ids", []))
+    blocked_batch_ids = set(student.get("blocked_batch_ids", []))
+    curr_disabled_in_batch = (batch_id in disabled_batch_ids) or bool(student.get("is_disabled", False))
+    curr_blocked_in_batch = (batch_id in blocked_batch_ids) or bool(student.get("is_blocked", False))
 
-    new_disabled = curr_disabled
-    new_blocked = curr_blocked
-    regenerate_batch_code = False
+    action_raw = body.action
+    action = (action_raw or "").lower().strip()
+    valid_actions = {"disable", "enable", "block", "unblock"}
 
-    action = (body.action or "").lower().strip()
-    if action == "disable":
-        new_disabled = True
-    elif action == "enable":
-        new_disabled = False
-    elif action == "block":
-        new_blocked = True
-        regenerate_batch_code = True
-    elif action == "unblock":
-        new_blocked = False
+    if action_raw is not None and action_raw != "":
+        if action not in valid_actions:
+            raise HTTPException(status_code=400, detail=f"Invalid action: {action_raw}. Must be one of: disable, enable, block, unblock")
+        if action == "disable":
+            new_disabled = True
+            new_blocked = curr_blocked_in_batch
+        elif action == "enable":
+            new_disabled = False
+            new_blocked = curr_blocked_in_batch
+        elif action == "block":
+            new_blocked = True
+            new_disabled = curr_disabled_in_batch
+        elif action == "unblock":
+            new_blocked = False
+            new_disabled = curr_disabled_in_batch
     else:
-        if body.is_disabled is not None:
-            new_disabled = bool(body.is_disabled)
-        if body.is_blocked is not None:
-            new_blocked = bool(body.is_blocked)
-            if new_blocked and not curr_blocked:
-                regenerate_batch_code = True
+        if body.is_disabled is None and body.is_blocked is None:
+            raise HTTPException(status_code=400, detail="Either action, is_disabled, or is_blocked must be provided")
+        new_disabled = bool(body.is_disabled) if body.is_disabled is not None else curr_disabled_in_batch
+        new_blocked = bool(body.is_blocked) if body.is_blocked is not None else curr_blocked_in_batch
+
+    # Only regenerate code if student is transitioning to blocked and was NOT already blocked in this batch
+    regenerate_batch_code = (new_blocked and not curr_blocked_in_batch)
+
+    if new_disabled:
+        disabled_batch_ids.add(batch_id)
+    else:
+        disabled_batch_ids.discard(batch_id)
+
+    if new_blocked:
+        blocked_batch_ids.add(batch_id)
+    else:
+        blocked_batch_ids.discard(batch_id)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     new_batch_code = None
     updated_batches = []
 
-    # If blocking the account, regenerate the batch code in which that student was there
-    if regenerate_batch_code or (action == "block"):
+    if regenerate_batch_code:
         new_batch_code = await generate_unique_batch_code()
         await db.batches.update_one(
             {"id": batch_id},
@@ -992,11 +1076,13 @@ async def update_student_status(
         )
         updated_batches.append({"batch_id": batch_id, "new_code": new_batch_code})
 
-        # Also regenerate any other batches of this teacher that the student was enrolled in
-        other_batch_query = {"id": {"$in": student_batch_ids, "$ne": batch_id}}
-        if user["role"] != "admin":
-            other_batch_query["teacher_id"] = user["id"]
-        other_batches = await db.batches.find(other_batch_query, {"_id": 0}).to_list(100)
+        # Also regenerate any other batches of THIS teacher that the student was enrolled in.
+        # MUST filter by this teacher's teacher_id so other teachers' batch codes are never touched!
+        teacher_id = batch.get("teacher_id")
+        other_batches = await db.batches.find(
+            {"id": {"$in": student_batch_ids, "$ne": batch_id}, "teacher_id": teacher_id},
+            {"_id": 0}
+        ).to_list(100)
         for ob in other_batches:
             ob_code = await generate_unique_batch_code()
             await db.batches.update_one(
@@ -1005,14 +1091,28 @@ async def update_student_status(
             )
             updated_batches.append({"batch_id": ob["id"], "new_code": ob_code})
 
-    await db.users.update_one(
-        {"_id": ObjectId(student_id)},
-        {"$set": {
-            "is_disabled": new_disabled,
-            "is_blocked": new_blocked,
-            "updated_at": now_iso
-        }}
-    )
+    # Check whether the student is enrolled in batches belonging to OTHER teachers
+    student_batches = await db.batches.find(
+        {"id": {"$in": student_batch_ids}},
+        {"_id": 0, "id": 1, "teacher_id": 1}
+    ).to_list(100)
+    has_other_teacher_batches = any(b.get("teacher_id") != batch.get("teacher_id") for b in student_batches)
+
+    # Set user-level is_disabled / is_blocked ONLY if student has no other teachers' batches.
+    # If student has other teachers, do not lock them out globally!
+    user_updates = {
+        "disabled_batch_ids": list(disabled_batch_ids),
+        "blocked_batch_ids": list(blocked_batch_ids),
+        "updated_at": now_iso
+    }
+    if not has_other_teacher_batches:
+        user_updates["is_disabled"] = bool(disabled_batch_ids)
+        user_updates["is_blocked"] = bool(blocked_batch_ids)
+    else:
+        user_updates["is_disabled"] = False
+        user_updates["is_blocked"] = False
+
+    await db.users.update_one({"_id": ObjectId(student_id)}, {"$set": user_updates})
 
     return {
         "success": True,
@@ -1589,6 +1689,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
     status = "flagged" if tab_switches >= 3 else "submitted"
     sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
            "student_id": user["id"], "student_name": user["name"],
+           "batch_id": test.get("batch_id"),
            "answers": answers, "times": times, "tab_switches": tab_switches,
            "results": results,
            "score": score, "correct": correct, "total": total, "status": status,
@@ -1872,13 +1973,22 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
 
     students_raw = await db.users.find({"role": "student", "batch_ids": batch_id}).to_list(500)
     students = [{"id": str(s["_id"]), "name": s["name"],
-                 "is_disabled": bool(s.get("is_disabled", False)),
-                 "is_blocked": bool(s.get("is_blocked", False))} for s in students_raw]
+                 "is_disabled": (batch_id in s.get("disabled_batch_ids", [])) or bool(s.get("is_disabled", False)),
+                 "is_blocked": (batch_id in s.get("blocked_batch_ids", [])) or bool(s.get("is_blocked", False))} for s in students_raw]
     student_ids = [s["id"] for s in students]
-    subs = await db.submissions.find({"student_id": {"$in": student_ids}}, {"_id": 0}).to_list(3000) if student_ids else []
+
+    batch_test_ids = [t["id"] async for t in db.tests.find({"batch_id": batch_id}, {"id": 1})]
+    sub_query = {"student_id": {"$in": student_ids}}
+    if batch_test_ids:
+        sub_query["$or"] = [{"batch_id": batch_id}, {"test_id": {"$in": batch_test_ids}}]
+    else:
+        sub_query["batch_id"] = batch_id
+
     per_student = {}
-    for s in subs:
-        per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
+    if student_ids:
+        cursor = db.submissions.find(sub_query, {"_id": 0}).sort("created_at", -1)
+        async for s in cursor:
+            per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
 
     topic_scores = {}  # (subject, chapter, topic) -> [scores]
     student_topics = {}
@@ -2024,16 +2134,20 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     if not student_map:
         return {"topper": None}
 
-    subs = await db.submissions.find(
-        {"student_id": {"$in": list(student_map.keys())}},
-        {"_id": 0, "student_id": 1, "student_name": 1, "score": 1, "created_at": 1}
-    ).to_list(2000)
+    batch_test_ids = [t["id"] async for t in db.tests.find({"batch_id": batch_id}, {"id": 1})]
+    sub_query = {"student_id": {"$in": list(student_map.keys())}}
+    if batch_test_ids:
+        sub_query["$or"] = [{"batch_id": batch_id}, {"test_id": {"$in": batch_test_ids}}]
+    else:
+        sub_query["batch_id"] = batch_id
 
-    if not subs:
-        return {"topper": None}
+    cursor = db.submissions.find(
+        sub_query,
+        {"_id": 0, "student_id": 1, "student_name": 1, "score": 1, "created_at": 1}
+    ).sort("created_at", -1)
 
     student_stats = {}
-    for sub in subs:
+    async for sub in cursor:
         sid = sub.get("student_id")
         if not sid:
             continue
@@ -2060,6 +2174,7 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     for sid, data in student_stats.items():
         if not data["scores"]:
             continue
+        total_score = round(sum(data["scores"]), 1)
         avg = sum(data["scores"]) / len(data["scores"])
         streak = 0
         active_dates = data["dates"]
@@ -2078,6 +2193,7 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
             "student_id": sid,
             "name": data["name"],
             "batch_name": batch.get("name", "Batch"),
+            "total_score": total_score,
             "avg_score": round(avg, 1),
             "accuracy": round(avg),
             "tests_taken": len(data["scores"]),
@@ -2087,7 +2203,7 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     if not toppers:
         return {"topper": None}
 
-    toppers.sort(key=lambda t: (t["avg_score"], t["tests_taken"]), reverse=True)
+    toppers.sort(key=lambda t: (t["total_score"], t["avg_score"], t["tests_taken"], t["streak_days"]), reverse=True)
     return {"topper": toppers[0]}
 
 
