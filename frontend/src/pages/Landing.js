@@ -56,10 +56,10 @@ export default function Landing() {
             <Button
               data-testid="landing-start-btn"
               variant="dark"
-              className="rounded-full font-head font-bold text-xs sm:text-sm h-10 px-4 sm:px-6 shadow-[2px_2px_0_#1E293B]"
+              className="rounded-full font-head font-bold text-xs sm:text-sm h-10 px-4 sm:px-6 shadow-[2px_2px_0_#1E293B] !text-white"
               onClick={() => nav("/auth?mode=register")}
             >
-              Get started <ArrowRight className="h-4 w-4 ml-1 inline" />
+              Get started <ArrowRight className="h-4 w-4 ml-1 inline !text-white" />
             </Button>
           </div>
         </div>
@@ -458,7 +458,7 @@ export default function Landing() {
               size="lg"
               variant="dark"
               onClick={() => nav("/auth?mode=register&role=teacher")}
-              className="rounded-full font-head font-black text-sm sm:text-base px-7 h-14 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              className="rounded-full font-head font-black text-sm sm:text-base px-7 h-14 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] !text-white active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
             >
               Teacher Sign Up
             </Button>
