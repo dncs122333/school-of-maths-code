@@ -528,4 +528,84 @@ class TestFeeLedger:
         assert dec_status["is_paid"] is False
         assert dec_status["due_amount"] == 5000.0
 
+    def test_unmark_january_when_paid_till_march_keeps_march_paid(self):
+        """When a student has paid till March (full year), and teacher unmarks January,
+        January must become due, while March (and other paid months) must remain paid.
+        """
+        student = self._create_student_in_batch("Jan March Student")
+        batch_id = self.batch["id"]
+        sid = student["id"]
+
+        # Step 1: Student is marked as paid in full (paid till March)
+        r = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"mark_as_paid": True},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["paid_fee"] == 60000.0
+        assert "January" in d["paid_months"]
+        assert "March" in d["paid_months"]
+        assert len(d["paid_months"]) == 12
+
+        # Step 2: Teacher unmarks January
+        r_unmark = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"unmark_month": "January"},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r_unmark.status_code == 200, r_unmark.text
+        d_unmark = r_unmark.json()
+
+        # Invariant checks
+        assert d_unmark["paid_fee"] == 55000.0
+        assert d_unmark["due_fee"] == 5000.0
+        assert sum(p["amount"] for p in d_unmark["payments"]) == 55000.0
+
+        # Crucial bugfix check: January is UNMARKED (due), March REMAINS PAID!
+        assert "January" not in d_unmark["paid_months"], "January should be unmarked!"
+        assert "March" in d_unmark["paid_months"], "March must remain paid!"
+        assert "February" in d_unmark["paid_months"], "February must remain paid!"
+        assert "December" in d_unmark["paid_months"], "December must remain paid!"
+        assert len(d_unmark["paid_months"]) == 11
+
+        # Step 3: Verify read path (GET /batches/{id}/students) reflects the same
+        r_list = requests.get(
+            f"{API}/batches/{batch_id}/students",
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r_list.status_code == 200
+        s_data = next(s for s in r_list.json()["students"] if s["id"] == sid)
+
+        assert "January" not in s_data["paid_months"]
+        assert "March" in s_data["paid_months"]
+        assert "February" in s_data["paid_months"]
+
+        jan_status = next(m for m in s_data["monthly_status"] if m["month"] == "January")
+        mar_status = next(m for m in s_data["monthly_status"] if m["month"] == "March")
+
+        assert jan_status["is_paid"] is False
+        assert jan_status["due_amount"] == 5000.0
+        assert mar_status["is_paid"] is True
+        assert mar_status["due_amount"] == 0.0
+
+        # Step 4: Pay January again -> January becomes paid again, March remains paid
+        r_repay = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"month": "January", "amount": 5000},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r_repay.status_code == 200
+        d_repay = r_repay.json()
+        assert d_repay["paid_fee"] == 60000.0
+        assert "January" in d_repay["paid_months"]
+        assert "March" in d_repay["paid_months"]
+        assert len(d_repay["paid_months"]) == 12
+
+
 

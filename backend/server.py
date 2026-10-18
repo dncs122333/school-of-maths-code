@@ -254,11 +254,13 @@ def get_proportional_schedule(base_schedule, target_total_fee: float):
     return new_schedule
 
 
-def _derive_fee_allocation(payments: list, schedule: list) -> dict:
+def _derive_fee_allocation(payments: list, schedule: list, unmarked_months: list = None) -> dict:
     """
     Allocates payment amounts sequentially against the fee schedule (waterfall).
     Payments list is the single source of truth. All math is performed in integer paise.
     Does NOT pile overpayment onto the last month.
+    Respects explicitly unmarked months so that unmarking an earlier month (e.g. January)
+    leaves that specific month due and does not rob later paid months (e.g. March).
     """
     if not schedule:
         return {
@@ -274,6 +276,7 @@ def _derive_fee_allocation(payments: list, schedule: list) -> dict:
     allocations_paise = {m: 0 for m in schedule_months}
     collection_dates = {m: None for m in schedule_months}
     month_notes = {m: "" for m in schedule_months}
+    unmarked_set = set(unmarked_months or [])
 
     for p in (payments or []):
         amt_paise = to_paise(p.get("amount", 0.0))
@@ -286,10 +289,13 @@ def _derive_fee_allocation(payments: list, schedule: list) -> dict:
         if p_month and p_month != "All Months":
             raw_targets = [m.strip() for m in p_month.split(",") if m.strip()]
             targets = [m for m in schedule_months if m in raw_targets]
-            remaining = [m for m in schedule_months if m not in raw_targets]
-            month_order = targets + remaining
+            remaining = [m for m in schedule_months if m not in raw_targets and m not in unmarked_set]
+            unmarked_tail = [m for m in schedule_months if m in unmarked_set and m not in targets]
+            month_order = targets + remaining + unmarked_tail
         else:
-            month_order = list(schedule_months)
+            normal = [m for m in schedule_months if m not in unmarked_set]
+            unmarked_tail = [m for m in schedule_months if m in unmarked_set]
+            month_order = normal + unmarked_tail
 
         rem_paise = amt_paise
         for m in month_order:
@@ -356,8 +362,8 @@ def _derive_fee_allocation(payments: list, schedule: list) -> dict:
     }
 
 
-def _derive_paid_months(payments: list, schedule: list) -> list:
-    return _derive_fee_allocation(payments, schedule)["paid_months"]
+def _derive_paid_months(payments: list, schedule: list, unmarked_months: list = None) -> list:
+    return _derive_fee_allocation(payments, schedule, unmarked_months=unmarked_months)["paid_months"]
 
 
 async def generate_unique_batch_code() -> str:
@@ -710,7 +716,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             student_schedule = schedule
 
         # Recompute allocations, paid_months, monthly_status purely from payments + schedule
-        derived = _derive_fee_allocation(payments, student_schedule)
+        unmarked_months = fee.get("unmarked_months", []) if fee else []
+        derived = _derive_fee_allocation(payments, student_schedule, unmarked_months=unmarked_months)
         monthly_status = derived["monthly_status"]
         collected_months = derived["collected_months"]
         partial_months = derived["partial_months"]
@@ -738,7 +745,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "collected_months": collected_months,
             "partial_months": partial_months,
             "due_months": due_months,
-            "paid_months": paid_months_list
+            "paid_months": paid_months_list,
+            "unmarked_months": unmarked_months
         })
 
     return {
@@ -864,6 +872,7 @@ async def record_student_fee(
                     "status": record.get("status", "due"),
                     "payments": record.get("payments", []),
                     "paid_months": record.get("paid_months", []),
+                    "unmarked_months": record.get("unmarked_months", []),
                     "last_payment_date": record.get("last_payment_date")
                 }
 
@@ -926,9 +935,12 @@ async def record_student_fee(
         total_fee_paise = to_paise(total_fee)
         current_paid_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
         remaining_due_paise = max(0, total_fee_paise - current_paid_paise)
+        unmarked_months = list(record.get("unmarked_months", [])) if record else []
 
         if body.unmark_month:
             month_to_remove = body.unmark_month.strip()
+            if month_to_remove not in unmarked_months:
+                unmarked_months.append(month_to_remove)
             month_item = next((it for it in student_schedule if it["month"] == month_to_remove), None)
             sched_amt = float(month_item.get("amount", 0.0)) if month_item else round(total_fee / 12.0, 2)
             rem_deduct_paise = to_paise(sched_amt)
@@ -961,6 +973,20 @@ async def record_student_fee(
                             new_payments.append(p)
                     else:
                         new_payments.append(p)
+
+                if rem_deduct_paise > 0:
+                    temp_payments = []
+                    for p in reversed(new_payments):
+                        p_amt_paise = to_paise(p.get("amount", 0.0))
+                        if rem_deduct_paise > 0:
+                            deduct_this_paise = min(rem_deduct_paise, p_amt_paise)
+                            new_amt_paise = p_amt_paise - deduct_this_paise
+                            rem_deduct_paise -= deduct_this_paise
+                            p["amount"] = from_paise(new_amt_paise)
+                        if to_paise(p.get("amount", 0.0)) > 0:
+                            temp_payments.append(p)
+                    temp_payments.reverse()
+                    new_payments = temp_payments
             else:
                 for p in reversed(payments):
                     p_amt_paise = to_paise(p.get("amount", 0.0))
@@ -975,6 +1001,7 @@ async def record_student_fee(
 
             payments = new_payments
         elif body.mark_as_paid:
+            unmarked_months = []
             diff_paise = max(0, total_fee_paise - current_paid_paise)
             if diff_paise > 0 or not payments:
                 new_p = {
@@ -992,6 +1019,7 @@ async def record_student_fee(
         elif body.is_partial and (body.month or (body.months_paid and len(body.months_paid) > 0)):
             target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
             target_months = [m for m in target_months if m]
+            unmarked_months = [m for m in unmarked_months if m not in target_months]
             part_amt = float(body.partial_amount if body.partial_amount is not None else (body.amount or 0.0))
             part_amt = round(part_amt, 2)
             part_amt_paise = to_paise(part_amt)
@@ -1015,6 +1043,8 @@ async def record_student_fee(
             target_paid_paise = to_paise(body.paid_fee)
             if target_paid_paise > total_fee_paise:
                 raise HTTPException(status_code=400, detail=f"Paid fee ({body.paid_fee}) exceeds total fee ({total_fee})")
+            if target_paid_paise >= total_fee_paise or target_paid_paise <= 0:
+                unmarked_months = []
             if target_paid_paise <= 0:
                 payments = []
             else:
@@ -1049,6 +1079,8 @@ async def record_student_fee(
             if target_due_paise > total_fee_paise:
                 raise HTTPException(status_code=400, detail=f"Due fee ({body.due_fee}) exceeds total fee ({total_fee})")
             target_paid_paise = max(0, total_fee_paise - target_due_paise)
+            if target_paid_paise <= 0 or target_paid_paise >= total_fee_paise:
+                unmarked_months = []
             if target_paid_paise <= 0:
                 payments = []
             else:
@@ -1081,6 +1113,7 @@ async def record_student_fee(
         elif body.month or (body.months_paid and len(body.months_paid) > 0):
             target_months = body.months_paid if (body.months_paid and len(body.months_paid) > 0) else [body.month]
             target_months = [m for m in target_months if m]
+            unmarked_months = [m for m in unmarked_months if m not in target_months]
             if body.amount is not None and body.amount > 0:
                 added_paise = to_paise(body.amount)
             else:
@@ -1138,8 +1171,9 @@ async def record_student_fee(
             status = "paid"
 
         # Derive paid_months from payments list + schedule
-        derived = _derive_fee_allocation(payments, student_schedule)
+        derived = _derive_fee_allocation(payments, student_schedule, unmarked_months=unmarked_months)
         paid_months = derived["paid_months"]
+        unmarked_months = [m for m in unmarked_months if m not in paid_months]
 
         update_doc = {
             "batch_id": batch_id,
@@ -1151,6 +1185,7 @@ async def record_student_fee(
             "status": status,
             "payments": payments,
             "paid_months": paid_months,
+            "unmarked_months": unmarked_months,
             "last_payment_date": last_date,
             "updated_at": now_iso,
             "version": version + 1,
@@ -1175,6 +1210,7 @@ async def record_student_fee(
             "status": status,
             "payments": payments,
             "paid_months": paid_months,
+            "unmarked_months": unmarked_months,
             "last_payment_date": last_date
         }
 

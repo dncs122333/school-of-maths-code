@@ -1534,54 +1534,6 @@ export default function Batches() {
 
                         {/* Month-by-Month Status & Green-Dot Fee Schedule */}
                         <div className="pt-3 border-t-2 border-[#1E293B]/20 space-y-2.5">
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[#1E293B]/60 text-[10px] font-bold uppercase">Monthly Status:</span>
-                              <span className="flex items-center gap-1.5 text-[#2F8A5F] font-bold text-xs">
-                                <span className="h-2 w-2 rounded-full bg-[#2F8A5F] inline-block" />
-                                {st.collected_months?.length || 0} Collected
-                              </span>
-                              {st.partial_months?.length > 0 && (
-                                <span className="flex items-center gap-1.5 text-[#B45309] font-bold text-xs ml-1">
-                                  <span className="h-2 w-2 rounded-full bg-[#B45309] inline-block" />
-                                  {st.partial_months.length} Partial
-                                </span>
-                              )}
-                              {st.due_months?.length > 0 && (
-                                <span className="flex items-center gap-1.5 text-[#E04A3C] font-bold text-xs ml-1">
-                                  <span className="h-2 w-2 rounded-full bg-[#E04A3C] inline-block" />
-                                  {st.due_months.length} Due
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Text summary of months */}
-                            <div className="text-[11px] text-[#1E293B]/70 flex items-center gap-2">
-                              {st.collected_months?.length > 0 ? (
-                                <span className="text-[#2F8A5F] font-semibold truncate max-w-xs" title={st.collected_months.map((m) => m.month).join(", ")}>
-                                  Collected: {st.collected_months.map((m) => m.month).join(", ")}
-                                </span>
-                              ) : (
-                                <span className="text-[#1E293B]/50">No fees collected yet</span>
-                              )}
-                              {st.partial_months?.length > 0 && (
-                                <>
-                                  <span className="text-[#1E293B]/40">•</span>
-                                  <span className="text-[#B45309] font-semibold truncate max-w-xs" title={st.partial_months.map((m) => `${m.month} (₹${m.paid_amount})`).join(", ")}>
-                                    Partial: {st.partial_months.map((m) => m.month).join(", ")}
-                                  </span>
-                                </>
-                              )}
-                              {st.due_months?.length > 0 && (
-                                <>
-                                  <span className="text-[#1E293B]/40">•</span>
-                                  <span className="text-[#E04A3C] font-semibold truncate max-w-xs" title={st.due_months.map((m) => m.month).join(", ")}>
-                                    Due: {st.due_months.map((m) => m.month).join(", ")}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
 
                           {/* Quick selection banner when 1 or more unpaid months selected */}
                           {(selectedMonthsMap[st.id] || []).length > 0 && (

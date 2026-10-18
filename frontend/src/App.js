@@ -9,11 +9,8 @@ import Navbar from "./components/Navbar";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import NotesLibrary from "./pages/NotesLibrary";
-import NoteReader from "./pages/NoteReader";
 import QuizList from "./pages/QuizList";
 import QuizRunner from "./pages/QuizRunner";
-import CreateNote from "./pages/CreateNote";
 import CreateQuiz from "./pages/CreateQuiz";
 import Batches from "./pages/Batches";
 import Materials from "./pages/Materials";
@@ -43,9 +40,6 @@ function App() {
               <Route path="/auth" element={<Auth />} />
               <Route path="/dashboard" element={<ProtectedRoute><Shell><Dashboard /></Shell></ProtectedRoute>} />
               <Route path="/teacher/dashboard" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><TeacherDashboard /></Shell></ProtectedRoute>} />
-              <Route path="/notes" element={<ProtectedRoute><Shell><NotesLibrary /></Shell></ProtectedRoute>} />
-              <Route path="/notes/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateNote /></Shell></ProtectedRoute>} />
-              <Route path="/notes/:id" element={<ProtectedRoute><Shell><NoteReader /></Shell></ProtectedRoute>} />
               <Route path="/materials" element={<ProtectedRoute><Shell><Materials /></Shell></ProtectedRoute>} />
               <Route path="/tests" element={<ProtectedRoute><Shell><QuizList kind="test" /></Shell></ProtectedRoute>} />
               <Route path="/dpp" element={<ProtectedRoute><Shell><QuizList kind="dpp" /></Shell></ProtectedRoute>} />

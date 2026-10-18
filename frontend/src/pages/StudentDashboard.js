@@ -8,7 +8,6 @@ import { Badge } from "../components/ui/badge";
 import {
   Flame,
   Target,
-  BookOpen,
   FileQuestion,
   Sparkles,
   ArrowRight,
@@ -38,7 +37,6 @@ export default function StudentDashboard() {
   const [masteryTopics, setMasteryTopics] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [activeTests, setActiveTests] = useState([]);
-  const [notes, setNotes] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [topper, setTopper] = useState(null);
   const [joinCode, setJoinCode] = useState("");
@@ -75,11 +73,10 @@ export default function StudentDashboard() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [statsRes, masteryRes, testsRes, notesRes, matRes] = await Promise.allSettled([
+        const [statsRes, masteryRes, testsRes, matRes] = await Promise.allSettled([
           api.get("/stats"),
           api.get("/mastery/me"),
           api.get("/tests"),
-          api.get("/notes"),
           api.get("/resources"),
         ]);
 
@@ -90,7 +87,6 @@ export default function StudentDashboard() {
           const live = list.filter((t) => t.is_active && !t.submitted && t.kind === "test");
           setActiveTests(live);
         }
-        if (notesRes.status === "fulfilled") setNotes(notesRes.value.data || []);
         if (matRes.status === "fulfilled") setMaterials(matRes.value.data || []);
 
         // Fetch batch topper if student has a batch enrolled
@@ -327,7 +323,7 @@ export default function StudentDashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           {/* Agenda Items */}
-          <div className={`${reminderDismissed ? "lg:col-span-12" : "lg:col-span-8"} grid grid-cols-1 sm:grid-cols-2 gap-4`}>
+          <div className={`${reminderDismissed ? "lg:col-span-12" : "lg:col-span-8"} grid grid-cols-1 sm:grid-cols-3 gap-4`}>
             {/* Agenda Item 1: DPP */}
             <Link
               to="/dpp"
@@ -382,34 +378,7 @@ export default function StudentDashboard() {
               </div>
             </Link>
 
-            {/* Agenda Item 3: AI Notes */}
-            <Link
-              to="/notes"
-              className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
-                    <BookOpen className="h-5 w-5 text-[#1E293B]" />
-                  </div>
-                  <span className="text-[10px] font-head font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-white border border-[#1E293B] text-[#1E293B]">
-                    Sprint #3
-                  </span>
-                </div>
-                <h3 className="font-head text-lg font-black text-[#1E293B] uppercase">
-                  Concept Study Notes
-                </h3>
-                <p className="text-xs text-[#1E293B]/80 font-medium mt-1 leading-relaxed">
-                  Formula cheat sheets, diagram breakdowns & CBSE mnemonic summaries.
-                </p>
-              </div>
-              <div className="mt-4 pt-3 border-t-2 border-[#1E293B]/20 flex items-center justify-between text-xs font-head font-bold text-[#1E293B]">
-                <span>Review Chapter Notes</span>
-                <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
-
-            {/* Agenda Item 4: Materials */}
+            {/* Agenda Item 3: Materials */}
             <Link
               to="/materials"
               className="group p-5 rounded-3xl bg-[#F5C842] border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between"
@@ -420,7 +389,7 @@ export default function StudentDashboard() {
                     <FolderOpen className="h-5 w-5 text-[#1E293B]" />
                   </div>
                   <span className="text-[10px] font-head font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-white border border-[#1E293B] text-[#1E293B]">
-                    Sprint #4
+                    Sprint #3
                   </span>
                 </div>
                 <h3 className="font-head text-lg font-black text-[#1E293B] uppercase">
@@ -489,7 +458,7 @@ export default function StudentDashboard() {
       {/* ======================================================== */}
       {/* 3. CLASS NEWS / RESOURCES (REAL CONTENT) */}
       {/* ======================================================== */}
-      {(notes.length > 0 || activeTests.length > 0 || materials.length > 0) && (
+      {(activeTests.length > 0 || materials.length > 0) && (
         <section className="rounded-3xl bg-[#2F8A5F] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -501,45 +470,11 @@ export default function StudentDashboard() {
               </h2>
             </div>
             <p className="text-white/90 text-xs sm:text-sm max-w-sm font-medium">
-              Real-time curriculum materials, active tests, and study notes published for your batch.
+              Real-time curriculum materials and active tests published for your batch.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Card 1: Real Note */}
-            <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out">
-              <div>
-                <div className="bg-[#F5C842] border-b-2 border-[#1E293B] p-5 text-center relative">
-                  <span className="text-4xl block">📐</span>
-                  <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-white border-2 border-[#1E293B] text-[10px] font-head font-black uppercase text-[#1E293B]">
-                    {notes[0]?.subject || "Mathematics Core"}
-                  </span>
-                </div>
-                <div className="p-5 space-y-2">
-                  <span className="text-[11px] font-mono font-bold text-[#64748B]">
-                    {notes[0]?.created_at ? new Date(notes[0].created_at).toLocaleDateString() : "Active Study Note"}
-                  </span>
-                  <h3 className="font-head text-lg font-black text-[#1E293B] leading-snug">
-                    {notes[0]?.title || "Concept Study Notes"}
-                  </h3>
-                  <p className="text-xs text-[#64748B] font-medium leading-relaxed">
-                    {notes[0]?.chapter
-                      ? `Chapter: ${notes[0].chapter}. High-yield board concepts with proof steps.`
-                      : "High-yield concept breakdowns with proof mnemonics and common board pitfalls."}
-                  </p>
-                </div>
-              </div>
-              <div className="p-5 pt-0">
-                <Button
-                  asChild
-                  className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold h-9"
-                >
-                  <Link to={notes[0]?.id ? `/notes/${notes[0].id}` : "/notes"}>
-                    Read Study Notes <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
             {/* Card 2: Real Active Test or Tests Portal */}
             <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] overflow-hidden flex flex-col justify-between hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out">
@@ -685,13 +620,6 @@ export default function StudentDashboard() {
         {/* Centered Colored Pill Buttons */}
         <div className="flex flex-wrap items-center justify-center gap-3.5 max-w-4xl mx-auto">
           <Link
-            to="/notes"
-            className="hub-btn hub-btn-yellow px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
-          >
-            📘 AI Study Notes
-          </Link>
-
-          <Link
             to="/materials"
             className="hub-btn hub-btn-green px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
           >
@@ -776,42 +704,42 @@ export default function StudentDashboard() {
           {/* Recent Activity Timeline */}
           <ActivityTimeline submissions={submissions} />
 
-          {/* Learning Queue: AI Study Notes */}
+          {/* Learning Queue: Class Materials */}
           <div className="rounded-3xl bg-white p-6 sm:p-7 space-y-4 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="h-8 w-8 rounded-xl bg-[#F5C842] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center">
-                  <BookOpen className="h-4 w-4 text-[#1E293B]" />
+                  <FolderOpen className="h-4 w-4 text-[#1E293B]" />
                 </div>
-                <h3 className="font-head text-lg font-black text-[#1E293B]">Learning Queue</h3>
+                <h3 className="font-head text-lg font-black text-[#1E293B]">Class Materials</h3>
               </div>
-              <Link to="/notes" className="text-xs font-head font-bold text-[#3E7CB1] hover:underline">
-                All notes →
+              <Link to="/materials" className="text-xs font-head font-bold text-[#3E7CB1] hover:underline">
+                All materials →
               </Link>
             </div>
 
-            {notes.length === 0 ? (
+            {materials.length === 0 ? (
               <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-6 text-center text-xs text-[#64748B]">
-                No study notes published yet. Notes created by your teacher appear here!
+                No class materials published yet. Handouts and PDFs shared by your teacher will appear here!
               </div>
             ) : (
               <div className="space-y-3">
-                {notes.slice(0, 3).map((n) => (
+                {materials.slice(0, 3).map((m) => (
                   <Link
-                    key={n.id}
-                    to={`/notes/${n.id}`}
+                    key={m.id}
+                    to="/materials"
                     className="group block p-3.5 sm:p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 transition-[transform,box-shadow] duration-150 ease-out"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <Badge className="bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] text-[10px] font-bold">
-                        {n.subject}
+                        {m.subject || "Resource"}
                       </Badge>
-                      <span className="text-[11px] font-mono font-bold text-[#64748B]">Class {n.class_level}</span>
+                      <span className="text-[11px] font-mono font-bold text-[#64748B] uppercase">{m.file_type || "PDF"}</span>
                     </div>
                     <h4 className="font-head text-sm font-extrabold text-[#1E293B] mt-1.5 truncate">
-                      {n.title}
+                      {m.title}
                     </h4>
-                    <p className="text-xs text-[#64748B] truncate mt-0.5">{n.chapter}</p>
+                    <p className="text-xs text-[#64748B] truncate mt-0.5">{m.chapter || m.filename}</p>
                   </Link>
                 ))}
               </div>

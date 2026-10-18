@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui/button";
-import { LogOut, BookOpen, FileQuestion, LayoutDashboard, Users, Sparkles, FolderOpen, Brain, BarChart3, Database } from "lucide-react";
+import { LogOut, FileQuestion, LayoutDashboard, Users, Sparkles, FolderOpen, Brain, BarChart3, Database } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -13,7 +13,6 @@ export default function Navbar() {
   const isTeacher = user.role === "teacher" || user.role === "admin";
   const links = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/notes", label: "Notes", icon: BookOpen },
     { to: "/materials", label: "Class Notes", icon: FolderOpen },
     { to: "/tests", label: "Class Test", icon: FileQuestion },
     { to: "/dpp", label: "Chapterwise Test", icon: Sparkles },

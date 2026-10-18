@@ -2,12 +2,18 @@
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 import certifi
 from fastapi import APIRouter
 from motor.motor_asyncio import AsyncIOMotorClient
 
+# Automatically load backend/.env so standalone scripts and tests find Atlas configuration
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path, override=False)
 
 ATLAS_UNAVAILABLE_MESSAGE = "Database unavailable. Contact Dhruv immediately."
 _STATUS_CACHE_SECONDS = 60

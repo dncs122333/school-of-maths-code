@@ -55,52 +55,32 @@ docs/                # architecture, spec, plan
 
 ## Getting started
 
-### 1. MongoDB
+The project connects to **MongoDB Atlas Cloud** (credentials are pre-configured in `backend/.env`). No local MongoDB daemon needs to be installed or run.
+
+### Quick Start with Scripts
 
 ```bash
-# Option A: Standalone binary on macOS (recommended for local dev)
-/Users/dhruv/mongodb-local/mongodb-macos-aarch64-8.0.12/bin/mongod \
-  --dbpath /Users/dhruv/mongodb-local/data \
-  --logpath /Users/dhruv/mongodb-local/logs/mongod.log \
-  --port 27017 --fork
+# Terminal 1: Backend (FastAPI on port 8001)
+./start_backend.sh
 
-# Option B: Docker
-docker run -d -p 27017:27017 --name vidya-mongo mongo:7
+# Terminal 2: Frontend (React on port 3000)
+./start_frontend.sh
 ```
 
-### 2. Backend
+### Manual Start
 
 ```bash
+# Terminal 1: Backend
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-cat > .env <<'EOF'
-MONGO_URL=mongodb://127.0.0.1:27017
-DB_NAME=test_database
-JWT_SECRET=dev_secret_key_1234567890
-ADMIN_EMAIL=admin@vidya.com
-ADMIN_PASSWORD=admin123
-EMERGENT_LLM_KEY=            # required only for AI notes/images
-CORS_ORIGINS=*
-EOF
-
+source .venv/bin/activate
 uvicorn server:app --reload --host 0.0.0.0 --port 8001
-```
 
-### 3. Frontend
-
-```bash
+# Terminal 2: Frontend
 cd frontend
-cat > .env <<'EOF'
-REACT_APP_BACKEND_URL=http://localhost:8001
-EOF
-
-npm install
-npm start
+yarn start
 ```
 
-Open **http://localhost:3000** — the seeded admin is `admin@vidya.com` / `admin123`.
+Open **http://localhost:3000** — the default admin is `admin@vidya.com` / `admin123`.
 
 ## Seeding the question bank
 

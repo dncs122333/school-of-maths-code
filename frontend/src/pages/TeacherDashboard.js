@@ -121,7 +121,7 @@ export default function TeacherDashboard() {
             </h1>
 
             <p className="text-[#1E293B] font-medium text-sm sm:text-base max-w-xl leading-relaxed">
-              Live mastery telemetry across your coaching cohorts. Monitor weak concepts, share study notes, and launch timed tests from verified question banks.
+              Live mastery telemetry across your coaching cohorts. Monitor weak concepts, share study materials, and launch timed tests from verified question banks.
             </p>
           </div>
 
@@ -161,8 +161,8 @@ export default function TeacherDashboard() {
           </div>
         </div>
 
-        {/* 4 Metric Cards with Key Telemetry */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t-2 border-[#1E293B]/20">
+        {/* 3 Metric Cards with Key Telemetry */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t-2 border-[#1E293B]/20">
           {/* Metric 1: Total Students */}
           <Link
             to={selectedBatchId ? `/batches?batch_id=${selectedBatchId}` : "/batches"}
@@ -208,20 +208,6 @@ export default function TeacherDashboard() {
             </div>
             <div className="text-[11px] text-[#4CAF7D] font-mono font-bold mt-1">
               <span>Cohort Retention Index</span>
-            </div>
-          </div>
-
-          {/* Metric 4: AI Notes Generated */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
-            <div className="flex items-center justify-between text-xs text-[#64748B]">
-              <span className="font-head font-bold uppercase tracking-wider text-[10px]">AI Study Notes</span>
-              <BookOpen className="h-4 w-4 text-[#F5C842]" />
-            </div>
-            <div className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B] mt-1">
-              {stats.notes ?? 0}
-            </div>
-            <div className="text-[11px] text-[#64748B] font-mono font-bold mt-1">
-              <span>100% CBSE 2025–26 Aligned</span>
             </div>
           </div>
         </div>
@@ -394,11 +380,11 @@ export default function TeacherDashboard() {
                 variant="outline"
                 className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
-                <Link to="/notes/new" className="space-y-1 w-full">
-                  <BookOpen className="h-4 w-4 text-[#5B9BD5]" />
-                  <span className="font-head font-bold text-xs text-[#1E293B] block">Generate Note</span>
+                <Link to="/materials" className="space-y-1 w-full">
+                  <FolderOpen className="h-4 w-4 text-[#5B9BD5]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Class Materials</span>
                   <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
-                    Multi-pass AI extractor
+                    Upload PDFs & handouts
                   </span>
                 </Link>
               </Button>

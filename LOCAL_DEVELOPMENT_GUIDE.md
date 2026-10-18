@@ -8,32 +8,25 @@ This document contains startup commands, connection details, architecture overvi
 
 The project consists of three services running concurrently. Start them in the following order:
 
-### Step 1: Database (MongoDB Atlas Cloud or Local)
-The project is configured to use **MongoDB Atlas** (cloud-managed cluster `learning`). No local database daemon needs to be started when connected to Atlas!
-
-*(Optional offline fallback: If developing completely offline without internet, you can start local MongoDB and set `MONGO_URL="mongodb://localhost:27017"` in `backend/.env`:)*
-```bash
-/Users/dhruv/mongodb-local/mongodb-macos-aarch64-8.0.12/bin/mongod \
-  --dbpath /Users/dhruv/mongodb-local/data \
-  --logpath /Users/dhruv/mongodb-local/logs/mongod.log \
-  --port 27017 --fork
-```
+### Step 1: Database (MongoDB Atlas)
+The project connects directly to **MongoDB Atlas Cloud**. No local database daemon (mongod/docker) is needed. The connection string is pre-configured in `backend/.env`.
 
 ### Step 2: Start the Backend (FastAPI)
-The backend runs on port `8001` and connects to local MongoDB:
+The backend runs on port `8001` using the pre-configured virtual environment:
 ```bash
 cd backend
 source .venv/bin/activate
 uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 ```
-*(Note: On startup, the backend automatically seeds the admin user and seeds the question bank from `backend/seed/sample_questions.csv` if `db.question_bank` is empty.)*
+*(Or from root: `./start_backend.sh`)*
 
 ### Step 3: Start the Frontend (React)
 The frontend runs on port `3000`:
 ```bash
 cd frontend
-npm start
+yarn start
 ```
+*(Or from root: `./start_frontend.sh`)*
 
 ---
 
@@ -41,13 +34,13 @@ npm start
 
 ### Backend Configuration (`backend/.env`)
 ```env
-MONGO_URL="mongodb://localhost:27017"
+MONGO_URL="mongodb+srv://dncs122333_db_user:6Tci8xfr2euAGJsa@learning.gmqg1hr.mongodb.net/?retryWrites=true&w=majority&appName=learning"
 DB_NAME="test_database"
 CORS_ORIGINS="*"
 JWT_SECRET="dev_secret_key_1234567890"
 ADMIN_EMAIL="admin@vidya.com"
 ADMIN_PASSWORD="admin123"
-EMERGENT_LLM_KEY="sk-emergent-test"
+EMERGENT_LLM_KEY=""
 ```
 
 ### Frontend Configuration (`frontend/.env`)
@@ -68,7 +61,7 @@ Created automatically on startup from `backend/.env`:
 ### Tech Stack
 - **Frontend:** React 19, Tailwind CSS, shadcn/ui, Framer Motion, Axios (Port 3000)
 - **Backend:** Python FastAPI, Motor (Async MongoDB driver), PyJWT, bcrypt, pypdf, python-docx (Port 8001)
-- **Database:** MongoDB (Port 27017)
+- **Database:** MongoDB Atlas (Cloud)
 - **AI / LLM:** Gemini 3.1 Pro (via Emergent Universal LLM API)
 - **Object Storage:** Emergent Object Storage proxy (for concept images and uploaded batch files)
 
