@@ -70,13 +70,16 @@ class GenerateTestInput(BaseModel):
     kind: str = "test"
     class_level: str
     subject: str
-    chapter: str
+    chapter: Optional[str] = ""
+    chapters: Optional[List[str]] = None
     topic: Optional[str] = ""
     batch_id: Optional[str] = None
     question_count: int = 10
     duration_minutes: int = 20
     valid_hours: int = 24
     activate_now: bool = True
+    is_active: Optional[bool] = None
+    question_ids: Optional[List[str]] = None
 
 
 class SubmitInput(BaseModel):
@@ -106,4 +109,36 @@ class DataSourceStatusResponse(BaseModel):
     message: str
     checked_at: Optional[str] = None
     learning_queue: List[LearningQueueRecord] = Field(default_factory=list)
+
+
+class QuestionInput(BaseModel):
+    question: str
+    options: List[str]
+    correct_answer: Optional[object] = None
+    correct_index: Optional[int] = None
+    explanation: Optional[str] = ""
+    class_level: Optional[str] = None
+    subject: Optional[str] = None
+    chapter: Optional[str] = None
+    topics: Optional[List[str]] = Field(default_factory=list)
+    topic: Optional[str] = ""
+    difficulty: Optional[str] = "medium"
+    question_type: Optional[str] = "single_choice"
+    marks: Optional[float] = 1.0
+    negative_marks: Optional[float] = 0.0
+    hint: Optional[str] = ""
+    tags: Optional[List[str]] = Field(default_factory=list)
+    status: Optional[str] = "active"
+    source_id: Optional[str] = None
+
+
+class QuestionBatchImportInput(BaseModel):
+    class_level: Optional[str] = None
+    subject: Optional[str] = None
+    chapter: Optional[str] = None
+    topics: Optional[List[str]] = Field(default_factory=list)
+    topic: Optional[str] = ""
+    status: Optional[str] = "active"
+    questions: List[QuestionInput]
+
 

@@ -18,12 +18,14 @@ import {
   FolderOpen,
   CheckCircle2,
   Orbit,
+  Radio,
 } from "lucide-react";
 import { toast } from "sonner";
 import ClassHeatmap from "../components/dashboard/ClassHeatmap";
 import StudentRosterRadar from "../components/dashboard/StudentRosterRadar";
 import PendingReviewsQueue from "../components/dashboard/PendingReviewsQueue";
 import ImportQuestionsModal from "../components/dashboard/ImportQuestionsModal";
+import LiveTestsDrawer from "../components/dashboard/LiveTestsDrawer";
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
@@ -35,6 +37,7 @@ export default function TeacherDashboard() {
   const [reportData, setReportData] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [liveDrawerOpen, setLiveDrawerOpen] = useState(false);
 
   // Time-of-day greeting
   const greeting = useMemo(() => {
@@ -156,7 +159,7 @@ export default function TeacherDashboard() {
               onClick={() => setImportModalOpen(true)}
               className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
             >
-              <UploadCloud className="h-4 w-4 mr-1.5" /> Import CSV
+              <UploadCloud className="h-4 w-4 mr-1.5" /> Import Questions
             </Button>
           </div>
         </div>
@@ -184,10 +187,14 @@ export default function TeacherDashboard() {
           </Link>
 
           {/* Metric 2: Active Assessments */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+          <button
+            type="button"
+            onClick={() => setLiveDrawerOpen(true)}
+            className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#FF6B5E] shadow-[3px_3px_0_#FF6B5E] text-left hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#FF6B5E] transition-all cursor-pointer w-full"
+          >
             <div className="flex items-center justify-between text-xs text-[#64748B]">
               <span className="font-head font-bold uppercase tracking-wider text-[10px]">Live Tests</span>
-              <FileQuestion className="h-4 w-4 text-[#FF6B5E]" />
+              <Radio className="h-4 w-4 text-[#FF6B5E] animate-pulse" />
             </div>
             <div className="font-head text-2xl sm:text-3xl font-900 text-[#1E293B] mt-1">
               {(stats.tests || 0) + (stats.dpps || 0)}
@@ -195,7 +202,10 @@ export default function TeacherDashboard() {
             <div className="text-[11px] text-[#64748B] font-mono font-bold mt-1">
               <span>{stats.tests ?? 0} Tests • {stats.dpps ?? 0} DPPs</span>
             </div>
-          </div>
+            <div className="text-[10px] text-[#FF6B5E] font-mono font-bold mt-1.5">
+              Click to manage →
+            </div>
+          </button>
 
           {/* Metric 3: Avg Class Score */}
           <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
@@ -425,9 +435,9 @@ export default function TeacherDashboard() {
               >
                 <div className="space-y-1 w-full">
                   <UploadCloud className="h-4 w-4 text-[#F5C842]" />
-                  <span className="font-head font-bold text-xs text-[#1E293B] block">Import CSV</span>
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Import Questions</span>
                   <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
-                    Add MCQs to bank
+                    Upload JSON or CSV to bank
                   </span>
                 </div>
               </Button>
@@ -443,6 +453,12 @@ export default function TeacherDashboard() {
         onImportSuccess={() => {
           api.get("/stats").then((r) => setStats(r.data || {})).catch(() => {});
         }}
+      />
+
+      {/* Live Tests Drawer */}
+      <LiveTestsDrawer
+        open={liveDrawerOpen}
+        onClose={() => setLiveDrawerOpen(false)}
       />
     </div>
   );

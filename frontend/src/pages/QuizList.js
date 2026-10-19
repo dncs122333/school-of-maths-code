@@ -8,8 +8,10 @@ import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import {
   Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock,
-  PlayCircle, Trophy, ChevronDown, Folder, Pencil, Trash2, Loader2,
+  PlayCircle, Trophy, ChevronDown, Folder, Pencil, Trash2, Loader2, Users,
+  Copy,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
@@ -19,6 +21,56 @@ function timeLeft(iso) {
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+}
+
+function ChapterwiseSubmissions({ testId }) {
+  const [open, setOpen] = useState(false);
+  const [submissions, setSubmissions] = useState(null);
+  const toggle = () => {
+    if (!open && submissions === null) {
+      api.get(`/tests/${testId}/submissions`).then((r) => setSubmissions(r.data || [])).catch(() => setSubmissions([]));
+    }
+    setOpen(!open);
+  };
+  return (
+    <div className="mt-3">
+      <button
+        data-testid={`submissions-${testId}`}
+        onClick={toggle}
+        className="w-full flex items-center justify-center gap-1.5 text-xs font-head font-bold text-[#1E293B] hover:text-[#2F8A5F] py-1 transition-colors"
+      >
+        <Users className="h-3.5 w-3.5 text-[#2F8A5F]" />
+        Student Attempts ({submissions === null ? "View" : submissions.length})
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-3 shadow-[2px_2px_0_#1E293B] space-y-2">
+          {submissions === null ? (
+            <div className="text-xs text-[#64748B] font-bold">Loading attempts…</div>
+          ) : submissions.length === 0 ? (
+            <div className="text-xs text-[#64748B]">No students have attempted this chapterwise test yet.</div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+              {submissions.map((s, idx) => (
+                <div key={s.id || idx} className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-white border border-[#1E293B]/20 text-xs">
+                  <div className="min-w-0 flex-1 pr-2">
+                    <span className="font-bold text-[#1E293B] truncate block">{s.student_name}</span>
+                    <span className="text-[10px] text-[#64748B] font-mono">
+                      {s.created_at ? new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-head font-bold text-[#1E293B]">{s.score}%</span>
+                    <span className="text-[10px] text-[#64748B] block font-mono">({s.correct}/{s.total} Qs)</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Leaderboard({ testId }) {
@@ -53,7 +105,7 @@ function Leaderboard({ testId }) {
   );
 }
 
-function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting }) {
+function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse, onToggleActive, togglingActive }) {
   const active = isTeacher ? true : t.is_active;
   const done = t.submitted;
   return (
@@ -64,6 +116,13 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting }) {
         {/* Teacher action buttons */}
         {isTeacher && (
           <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+            <button
+              data-testid={`reuse-icon-${t.id}`}
+              onClick={() => onReuse(t)}
+              className="h-8 w-8 rounded-full bg-white hover:bg-[#F5C842]/40 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#1E293B] transition-colors"
+              title="Reuse test / assign to batch">
+              <Copy className="h-3.5 w-3.5 text-[#1E293B]" />
+            </button>
             <button
               data-testid={`edit-test-${t.id}`}
               onClick={() => onEdit(t)}
@@ -83,17 +142,46 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting }) {
         )}
 
         <div className="flex items-center justify-between mb-3 pr-16">
-          <span className="text-[11px] font-head font-bold uppercase tracking-wide px-3 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B]">{t.subject}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-head font-bold uppercase tracking-wide px-3 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B]">{t.subject}</span>
+            {isTeacher && (
+              <button
+                type="button"
+                data-testid={`toggle-active-${t.id}`}
+                onClick={() => onToggleActive(t)}
+                disabled={togglingActive === t.id}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-head font-bold border-2 transition-all cursor-pointer ${
+                  t.is_active !== false
+                    ? "bg-[#EAF7EE] text-[#2F8A5F] border-[#2F8A5F]/50 hover:bg-[#d5f0dd]"
+                    : "bg-[#F1F5F9] text-[#64748B] border-[#94A3B8]/60 hover:bg-[#E2E8F0]"
+                }`}
+                title="Click to toggle Active / Inactive"
+              >
+                {togglingActive === t.id ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                ) : (
+                  <span className={`h-2 w-2 rounded-full ${t.is_active !== false ? "bg-[#2F8A5F] animate-pulse" : "bg-[#94A3B8]"}`} />
+                )}
+                {t.is_active !== false ? "Active" : "Inactive"}
+              </button>
+            )}
+          </div>
           {!isTeacher && (done
             ? <span className="flex items-center gap-1 text-xs font-head font-bold text-[#4CAF7D]"><CheckCircle2 className="h-4 w-4" /> {t.score}%</span>
             : active ? <span className="flex items-center gap-1 text-xs font-head font-bold text-[#5B9BD5]"><PlayCircle className="h-4 w-4" /> Live</span>
             : <span className="flex items-center gap-1 text-xs font-head font-bold text-[#64748B]"><Lock className="h-3.5 w-3.5" /> Closed</span>)}
         </div>
         <h3 className="font-head text-lg font-900 leading-snug text-[#1E293B]">{t.title}</h3>
-        <div className="text-xs text-[#64748B] mt-1 font-bold">Class {t.class_level} • {t.chapter}{t.topic ? ` • ${t.topic}` : ""}</div>
+        <div className="text-xs text-[#64748B] mt-1 font-bold">
+          Class {t.class_level} • {t.chapter}{t.topic ? ` • ${t.topic}` : ""}{t.batch_name ? ` • Batch: ${t.batch_name}` : ""}
+        </div>
         <div className="mt-4 flex items-center gap-3 text-xs text-[#1E293B] font-mono font-bold">
           <span className="flex items-center gap-1"><FileQuestion className="h-3.5 w-3.5 text-[#5B9BD5]" /> {t.question_count} Qs</span>
-          {!isDpp && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-[#F5C842]" /> {t.duration_minutes} min</span>}
+          {t.duration_minutes > 0 ? (
+            <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-[#F5C842]" /> {t.duration_minutes} min</span>
+          ) : isDpp ? (
+            <span className="flex items-center gap-1 text-[#64748B]"><Clock className="h-3.5 w-3.5 text-[#64748B]" /> Untimed</span>
+          ) : null}
         </div>
         {!isTeacher && !isDpp && active && !done && (
           <div className="text-xs text-[#5B9BD5] font-bold mt-2 font-mono">{timeLeft(t.valid_until)}</div>
@@ -107,9 +195,18 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting }) {
           ) : t.status === "failed" ? (
             <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#FF6B5E] border-2 border-[#1E293B]">Failed</Button>
           ) : (
-            <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="w-full rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold shadow-[2px_2px_0_#1E293B]">
-              <Link to={`/quiz/${t.id}`}>Preview Test</Link>
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold shadow-[2px_2px_0_#1E293B] text-xs h-9">
+                <Link to={`/quiz/${t.id}`}>Preview</Link>
+              </Button>
+              <Button
+                data-testid={`reuse-quiz-${t.id}`}
+                onClick={() => onReuse(t)}
+                className="rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 flex items-center justify-center gap-1.5"
+              >
+                <Copy className="h-3.5 w-3.5" /> Reuse
+              </Button>
+            </div>
           )
         ) : done ? (
           <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Completed</Button>
@@ -122,6 +219,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting }) {
         )}
       </div>
       {!isDpp && <Leaderboard testId={t.id} />}
+      {isDpp && isTeacher && <ChapterwiseSubmissions testId={t.id} />}
     </motion.div>
   );
 }
@@ -134,6 +232,74 @@ export default function QuizList({ kind }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const isDpp = kind === "dpp";
+
+  // Batches for reuse modal
+  const [batches, setBatches] = useState([]);
+  useEffect(() => {
+    if (isTeacher) {
+      api.get("/batches").then((r) => setBatches(r.data || [])).catch(() => setBatches([]));
+    }
+  }, [isTeacher]);
+
+  // Active / Inactive toggle state
+  const [togglingActive, setTogglingActive] = useState(null);
+  const handleToggleActive = async (test) => {
+    setTogglingActive(test.id);
+    const nextVal = test.is_active === false;
+    try {
+      await api.patch(`/tests/${test.id}`, { is_active: nextVal });
+      setItems((prev) => prev.map((t) => (t.id === test.id ? { ...t, is_active: nextVal } : t)));
+      toast.success(nextVal ? "Test activated for students" : "Test paused / marked inactive");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Failed to update status");
+    } finally {
+      setTogglingActive(null);
+    }
+  };
+
+  // Reuse / Duplicate state
+  const [reuseTest, setReuseTest] = useState(null);
+  const [reuseForm, setReuseForm] = useState({
+    title: "",
+    batch_id: "all",
+    duration_minutes: 0,
+    valid_hours: 24,
+    timing_mode: "untimed",
+  });
+  const [reusing, setReusing] = useState(false);
+
+  const openReuse = (test) => {
+    setReuseTest(test);
+    const dur = test.duration_minutes || 0;
+    setReuseForm({
+      title: `${test.title} (New Batch)`,
+      batch_id: test.batch_id || "all",
+      duration_minutes: dur,
+      valid_hours: test.valid_hours || 24,
+      timing_mode: dur > 0 ? "timed" : "untimed",
+    });
+  };
+
+  const handleDuplicate = async () => {
+    if (!reuseTest) return;
+    setReusing(true);
+    try {
+      const payload = {
+        title: reuseForm.title,
+        batch_id: reuseForm.batch_id === "all" ? "" : reuseForm.batch_id,
+        duration_minutes: reuseForm.timing_mode === "timed" ? Number(reuseForm.duration_minutes) || 15 : 0,
+        valid_hours: Number(reuseForm.valid_hours) || 24,
+      };
+      const res = await api.post(`/tests/${reuseTest.id}/duplicate`, payload);
+      toast.success(`Test created & assigned${res.data?.batch_name ? ` to ${res.data.batch_name}` : ""}!`);
+      setReuseTest(null);
+      load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Failed to duplicate test");
+    } finally {
+      setReusing(false);
+    }
+  };
 
   // Delete state
   const [deleting, setDeleting] = useState(null);
@@ -155,13 +321,13 @@ export default function QuizList({ kind }) {
   const classGroups = useMemo(() => {
     return items.reduce((acc, t) => {
       const cl = `Class ${t.class_level || "?"}`;
-      const batch = t.batch_name?.trim() || "General";
+      const batch = t.batch_name?.trim() || (isTeacher ? "Saved / Unassigned" : "General");
       if (!acc[cl]) acc[cl] = {};
       if (!acc[cl][batch]) acc[cl][batch] = [];
       acc[cl][batch].push(t);
       return acc;
     }, {});
-  }, [items]);
+  }, [items, isTeacher]);
   const sortedClasses = useMemo(() => Object.keys(classGroups).sort(), [classGroups]);
 
   /* ---- Delete ---- */
@@ -259,6 +425,7 @@ export default function QuizList({ kind }) {
                             <TestCard
                               key={t.id} t={t} isTeacher={isTeacher} isDpp={isDpp} i={i}
                               onEdit={openEdit} onDelete={setDeleteConfirm} deleting={deleting}
+                              onReuse={openReuse} onToggleActive={handleToggleActive} togglingActive={togglingActive}
                             />
                           ))}
                         </div>
@@ -271,6 +438,151 @@ export default function QuizList({ kind }) {
           })}
         </div>
       )}
+
+      {/* ---- Reuse / Duplicate dialog ---- */}
+      <Dialog open={!!reuseTest} onOpenChange={(o) => { if (!o) setReuseTest(null); }}>
+        <DialogContent className="bg-white border-[3px] border-[#1E293B] max-w-lg rounded-3xl p-6 shadow-[6px_6px_0_#1E293B] text-[#1E293B]">
+          <DialogHeader>
+            <DialogTitle className="text-[#1E293B] font-head text-xl font-900 flex items-center gap-2">
+              <Copy className="h-5 w-5 text-[#5B9BD5]" />
+              Reuse Test / Assign to Batch
+            </DialogTitle>
+          </DialogHeader>
+
+          {reuseTest && (
+            <div className="space-y-4 py-2">
+              {/* Summary Box */}
+              <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-3 text-xs space-y-1">
+                <div className="font-head font-bold text-[#1E293B] flex items-center justify-between">
+                  <span>Class {reuseTest.class_level} • {reuseTest.subject}</span>
+                  <span className="font-mono text-[#5B9BD5] font-bold">{reuseTest.question_count} Questions</span>
+                </div>
+                <div className="text-[#64748B] font-medium truncate">
+                  {reuseTest.chapter}{reuseTest.topic ? ` • ${reuseTest.topic}` : ""}
+                </div>
+                <div className="text-[11px] text-[#2F8A5F] font-bold pt-0.5">
+                  ✓ Reuses exact questions with a fresh attempt history & leaderboard.
+                </div>
+              </div>
+
+              {/* Title */}
+              <div>
+                <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">New Test Title</Label>
+                <Input
+                  data-testid="reuse-title-input"
+                  className={inp}
+                  value={reuseForm.title}
+                  onChange={(e) => setReuseForm({ ...reuseForm, title: e.target.value })}
+                />
+              </div>
+
+              {/* Target Batch */}
+              <div>
+                <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Target Batch</Label>
+                <Select
+                  value={reuseForm.batch_id}
+                  onValueChange={(v) => setReuseForm({ ...reuseForm, batch_id: v })}
+                >
+                  <SelectTrigger data-testid="reuse-batch-select" className={inp}>
+                    <SelectValue placeholder="Choose batch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {isDpp ? "All Students / Open (Classwide)" : "All Students"}
+                    </SelectItem>
+                    {batches
+                      .filter((b) => !b.class_level || String(b.class_level) === String(reuseTest.class_level))
+                      .map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name} (Class {b.class_level || reuseTest.class_level})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Timing & Validity */}
+              <div className="grid grid-cols-2 gap-3">
+                {isDpp ? (
+                  <div>
+                    <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Mode</Label>
+                    <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setReuseForm({ ...reuseForm, timing_mode: "untimed", duration_minutes: 0 })}
+                        className={`py-2 rounded-xl text-xs font-head font-bold border-2 transition-all ${
+                          reuseForm.timing_mode === "untimed"
+                            ? "bg-[#F5C842] text-[#1E293B] border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
+                            : "bg-[#FFF9E8] text-[#1E293B]/70 border-[#1E293B]/30"
+                        }`}
+                      >
+                        Untimed
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReuseForm({ ...reuseForm, timing_mode: "timed", duration_minutes: reuseForm.duration_minutes || 15 })}
+                        className={`py-2 rounded-xl text-xs font-head font-bold border-2 transition-all ${
+                          reuseForm.timing_mode === "timed"
+                            ? "bg-[#F5C842] text-[#1E293B] border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
+                            : "bg-[#FFF9E8] text-[#1E293B]/70 border-[#1E293B]/30"
+                        }`}
+                      >
+                        Timed
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Duration (min)</Label>
+                    <Input
+                      type="number" min={1}
+                      className={inp + " font-mono"}
+                      value={reuseForm.duration_minutes}
+                      onChange={(e) => setReuseForm({ ...reuseForm, duration_minutes: e.target.value })}
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Valid for (hours)</Label>
+                  <Input
+                    type="number" min={1} max={720}
+                    className={inp + " font-mono"}
+                    value={reuseForm.valid_hours}
+                    onChange={(e) => setReuseForm({ ...reuseForm, valid_hours: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {reuseForm.timing_mode === "timed" && isDpp && (
+                <div>
+                  <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">Sprint Duration (minutes)</Label>
+                  <Input
+                    type="number" min={1}
+                    className={inp + " font-mono"}
+                    value={reuseForm.duration_minutes}
+                    onChange={(e) => setReuseForm({ ...reuseForm, duration_minutes: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" className="rounded-full border-2 border-[#1E293B] text-[#1E293B]"
+              onClick={() => setReuseTest(null)}>Cancel</Button>
+            <Button
+              data-testid="confirm-reuse-btn"
+              className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] font-head font-bold shadow-[2px_2px_0_#1E293B]"
+              disabled={reusing}
+              onClick={handleDuplicate}
+            >
+              {reusing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
+              Launch Fresh Test
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ---- Delete confirmation ---- */}
       <Dialog open={!!deleteConfirm} onOpenChange={(o) => { if (!o) setDeleteConfirm(null); }}>

@@ -12,7 +12,7 @@ import re
 import time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Union
 from decimal import Decimal, ROUND_HALF_UP
 
 from bson import ObjectId
@@ -28,12 +28,13 @@ from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
 from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, CreateNoteInput, GenerateTestInput,
-                    SubmitInput, DataSourceStatusResponse)
+                    SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
                   require_claim_role, user_from_token)
 from ai import init_storage, put_object, get_object, delete_object, gen_concept_image, extract_text_from_file, llm_generate_notes
 from lib.mastery import compute_topic_mastery
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
+from curriculum import CURRICULUM, get_canonical_topics, generate_gemini_prompt
 
 app = FastAPI()
 
@@ -1720,12 +1721,52 @@ async def download_resource(res_id: str, authorization: str = Header(None), auth
 
 # ------------------------- Tests / DPP -------------------------
 async def _build_test(test_id: str, body: GenerateTestInput):
-    """Background task: sample ACTIVE questions from the bank, snapshot them, mark ready."""
+    """Background task: sample ACTIVE questions from the bank or snapshot selected IDs, mark ready."""
     try:
-        questions = await _sample_bank_questions(body.class_level, body.subject, body.chapter,
-                                                 body.topic or "", body.question_count, kind=body.kind)
+        if body.question_ids and len(body.question_ids) > 0:
+            docs = await db.question_bank.find(
+                {"id": {"$in": body.question_ids}, "status": "active"},
+                {"_id": 0}
+            ).to_list(1000)
+            docs_by_id = {d["id"]: d for d in docs}
+            ordered = [docs_by_id[qid] for qid in body.question_ids if qid in docs_by_id]
+            if not ordered:
+                raise ValueError("Selected questions are no longer available in the question bank")
+
+            def _format_q(x):
+                topics_val = x.get("topics")
+                if not topics_val:
+                    topics_val = [x.get("topic")] if x.get("topic") else []
+                return {
+                    "id": x.get("id"),
+                    "question": x["question"],
+                    "options": x["options"],
+                    "correct_index": x["correct_index"],
+                    "explanation": x.get("explanation", ""),
+                    "subject": x.get("subject", ""),
+                    "chapter": x.get("chapter", ""),
+                    "topic": x.get("topic", ""),
+                    "topics": topics_val,
+                    "difficulty": x.get("difficulty", "medium"),
+                    "question_type": x.get("question_type", "single_choice"),
+                    "marks": x.get("marks", 1.0),
+                    "negative_marks": x.get("negative_marks", 0.0),
+                    "hint": x.get("hint", ""),
+                    "tags": x.get("tags", [])
+                }
+            questions = [_format_q(x) for x in ordered]
+            # Intermix questions across chapters for multi-chapter tests / class tests
+            if (body.chapters and len(body.chapters) > 1) or (not body.kind or body.kind == "test"):
+                random.shuffle(questions)
+        else:
+            questions = await _sample_bank_questions(body.class_level, body.subject, body.chapter or "",
+                                                     body.topic or "", body.question_count, kind=body.kind,
+                                                     chapters=body.chapters)
         if not questions:
             raise ValueError("No active questions available for this selection")
+        # Ensure questions are shuffled across chapters
+        if (body.chapters and len(body.chapters) > 1) or (not body.kind or body.kind == "test"):
+            random.shuffle(questions)
         await db.tests.update_one({"id": test_id}, {"$set": {
             "questions": questions, "status": "ready", "question_count": len(questions)}})
     except Exception as e:
@@ -1736,17 +1777,42 @@ async def _build_test(test_id: str, body: GenerateTestInput):
 
 @api_router.post("/tests")
 async def create_test(body: GenerateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
-    if body.question_count < 1:
-        raise HTTPException(status_code=400, detail="question_count must be at least 1")
+    if body.question_ids and len(body.question_ids) > 0:
+        count = len(body.question_ids)
+    else:
+        if body.question_count < 1:
+            raise HTTPException(status_code=400, detail="question_count must be at least 1")
+        count = body.question_count
     now = datetime.now(timezone.utc)
     valid_from = now  # MVP: tests go live immediately (activate_now is a no-op)
+    chap_name = body.chapter or ""
+    active_chaps = body.chapters or ([chap_name] if chap_name else [])
+    if active_chaps and not chap_name:
+        chap_name = ", ".join(active_chaps)
+    batch_val = body.batch_id
+    if batch_val in ("all", ""):
+        batch_val = None if body.kind == "dpp" else "all"
+
+    batch_name = None
+    if batch_val and batch_val != "all":
+        b_doc = await db.batches.find_one({"id": batch_val}, {"name": 1})
+        if b_doc:
+            batch_name = b_doc.get("name")
+    elif batch_val == "all":
+        batch_name = "All Students"
+    elif not batch_val:
+        batch_name = "Saved / Unassigned" if body.kind == "test" else None
+
+    is_act = body.is_active if body.is_active is not None else body.activate_now
+
     doc = {"id": str(uuid.uuid4()), "title": body.title, "kind": body.kind,
-           "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
-           "topic": body.topic or "", "batch_id": body.batch_id,
+           "class_level": body.class_level, "subject": body.subject, "chapter": chap_name,
+           "chapters": active_chaps,
+           "topic": body.topic or "", "batch_id": batch_val, "batch_name": batch_name,
            "duration_minutes": body.duration_minutes, "valid_hours": body.valid_hours,
            "valid_from": valid_from.isoformat(),
            "valid_until": (valid_from + timedelta(hours=body.valid_hours)).isoformat(),
-           "questions": [], "status": "processing", "question_count": 0,
+           "questions": [], "status": "processing", "is_active": is_act, "question_count": count,
            "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": now.isoformat()}
     await db.tests.insert_one(doc)
@@ -1772,45 +1838,77 @@ def _option_seed(test_id: str, student_id: str, q_index: int) -> int:
 
 
 async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
-                                 topic: str, count: int, kind: str = "test") -> list:
+                                 topic: str, count: int, kind: str = "test",
+                                 chapters: Optional[List[str]] = None) -> list:
+    def _format_q(x):
+        topics_val = x.get("topics")
+        if not topics_val:
+            topics_val = [x.get("topic")] if x.get("topic") else []
+        return {
+            "question": x["question"],
+            "options": x["options"],
+            "correct_index": x["correct_index"],
+            "explanation": x.get("explanation", ""),
+            "subject": x.get("subject", ""),
+            "chapter": x.get("chapter", ""),
+            "topic": x.get("topic", ""),
+            "topics": topics_val,
+            "difficulty": x.get("difficulty", "medium"),
+            "question_type": x.get("question_type", "single_choice"),
+            "marks": x.get("marks", 1.0),
+            "negative_marks": x.get("negative_marks", 0.0),
+            "hint": x.get("hint", ""),
+            "tags": x.get("tags", [])
+        }
+
+    active_chapters = [c for c in (chapters or ([chapter] if chapter else [])) if c]
+
     if kind == "dpp":
-        # Chapterwise test: return all questions for the chapter, sorted topicwise
+        # Chapterwise test: return questions for the chapter, sorted topicwise
         q = {"class_level": class_level, "status": "active"}
         if subject:
             q["subject"] = subject
-        if chapter:
-            q["chapter"] = chapter
+        if len(active_chapters) == 1:
+            q["chapter"] = active_chapters[0]
+        elif len(active_chapters) > 1:
+            q["chapter"] = {"$in": active_chapters}
         if topic:
-            q["topic"] = topic
+            q["$or"] = [{"topic": topic}, {"topics": topic}]
         chapter_questions = await db.question_bank.find(q, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
         if not chapter_questions and topic:
             q_no_topic = {"class_level": class_level, "status": "active"}
             if subject:
                 q_no_topic["subject"] = subject
-            if chapter:
-                q_no_topic["chapter"] = chapter
+            if len(active_chapters) == 1:
+                q_no_topic["chapter"] = active_chapters[0]
+            elif len(active_chapters) > 1:
+                q_no_topic["chapter"] = {"$in": active_chapters}
             chapter_questions = await db.question_bank.find(q_no_topic, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
         if chapter_questions:
-            return [{"question": x["question"], "options": x["options"],
-                     "correct_index": x["correct_index"], "explanation": x.get("explanation", ""),
-                     "subject": x.get("subject", ""), "chapter": x.get("chapter", ""),
-                     "topic": x.get("topic", ""), "difficulty": x.get("difficulty", "medium")}
-                    for x in chapter_questions]
+            if count and count > 0 and len(chapter_questions) > count:
+                chapter_questions = chapter_questions[:count]
+            if len(active_chapters) > 1:
+                random.shuffle(chapter_questions)
+            return [_format_q(x) for x in chapter_questions]
 
     q = {"class_level": class_level, "status": "active"}
     if subject:
         q["subject"] = subject
-    if chapter:
-        q["chapter"] = chapter
+    if len(active_chapters) == 1:
+        q["chapter"] = active_chapters[0]
+    elif len(active_chapters) > 1:
+        q["chapter"] = {"$in": active_chapters}
     if topic:
-        q["topic"] = topic
+        q["$or"] = [{"topic": topic}, {"topics": topic}]
     pool = await db.question_bank.find(q, {"_id": 0}).to_list(1000)
     if not pool and topic:
         q_no_topic = {"class_level": class_level, "status": "active"}
         if subject:
             q_no_topic["subject"] = subject
-        if chapter:
-            q_no_topic["chapter"] = chapter
+        if len(active_chapters) == 1:
+            q_no_topic["chapter"] = active_chapters[0]
+        elif len(active_chapters) > 1:
+            q_no_topic["chapter"] = {"$in": active_chapters}
         pool = await db.question_bank.find(q_no_topic, {"_id": 0}).to_list(1000)
     if not pool and chapter:
         q_subject = {"class_level": class_level, "status": "active"}
@@ -1839,11 +1937,7 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
         rest = [x for x in pool if x["id"] not in picked_ids]
         picked.extend(random.sample(rest, min(n - len(picked), len(rest))))
     random.shuffle(picked)
-    return [{"question": x["question"], "options": x["options"],
-             "correct_index": x["correct_index"], "explanation": x.get("explanation", ""),
-             "subject": x.get("subject", ""), "chapter": x.get("chapter", ""),
-             "topic": x.get("topic", ""), "difficulty": x.get("difficulty", "medium")}
-            for x in picked]
+    return [_format_q(x) for x in picked]
 
 
 def _strip_answers(test: dict, student_id: str) -> dict:
@@ -1851,11 +1945,26 @@ def _strip_answers(test: dict, student_id: str) -> dict:
     questions = t.get("questions", [])
     t["question_count"] = len(questions)
     out = []
+    is_dpp = t.get("kind") == "dpp"
     for i, q in enumerate(questions):
         order = _shuffled_order(_option_seed(t["id"], student_id, i))
-        out.append({"question": q["question"], "options": [q["options"][j] for j in order]})
+        out.append({
+            "question": q["question"],
+            "options": [q["options"][j] for j in order],
+            "subject": q.get("subject", ""),
+            "chapter": q.get("chapter", ""),
+            "topic": q.get("topic", ""),
+            "topics": q.get("topics", []),
+            "difficulty": q.get("difficulty", "medium"),
+            "question_type": q.get("question_type", "single_choice"),
+            "marks": q.get("marks", 1.0),
+            "negative_marks": q.get("negative_marks", 0.0),
+            "hint": q.get("hint", "") if is_dpp else "",
+            "tags": q.get("tags", [])
+        })
     t["questions"] = out
     return t
+
 
 
 @api_router.get("/tests")
@@ -1866,14 +1975,24 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
     if user["role"] == "teacher":
         q["teacher_id"] = user["id"]
         tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
+        for t in tests:
+            t["is_active"] = t.get("is_active", True) is not False
         return tests
     if user["role"] == "student":
         q["status"] = "ready"
         if kind == "diagnostic":
             q["student_id"] = user["id"]
-        elif kind != "dpp":
+        elif kind == "dpp":
+            user_batches = user.get("batch_ids", [])
+            q["$or"] = [
+                {"batch_id": None},
+                {"batch_id": ""},
+                {"batch_id": "all"},
+                {"batch_id": {"$in": user_batches}}
+            ]
+        else:
             q["batch_id"] = {"$in": user.get("batch_ids", [])}
-    tests = await db.tests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
     subs_by_test = {}
     if tests:
@@ -1892,14 +2011,47 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         vf = datetime.fromisoformat(t["valid_from"])
         sub = subs_by_test.get(t["id"])
         is_ready = t.get("status") == "ready"
+        manually_active = t.get("is_active", True) is not False
+        q_count = t.get("question_count")
+        if q_count is None:
+            q_count = len(t.get("questions", []))
         out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
                     "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
-                    "duration_minutes": t["duration_minutes"], "question_count": len(t.get("questions", [])),
+                    "duration_minutes": t.get("duration_minutes", 0), "question_count": q_count,
                     "valid_from": t["valid_from"], "valid_until": t["valid_until"],
-                    "is_active": is_ready and ((t["kind"] == "dpp") or (vf <= now <= vu)),
+                    "is_active": is_ready and manually_active and ((t["kind"] == "dpp") or (vf <= now <= vu)),
                     "submitted": bool(sub), "score": sub.get("score") if sub else None,
-                    "status": t.get("status")})
+                    "status": t.get("status"), "batch_id": t.get("batch_id"),
+                    "batch_name": t.get("batch_name")})
     return out
+
+
+@api_router.get("/tests/live")
+async def list_live_tests(user: dict = Depends(get_current_user)):
+    """Return all currently-active tests for the teacher (used by the Live Tests dashboard drawer)."""
+    if user["role"] not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="Teachers only")
+    q = {"is_active": {"$ne": False}, "status": "ready"}
+    if user["role"] == "teacher":
+        q["teacher_id"] = user["id"]
+    tests = await db.tests.find(
+        q,
+        {"_id": 0, "id": 1, "title": 1, "kind": 1, "class_level": 1,
+         "chapter": 1, "topic": 1, "subject": 1, "batch_id": 1, "batch_name": 1,
+         "duration_minutes": 1, "question_count": 1, "valid_from": 1, "valid_until": 1,
+         "is_active": 1, "created_at": 1}
+    ).sort("created_at", -1).to_list(200)
+    now = datetime.now(timezone.utc)
+    result = []
+    for t in tests:
+        if t.get("kind") == "test":
+            vf = datetime.fromisoformat(t["valid_from"])
+            vu = datetime.fromisoformat(t["valid_until"])
+            if not (vf <= now <= vu):
+                continue  # time-windowed tests: only include if window is open
+        t["is_active"] = t.get("is_active", True) is not False
+        result.append(t)
+    return result
 
 
 @api_router.get("/tests/{test_id}")
@@ -1908,6 +2060,8 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
     if not test:
         raise HTTPException(status_code=404, detail="Not found")
     if user["role"] == "student":
+        if test.get("is_active", True) is False:
+            raise HTTPException(status_code=403, detail="This test is currently inactive or closed by your teacher.")
         if test["kind"] == "test":
             if test.get("status") != "ready":
                 raise HTTPException(status_code=403, detail="This test is still building or has failed.")
@@ -1927,6 +2081,8 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
     test = await db.tests.find_one({"id": test_id}, {"_id": 0})
     if not test:
         raise HTTPException(status_code=404, detail="Not found")
+    if test.get("is_active", True) is False:
+        raise HTTPException(status_code=403, detail="This test is currently inactive or closed by your teacher.")
     if test["kind"] == "test" and await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
         raise HTTPException(status_code=403, detail="Already submitted")
     questions = test["questions"]
@@ -1956,26 +2112,48 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
             correct += 1
         review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
                        "correct_index": correct_display, "explanation": q.get("explanation", ""),
-                       "is_correct": is_ok, "time_s": times[i]})
+                       "is_correct": is_ok, "time_s": times[i],
+                       "topic": q.get("topic", test.get("topic", "")),
+                       "topics": q.get("topics", []),
+                       "difficulty": q.get("difficulty", "medium"),
+                       "marks": q.get("marks", 1.0),
+                       "negative_marks": q.get("negative_marks", 0.0),
+                       "hint": q.get("hint", "")})
         # Per-question result for the mastery engine.
         results.append({"q": i, "subject": q.get("subject", test.get("subject", "")),
                         "chapter": q.get("chapter", test.get("chapter", "")),
                         "topic": q.get("topic", test.get("topic", "")),
+                        "topics": q.get("topics", []),
                         "difficulty": q.get("difficulty", "medium"),
                         "is_correct": is_ok, "time_s": times[i]})
 
     score = round(correct / total * 100) if total else 0
     status = "flagged" if tab_switches >= 3 else "submitted"
+
+    # Compute chapter topic breakdown
+    topic_summary_map = {}
+    for r in results:
+        t_name = r.get("topic") or "General"
+        if t_name not in topic_summary_map:
+            topic_summary_map[t_name] = {"topic": t_name, "total": 0, "correct": 0}
+        topic_summary_map[t_name]["total"] += 1
+        if r.get("is_correct"):
+            topic_summary_map[t_name]["correct"] += 1
+    for t_data in topic_summary_map.values():
+        t_data["accuracy"] = round((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
+    topic_summary = list(topic_summary_map.values())
+
     sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
            "student_id": user["id"], "student_name": user["name"],
            "batch_id": test.get("batch_id"),
            "answers": answers, "times": times, "tab_switches": tab_switches,
-           "results": results,
+           "results": results, "topic_summary": topic_summary,
            "score": score, "correct": correct, "total": total, "status": status,
            "created_at": datetime.now(timezone.utc).isoformat()}
     # Tests store a single attempt; DPPs store every attempt for repeat history.
     await db.submissions.insert_one(dict(sub))
-    return {"score": score, "correct": correct, "total": total, "review": review, "status": status}
+    return {"score": score, "correct": correct, "total": total, "review": review,
+            "status": status, "topic_summary": topic_summary}
 
 
 @api_router.get("/tests/{test_id}/leaderboard")
@@ -2033,6 +2211,67 @@ async def update_test(test_id: str, body: UpdateTestInput, user: dict = Depends(
     return updated
 
 
+class DuplicateTestInput(BaseModel):
+    title: Optional[str] = None
+    batch_id: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    valid_hours: Optional[int] = None
+
+
+@api_router.post("/tests/{test_id}/duplicate")
+async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
+    orig = await db.tests.find_one({"id": test_id})
+    if not orig:
+        raise HTTPException(status_code=404, detail="Original test not found")
+    if user["role"] != "admin" and orig.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    now = datetime.now(timezone.utc)
+    batch_val = body.batch_id if body.batch_id is not None else orig.get("batch_id")
+    if batch_val in ("all", ""):
+        batch_val = None if orig.get("kind") == "dpp" else "all"
+
+    batch_name = None
+    if batch_val and batch_val != "all":
+        b_doc = await db.batches.find_one({"id": batch_val}, {"name": 1})
+        if b_doc:
+            batch_name = b_doc.get("name")
+    elif batch_val == "all":
+        batch_name = "All Students"
+
+    dur = body.duration_minutes if body.duration_minutes is not None else orig.get("duration_minutes", 0)
+    v_hours = body.valid_hours if body.valid_hours is not None else orig.get("valid_hours", 24)
+    new_title = body.title.strip() if body.title and body.title.strip() else f"{orig['title']} ({batch_name or 'Copy'})"
+
+    new_test_id = str(uuid.uuid4())
+    doc = {
+        "id": new_test_id,
+        "title": new_title,
+        "kind": orig.get("kind", "test"),
+        "class_level": orig.get("class_level"),
+        "subject": orig.get("subject"),
+        "chapter": orig.get("chapter"),
+        "chapters": orig.get("chapters", []),
+        "topic": orig.get("topic", ""),
+        "batch_id": batch_val,
+        "batch_name": batch_name,
+        "duration_minutes": dur,
+        "valid_hours": v_hours,
+        "valid_from": now.isoformat(),
+        "valid_until": (now + timedelta(hours=v_hours)).isoformat(),
+        "questions": orig.get("questions", []),
+        "status": "ready",
+        "is_active": True,
+        "question_count": len(orig.get("questions", [])),
+        "teacher_id": user["id"],
+        "teacher_name": user["name"],
+        "created_at": now.isoformat(),
+        "duplicated_from": test_id
+    }
+    await db.tests.insert_one(doc)
+    return {"id": new_test_id, "status": "ready", "title": new_title, "batch_name": batch_name}
+
+
 DIFFICULTIES = ("easy", "medium", "hard")
 _VALID_STATUSES = ("active", "pending_review", "inactive")
 
@@ -2044,16 +2283,48 @@ def _normalize_class(value: str) -> str:
     return m.group(1) if m else v
 
 
-def _normalize_correct_option(value: str) -> Optional[int]:
-    """'Option B' / 'B' -> 1; also accepts numeric '1'-'4' -> 0-3."""
-    v = (value or "").strip().upper()
-    m = re.search(r"([A-D])", v)
+def _normalize_correct_answer(value: Any, options: Optional[List[str]] = None) -> Optional[int]:
+    """Accepts:
+    - int 0..len(options)-1 (or 1..len(options) if 1-based)
+    - str letters 'A'..'D' or 'Option A'
+    - numeric str '1'..'4'
+    - exact option text match in options
+    """
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        if options and 0 <= value < len(options):
+            return value
+        if not options and 0 <= value <= 10:
+            return value
+    v = str(value).strip()
+    if not v:
+        return None
+    if options:
+        for idx, opt in enumerate(options):
+            if opt.strip().lower() == v.lower():
+                return idx
+    m = re.search(r"option\s*([a-d])", v, re.IGNORECASE)
     if m:
-        return ord(m.group(1)) - ord("A")
-    m = re.search(r"([1-4])", v)
-    if m:
-        return int(m.group(1)) - 1
+        return ord(m.group(1).upper()) - ord("A")
+    if re.fullmatch(r"[A-Da-d]", v):
+        return ord(v.upper()) - ord("A")
+    if v.isdigit():
+        num = int(v)
+        if options:
+            if num == 0:
+                return 0
+            if 1 <= num <= len(options):
+                return num - 1
+            if 0 <= num < len(options):
+                return num
+        else:
+            return num
     return None
+
+
+def _normalize_correct_option(value: str) -> Optional[int]:
+    return _normalize_correct_answer(value)
 
 
 def _normalize_difficulty(value: str) -> str:
@@ -2077,7 +2348,147 @@ def _flag_explanation_mismatch(explanation: str, correct_index: int) -> bool:
     return False
 
 
+async def _ingest_questions_list(
+    raw_questions: List[dict],
+    default_meta: dict,
+    user_id: str,
+    source: str = "json_import",
+    is_csv: bool = False,
+    row_offset: int = 1
+) -> dict:
+    imported = duplicates = flagged = 0
+    errors = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    for i, raw in enumerate(raw_questions):
+        raw_id = raw.get("ID") or raw.get("id") or raw.get("source_id") or ""
+        src_id = str(raw_id).strip() if raw_id else str(i + 1)
+        question = (raw.get("Question") or raw.get("question") or "").strip()
+
+        opts = raw.get("options")
+        if isinstance(opts, list):
+            options = [str(o).strip() for o in opts if str(o).strip()]
+        else:
+            options = [(raw.get("Option A") or raw.get("option_a") or "").strip(),
+                       (raw.get("Option B") or raw.get("option_b") or "").strip(),
+                       (raw.get("Option C") or raw.get("option_c") or "").strip(),
+                       (raw.get("Option D") or raw.get("option_d") or "").strip()]
+
+        raw_correct = (raw.get("Correct Option")
+                       if raw.get("Correct Option") is not None
+                       else (raw.get("correct_answer")
+                             if raw.get("correct_answer") is not None
+                             else raw.get("correct_index")))
+        correct_index = _normalize_correct_answer(raw_correct, options)
+
+        class_level = _normalize_class(raw.get("Class") or raw.get("class_level") or default_meta.get("class_level") or "")
+        subject = (raw.get("Subject") or raw.get("subject") or default_meta.get("subject") or "").strip()
+        chapter = (raw.get("Chapter") or raw.get("chapter") or default_meta.get("chapter") or "").strip()
+
+        raw_topics = raw.get("topics") or default_meta.get("topics") or []
+        if isinstance(raw_topics, str):
+            raw_topics = [t.strip() for t in raw_topics.split(",") if t.strip()]
+        topic = (raw.get("Topic") or raw.get("topic") or default_meta.get("topic") or "").strip()
+        topics_list = [str(t).strip() for t in raw_topics if str(t).strip()]
+        if topic and topic not in topics_list:
+            topics_list.insert(0, topic)
+
+        # Canonical topic alignment against NCERT syllabus
+        canonical_pool = get_canonical_topics(class_level, subject, chapter)
+        if canonical_pool:
+            canonical_lookup = {c.lower().strip(): c for c in canonical_pool}
+            aligned_topics = []
+            for t in topics_list:
+                cleaned = str(t).strip()
+                if cleaned.lower() in canonical_lookup:
+                    aligned_topics.append(canonical_lookup[cleaned.lower()])
+                else:
+                    matched = False
+                    for c_low, c_orig in canonical_lookup.items():
+                        if cleaned.lower() in c_low or c_low in cleaned.lower():
+                            aligned_topics.append(c_orig)
+                            matched = True
+                            break
+                    if not matched:
+                        aligned_topics.append(cleaned)
+            topics_list = aligned_topics
+
+        if topic and canonical_pool:
+            if topic.lower().strip() in canonical_lookup:
+                topic = canonical_lookup[topic.lower().strip()]
+            elif topics_list:
+                topic = topics_list[0]
+        elif not topic and topics_list:
+            topic = topics_list[0]
+
+        explanation = (raw.get("Explanation") or raw.get("explanation") or "").strip()
+        difficulty = _normalize_difficulty(raw.get("Difficulty") or raw.get("difficulty") or "")
+        question_type = (raw.get("question_type") or "single_choice").strip().lower()
+
+        try:
+            marks = float(raw.get("marks", 1.0) or 1.0)
+        except Exception:
+            marks = 1.0
+
+        try:
+            negative_marks = float(raw.get("negative_marks", 0.0) or 0.0)
+        except Exception:
+            negative_marks = 0.0
+
+        hint = (raw.get("hint") or "").strip()
+        raw_tags = raw.get("tags") or []
+        if isinstance(raw_tags, str):
+            raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+
+        status = raw.get("status") or default_meta.get("status") or "active"
+        if status not in _VALID_STATUSES:
+            status = "active"
+
+        problems = []
+        if not question:
+            problems.append("empty question")
+        if any(not o for o in options) or len(options) < 2:
+            problems.append("missing option text")
+        if correct_index is None:
+            problems.append("invalid 'Correct Option'" if is_csv else "invalid correct answer")
+        if not class_level:
+            problems.append("missing class")
+        if not subject:
+            problems.append("missing subject")
+        if not chapter:
+            problems.append("missing chapter")
+
+        if problems:
+            errors.append({"row": i + row_offset, "source_id": src_id, "problems": problems})
+            continue
+
+        doc = {"id": str(uuid.uuid4()), "class_level": class_level, "subject": subject,
+               "chapter": chapter, "topic": topic, "topics": topics_list,
+               "question": question, "options": options,
+               "correct_index": correct_index, "explanation": explanation, "difficulty": difficulty,
+               "question_type": question_type, "marks": marks, "negative_marks": negative_marks,
+               "hint": hint, "tags": tags,
+               "status": status, "source": source, "source_id": src_id,
+               "dedup_key": _dedup_key(question), "created_by": user_id, "created_at": now}
+
+        if _flag_explanation_mismatch(explanation, correct_index):
+            doc["status"] = "pending_review"
+            doc["flags"] = ["explanation_option_mismatch"]
+            flagged += 1
+
+        try:
+            await db.question_bank.insert_one(doc)
+            imported += 1
+        except DuplicateKeyError:
+            duplicates += 1
+
+    return {"imported": imported, "duplicates": duplicates, "flagged": flagged,
+            "errors": errors, "total_rows": len(raw_questions)}
+
+
 @api_router.post("/questions/import")
+@api_router.post("/questions/import-csv")
 async def import_questions(
     file: UploadFile = File(...),
     status: str = Form("active"),
@@ -2090,6 +2501,31 @@ async def import_questions(
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="File is not valid UTF-8 text")
+
+    filename = (file.filename or "").lower()
+    if filename.endswith(".json"):
+        try:
+            data = json.loads(text)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"JSON parse error: {e}")
+        if isinstance(data, list):
+            q_list = data
+            meta = {"status": status}
+        elif isinstance(data, dict):
+            q_list = data.get("questions") or []
+            meta = {
+                "class_level": data.get("class_level"),
+                "subject": data.get("subject"),
+                "chapter": data.get("chapter"),
+                "topics": data.get("topics") or ([data.get("topic")] if data.get("topic") else []),
+                "status": data.get("status") or status
+            }
+        else:
+            raise HTTPException(status_code=400, detail="JSON must be an array of questions or an object with 'questions'")
+        if not q_list:
+            raise HTTPException(status_code=400, detail="JSON contains no questions")
+        return await _ingest_questions_list(q_list, meta, user["id"], source="json_import", is_csv=False, row_offset=1)
+
     try:
         rows = list(csv.DictReader(io.StringIO(text)))
     except Exception as e:
@@ -2097,63 +2533,96 @@ async def import_questions(
     if not rows:
         raise HTTPException(status_code=400, detail="CSV contains no data rows")
 
-    imported = duplicates = flagged = 0
-    errors = []
-    now = datetime.now(timezone.utc).isoformat()
-    for i, row in enumerate(rows):
-        src_id = (row.get("ID") or "").strip() or str(i + 1)
-        question = (row.get("Question") or "").strip()
-        options = [(row.get("Option A") or "").strip(),
-                   (row.get("Option B") or "").strip(),
-                   (row.get("Option C") or "").strip(),
-                   (row.get("Option D") or "").strip()]
-        correct_index = _normalize_correct_option(row.get("Correct Option") or "")
-        class_level = _normalize_class(row.get("Class") or "")
-        subject = (row.get("Subject") or "").strip()
-        chapter = (row.get("Chapter") or "").strip()
-        topic = (row.get("Topic") or "").strip()
-        explanation = (row.get("Explanation") or "").strip()
-        difficulty = _normalize_difficulty(row.get("Difficulty") or "")
+    return await _ingest_questions_list(rows, {"status": status}, user["id"], source="import", is_csv=True, row_offset=2)
 
-        problems = []
-        if not question:
-            problems.append("empty question")
-        if any(not o for o in options):
-            problems.append("missing option text")
-        if correct_index is None:
-            problems.append("invalid 'Correct Option'")
-        if not class_level:
-            problems.append("missing class")
-        if not subject:
-            problems.append("missing subject")
-        if not chapter:
-            problems.append("missing chapter")
-        if problems:
-            errors.append({"row": i + 2, "source_id": src_id, "problems": problems})
+
+@api_router.post("/questions/import-json")
+async def import_questions_json(
+    body: Union[QuestionBatchImportInput, List[QuestionInput], dict],
+    user: dict = Depends(require_role("teacher", "admin")),
+):
+    """Accepts JSON questions either as QuestionBatchImportInput object or list of questions."""
+    if isinstance(body, QuestionBatchImportInput):
+        q_list = [q.dict() for q in body.questions]
+        meta = {
+            "class_level": body.class_level,
+            "subject": body.subject,
+            "chapter": body.chapter,
+            "topics": body.topics or ([body.topic] if body.topic else []),
+            "status": body.status or "active"
+        }
+    elif isinstance(body, list):
+        q_list = [q.dict() if hasattr(q, "dict") else q for q in body]
+        meta = {"status": "active"}
+    elif isinstance(body, dict):
+        raw_list = body.get("questions") or []
+        q_list = [q.dict() if hasattr(q, "dict") else q for q in raw_list]
+        meta = {
+            "class_level": body.get("class_level"),
+            "subject": body.get("subject"),
+            "chapter": body.get("chapter"),
+            "topics": body.get("topics") or ([body.get("topic")] if body.get("topic") else []),
+            "status": body.get("status") or "active"
+        }
+    else:
+        raise HTTPException(status_code=400, detail="Invalid payload format")
+
+    if not q_list:
+        raise HTTPException(status_code=400, detail="No questions provided in payload")
+
+    return await _ingest_questions_list(q_list, meta, user["id"], source="json_import", is_csv=False, row_offset=1)
+
+
+@api_router.get("/questions/hierarchy")
+async def get_questions_hierarchy(user: dict = Depends(get_current_user)):
+    """Returns dynamic classes, subjects, chapters, and topics present in the active question bank."""
+    pipeline = [
+        {"$match": {"status": "active"}},
+        {"$group": {
+            "_id": {
+                "class_level": "$class_level",
+                "subject": "$subject",
+                "chapter": "$chapter"
+            },
+            "topics": {"$addToSet": "$topic"},
+            "topics_arr": {"$push": "$topics"},
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"_id.class_level": 1, "_id.subject": 1, "_id.chapter": 1}}
+    ]
+    cursor = db.question_bank.aggregate(pipeline)
+    hierarchy = {}
+    async for doc in cursor:
+        cl = doc["_id"].get("class_level")
+        subj = doc["_id"].get("subject")
+        chap = doc["_id"].get("chapter")
+        if not cl or not subj or not chap:
             continue
-
-        doc = {"id": str(uuid.uuid4()), "class_level": class_level, "subject": subject,
-               "chapter": chapter, "topic": topic, "question": question, "options": options,
-               "correct_index": correct_index, "explanation": explanation, "difficulty": difficulty,
-               "status": status, "source": "import", "source_id": src_id,
-               "dedup_key": _dedup_key(question), "created_by": user["id"], "created_at": now}
-        if _flag_explanation_mismatch(explanation, correct_index):
-            doc["status"] = "pending_review"
-            doc["flags"] = ["explanation_option_mismatch"]
-            flagged += 1
-        try:
-            await db.question_bank.insert_one(doc)
-            imported += 1
-        except DuplicateKeyError:
-            duplicates += 1
-
-    return {"imported": imported, "duplicates": duplicates, "flagged": flagged,
-            "errors": errors, "total_rows": len(rows)}
+        all_topics = set()
+        for t in doc.get("topics", []):
+            if t:
+                all_topics.add(t)
+        for t_list in doc.get("topics_arr", []):
+            if isinstance(t_list, list):
+                for t in t_list:
+                    if t:
+                        all_topics.add(t)
+        if cl not in hierarchy:
+            hierarchy[cl] = {}
+        if subj not in hierarchy[cl]:
+            hierarchy[cl][subj] = []
+        hierarchy[cl][subj].append({
+            "chapter": chap,
+            "topics": sorted(list(all_topics)),
+            "count": doc.get("count", 0)
+        })
+    return hierarchy
 
 
 @api_router.get("/questions")
 async def list_questions(class_level: Optional[str] = None, subject: Optional[str] = None,
                          chapter: Optional[str] = None, topic: Optional[str] = None,
+                         chapters: Optional[str] = None,
                          difficulty: Optional[str] = None, status: Optional[str] = None,
                          user: dict = Depends(require_role("teacher", "admin"))):
     q = {}
@@ -2161,16 +2630,23 @@ async def list_questions(class_level: Optional[str] = None, subject: Optional[st
         q["class_level"] = class_level
     if subject:
         q["subject"] = subject
-    if chapter:
+    if chapters:
+        chaps_list = [c.strip() for c in chapters.split(",") if c.strip()]
+        if len(chaps_list) == 1:
+            q["chapter"] = chaps_list[0]
+        elif len(chaps_list) > 1:
+            q["chapter"] = {"$in": chaps_list}
+    elif chapter:
         q["chapter"] = chapter
     if topic:
-        q["topic"] = topic
+        q["$or"] = [{"topic": topic}, {"topics": topic}]
     if difficulty:
         q["difficulty"] = difficulty
     if status:
         q["status"] = status
     items = await db.question_bank.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return items
+
 
 
 @api_router.delete("/questions/{question_id}")
@@ -2381,8 +2857,8 @@ async def stats(user: dict = Depends(get_current_user)):
         }
     q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
     return {"notes": await db.notes.count_documents(q),
-            "tests": await db.tests.count_documents({**q, "kind": "test"}),
-            "dpps": await db.tests.count_documents({**q, "kind": "dpp"}),
+            "tests": await db.tests.count_documents({**q, "kind": "test", "is_active": {"$ne": False}}),
+            "dpps": await db.tests.count_documents({**q, "kind": "dpp", "is_active": {"$ne": False}}),
             "batches": await db.batches.count_documents(q if user["role"] == "admin" else {"teacher_id": user["id"]}),
             "students": await db.users.count_documents({"role": "student"})}
 
@@ -2528,6 +3004,30 @@ async def data_source_status(_: dict = Depends(require_claim_role("admin"))):
     )
 
 
+@api_router.get("/curriculum")
+async def get_curriculum():
+    """Returns the standardized CBSE NCERT curriculum taxonomy."""
+    return CURRICULUM
+
+
+@api_router.get("/curriculum/prompt")
+async def get_curriculum_prompt(
+    class_level: str = Query(...),
+    subject: str = Query(...),
+    chapter: str = Query(...)
+):
+    """Generates a prompt with approved topics to give to Gemini."""
+    prompt = generate_gemini_prompt(class_level, subject, chapter)
+    topics = get_canonical_topics(class_level, subject, chapter)
+    return {
+        "prompt": prompt,
+        "topics": topics,
+        "class_level": class_level,
+        "subject": subject,
+        "chapter": chapter
+    }
+
+
 app.include_router(api_router)
 _cors_origins = (os.environ.get('CORS_ORIGINS') or "http://localhost:3000,http://127.0.0.1:3000").strip()
 app.add_middleware(CORSMiddleware, allow_credentials=True,
@@ -2536,26 +3036,21 @@ app.add_middleware(CORSMiddleware, allow_credentials=True,
 
 
 CATALOG = {
-    "9": {},
-    "10": {},
+    "9": {
+        "Maths": list(CURRICULUM["9"]["Maths"].keys()),
+        "Science": list(CURRICULUM["9"]["Science"].keys()),
+        "Social Science": ["The French Revolution", "Physical Features of India", "Democracy in the Contemporary World"],
+        "English": ["Prose - The Fun They Had", "Poetry - The Road Not Taken", "Grammar and Writing"],
+        "Hindi": ["गद्य - दो बैलों की कथा", "पद्य - सूरदास के पद", "व्याकरण"]
+    },
+    "10": {
+        "Maths": list(CURRICULUM["10"]["Maths"].keys()),
+        "Science": list(CURRICULUM["10"]["Science"].keys()),
+        "Social Science": ["The Rise of Nationalism in Europe", "Resources and Development", "Power Sharing"],
+        "English": ["A Letter to God", "Nelson Mandela", "Reading Comprehension"],
+        "Hindi": ["कबीर की साखियाँ", "पत्र लेखन", "व्याकरण"]
+    },
 }
-_SUBJECTS = {
-    "Science": ["Matter in Our Surroundings", "Atoms and Molecules", "The Fundamental Unit of Life",
-                "Motion", "Force and Laws of Motion", "Gravitation", "Tissues", "Life Processes",
-                "Chemical Reactions and Equations", "Light - Reflection and Refraction", "Electricity",
-                "Carbon and its Compounds", "Heredity and Evolution"],
-    "Maths": ["Number Systems", "Polynomials", "Coordinate Geometry", "Linear Equations", "Triangles",
-              "Circles", "Real Numbers", "Quadratic Equations", "Arithmetic Progressions",
-              "Trigonometry", "Statistics", "Probability"],
-    "Social Science": ["The French Revolution", "Physical Features of India", "Democracy in the Contemporary World",
-                       "The Rise of Nationalism in Europe", "Resources and Development", "Power Sharing",
-                       "Development", "Nationalism in India"],
-    "English": ["Prose - The Fun They Had", "Poetry - The Road Not Taken", "Grammar and Writing",
-                "A Letter to God", "Nelson Mandela", "Reading Comprehension"],
-    "Hindi": ["गद्य - दो बैलों की कथा", "पद्य - सूरदास के पद", "व्याकरण", "कबीर की साखियाँ", "पत्र लेखन"],
-}
-for cl in ("9", "10"):
-    CATALOG[cl] = {subj: chapters for subj, chapters in _SUBJECTS.items()}
 
 
 @app.on_event("startup")
@@ -2580,6 +3075,22 @@ async def startup():
         await db.question_bank.create_index([("class_level", 1), ("subject", 1), ("chapter", 1)])
     except Exception as e:
         logger.error(f"question_bank filter index: {e}")
+    try:
+        await db.tests.create_index("id", unique=True)
+    except Exception as e:
+        logger.error(f"tests id index: {e}")
+    try:
+        await db.tests.create_index([("teacher_id", 1), ("kind", 1), ("created_at", -1)])
+    except Exception as e:
+        logger.error(f"tests teacher index: {e}")
+    try:
+        await db.tests.create_index([("kind", 1), ("status", 1), ("created_at", -1)])
+    except Exception as e:
+        logger.error(f"tests kind status index: {e}")
+    try:
+        await db.tests.create_index([("batch_id", 1), ("status", 1)])
+    except Exception as e:
+        logger.error(f"tests batch index: {e}")
     try:
         # Deduplicate any duplicate (batch_id, student_id) in batch_fees before unique index
         pipeline = [

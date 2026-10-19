@@ -94,3 +94,51 @@ class TestBankDrivenTests:
             assert item["options"] == view["questions"][i]["options"]
             assert item["correct_index"] == view["questions"][i]["options"].index(
                 canon["questions"][i]["options"][canon["questions"][i]["correct_index"]])
+
+    def test_04_toggle_active_blocks_student(self):
+        sid = self.state["dpp_id"]
+        # Teacher deactivates
+        r = requests.patch(f"{API}/tests/{sid}", headers=self.state["th"], json={"is_active": False}, timeout=15)
+        assert r.status_code == 200
+        assert r.json().get("is_active") is False
+
+        # Student GET blocked
+        r_get = requests.get(f"{API}/tests/{sid}", headers=self.state["sh"], timeout=15)
+        assert r_get.status_code == 403
+
+        # Student Submit blocked
+        r_sub = requests.post(f"{API}/tests/{sid}/submit", headers=self.state["sh"], json={"answers": [0] * 5}, timeout=15)
+        assert r_sub.status_code == 403
+
+        # Teacher reactivates
+        r = requests.patch(f"{API}/tests/{sid}", headers=self.state["th"], json={"is_active": True}, timeout=15)
+        assert r.status_code == 200
+        assert r.json().get("is_active") is True
+
+        # Student GET succeeds
+        r_get = requests.get(f"{API}/tests/{sid}", headers=self.state["sh"], timeout=15)
+        assert r_get.status_code == 200
+
+    def test_05_duplicate_test(self):
+        sid = self.state["dpp_id"]
+        orig = requests.get(f"{API}/tests/{sid}", headers=self.state["th"], timeout=15).json()
+
+        # Duplicate
+        dup_title = f"Duplicated {self.state['tag']}"
+        r = requests.post(f"{API}/tests/{sid}/duplicate", headers=self.state["th"],
+                          json={"title": dup_title, "valid_hours": 48}, timeout=15)
+        assert r.status_code == 200, r.text
+        dup_data = r.json()
+        assert dup_data["status"] == "ready"
+        assert dup_data["title"] == dup_title
+        new_id = dup_data["id"]
+
+        # Verify duplicated test
+        new_test = requests.get(f"{API}/tests/{new_id}", headers=self.state["th"], timeout=15).json()
+        assert new_test["question_count"] == orig["question_count"]
+        assert len(new_test["questions"]) == len(orig["questions"])
+        assert new_test["is_active"] is True
+
+        # Cleanup duplicated test
+        requests.delete(f"{API}/tests/{new_id}", headers=self.state["th"], timeout=15)
+
