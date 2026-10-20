@@ -1803,16 +1803,21 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
     elif not batch_val:
         batch_name = "Saved / Unassigned" if body.kind == "test" else None
 
-    is_act = body.is_active if body.is_active is not None else body.activate_now
+    is_draft = body.is_draft if body.is_draft is not None else (body.is_active is False or not body.activate_now)
+    is_act = False if is_draft else (body.is_active if body.is_active is not None else body.activate_now)
+
+    valid_from_val = None if is_draft else valid_from.isoformat()
+    valid_until_val = None if is_draft else (valid_from + timedelta(hours=body.valid_hours)).isoformat()
 
     doc = {"id": str(uuid.uuid4()), "title": body.title, "kind": body.kind,
            "class_level": body.class_level, "subject": body.subject, "chapter": chap_name,
            "chapters": active_chaps,
            "topic": body.topic or "", "batch_id": batch_val, "batch_name": batch_name,
            "duration_minutes": body.duration_minutes, "valid_hours": body.valid_hours,
-           "valid_from": valid_from.isoformat(),
-           "valid_until": (valid_from + timedelta(hours=body.valid_hours)).isoformat(),
-           "questions": [], "status": "processing", "is_active": is_act, "question_count": count,
+           "valid_from": valid_from_val,
+           "valid_until": valid_until_val,
+           "questions": [], "status": "processing", "is_active": is_act, "is_draft": is_draft,
+           "question_count": count,
            "teacher_id": user["id"], "teacher_name": user["name"],
            "created_at": now.isoformat()}
     await db.tests.insert_one(doc)
@@ -1977,6 +1982,8 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
         for t in tests:
             t["is_active"] = t.get("is_active", True) is not False
+            is_draft = bool(t.get("is_draft") or (t.get("is_active") is False and (not t.get("valid_until") or t.get("batch_name") == "Saved / Unassigned")))
+            t["is_draft"] = is_draft
         return tests
     if user["role"] == "student":
         q["status"] = "ready"
@@ -2007,8 +2014,17 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
                 subs_by_test[tid] = s  # Keep most recent submission
     out = []
     for t in tests:
-        vu = datetime.fromisoformat(t["valid_until"])
-        vf = datetime.fromisoformat(t["valid_from"])
+        is_draft = bool(t.get("is_draft") or not t.get("valid_until"))
+        if is_draft:
+            time_valid = False
+        else:
+            try:
+                vu = datetime.fromisoformat(t["valid_until"])
+                vf = datetime.fromisoformat(t["valid_from"]) if t.get("valid_from") else now - timedelta(days=1)
+                time_valid = (vf <= now <= vu)
+            except Exception:
+                time_valid = True
+
         sub = subs_by_test.get(t["id"])
         is_ready = t.get("status") == "ready"
         manually_active = t.get("is_active", True) is not False
@@ -2018,8 +2034,8 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
                     "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
                     "duration_minutes": t.get("duration_minutes", 0), "question_count": q_count,
-                    "valid_from": t["valid_from"], "valid_until": t["valid_until"],
-                    "is_active": is_ready and manually_active and ((t["kind"] == "dpp") or (vf <= now <= vu)),
+                    "valid_from": t.get("valid_from"), "valid_until": t.get("valid_until"),
+                    "is_active": is_ready and manually_active and time_valid,
                     "submitted": bool(sub), "score": sub.get("score") if sub else None,
                     "status": t.get("status"), "batch_id": t.get("batch_id"),
                     "batch_name": t.get("batch_name")})
@@ -2044,11 +2060,14 @@ async def list_live_tests(user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
     result = []
     for t in tests:
-        if t.get("kind") == "test":
-            vf = datetime.fromisoformat(t["valid_from"])
-            vu = datetime.fromisoformat(t["valid_until"])
-            if not (vf <= now <= vu):
-                continue  # time-windowed tests: only include if window is open
+        if t.get("valid_from") and t.get("valid_until"):
+            try:
+                vf = datetime.fromisoformat(t["valid_from"])
+                vu = datetime.fromisoformat(t["valid_until"])
+                if not (vf <= now <= vu):
+                    continue  # time-windowed: only include if window is open
+            except Exception:
+                pass
         t["is_active"] = t.get("is_active", True) is not False
         result.append(t)
     return result
@@ -2062,12 +2081,18 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
     if user["role"] == "student":
         if test.get("is_active", True) is False:
             raise HTTPException(status_code=403, detail="This test is currently inactive or closed by your teacher.")
+        if test.get("status") != "ready":
+            raise HTTPException(status_code=403, detail="This test is still building or has failed.")
+        now = datetime.now(timezone.utc)
+        if test.get("valid_from") and test.get("valid_until"):
+            try:
+                vf = datetime.fromisoformat(test["valid_from"])
+                vu = datetime.fromisoformat(test["valid_until"])
+                if not (vf <= now <= vu):
+                    raise HTTPException(status_code=403, detail="This test is not active right now")
+            except Exception:
+                pass
         if test["kind"] == "test":
-            if test.get("status") != "ready":
-                raise HTTPException(status_code=403, detail="This test is still building or has failed.")
-            now = datetime.now(timezone.utc)
-            if not (datetime.fromisoformat(test["valid_from"]) <= now <= datetime.fromisoformat(test["valid_until"])):
-                raise HTTPException(status_code=403, detail="This test is not active right now")
             if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
                 raise HTTPException(status_code=403, detail="Already submitted")
         if test["kind"] == "diagnostic" and test.get("student_id") != user["id"]:
@@ -2176,6 +2201,7 @@ class UpdateTestInput(BaseModel):
     title: Optional[str] = None
     valid_hours: Optional[int] = None  # extend / shrink window from now
     is_active: Optional[bool] = None   # manual toggle
+    is_draft: Optional[bool] = None
 
 
 @api_router.delete("/tests/{test_id}")
@@ -2199,12 +2225,51 @@ async def update_test(test_id: str, body: UpdateTestInput, user: dict = Depends(
     updates = {}
     if body.title is not None:
         updates["title"] = body.title
+    now = datetime.now(timezone.utc)
     if body.is_active is not None:
         updates["is_active"] = body.is_active
+        # If activating a draft test or activating when window is expired or missing:
+        is_test_draft = bool(
+            test.get("is_draft")
+            or not test.get("valid_until")
+            or test.get("batch_name") == "Saved / Unassigned"
+        )
+        if body.is_active is True:
+            needs_new_window = is_test_draft
+            if not needs_new_window and test.get("valid_until"):
+                try:
+                    if datetime.fromisoformat(test["valid_until"]) <= now:
+                        needs_new_window = True
+                except Exception:
+                    needs_new_window = True
+
+            if needs_new_window:
+                vh = body.valid_hours or test.get("valid_hours") or 24
+                updates["is_draft"] = False
+                updates["valid_from"] = now.isoformat()
+                updates["valid_until"] = (now + timedelta(hours=vh)).isoformat()
+                updates["valid_hours"] = vh
+    if body.is_draft is not None:
+        updates["is_draft"] = body.is_draft
+        if body.is_draft is True:
+            updates["is_active"] = False
+            updates["valid_from"] = None
+            updates["valid_until"] = None
     if body.valid_hours is not None:
-        valid_from = datetime.fromisoformat(test["valid_from"])
+        try:
+            old_vu = datetime.fromisoformat(test.get("valid_until", test.get("valid_from", now.isoformat())))
+            if old_vu <= now or test.get("is_draft") or not test.get("valid_until"):
+                valid_from = now
+                updates["valid_from"] = now.isoformat()
+            else:
+                valid_from = datetime.fromisoformat(test["valid_from"])
+        except Exception:
+            valid_from = now
+            updates["valid_from"] = now.isoformat()
         updates["valid_until"] = (valid_from + timedelta(hours=body.valid_hours)).isoformat()
         updates["valid_hours"] = body.valid_hours
+        updates["is_active"] = True  # Extending validity reactivates the test
+        updates["is_draft"] = False
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.tests.update_one({"id": test_id}, {"$set": updates})
     updated = await db.tests.find_one({"id": test_id}, {"_id": 0, "questions": 0})
@@ -2262,6 +2327,7 @@ async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = De
         "questions": orig.get("questions", []),
         "status": "ready",
         "is_active": True,
+        "is_draft": False,
         "question_count": len(orig.get("questions", [])),
         "teacher_id": user["id"],
         "teacher_name": user["name"],
@@ -2269,7 +2335,15 @@ async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = De
         "duplicated_from": test_id
     }
     await db.tests.insert_one(doc)
-    return {"id": new_test_id, "status": "ready", "title": new_title, "batch_name": batch_name}
+    return {
+        "id": new_test_id,
+        "status": "ready",
+        "title": new_title,
+        "batch_name": batch_name,
+        "is_active": True,
+        "is_draft": False,
+        "valid_until": doc["valid_until"],
+    }
 
 
 DIFFICULTIES = ("easy", "medium", "hard")

@@ -9,18 +9,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import {
   Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock,
   PlayCircle, Trophy, ChevronDown, Folder, Pencil, Trash2, Loader2, Users,
-  Copy,
+  Copy, Send,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
-function timeLeft(iso) {
-  const diff = new Date(iso) - new Date();
-  if (diff <= 0) return "expired";
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+function formatExpiry(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return `${datePart}, ${timePart}`;
 }
 
 function ChapterwiseSubmissions({ testId }) {
@@ -106,8 +107,12 @@ function Leaderboard({ testId }) {
 }
 
 function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse, onToggleActive, togglingActive }) {
-  const active = isTeacher ? true : t.is_active;
   const done = t.submitted;
+  const isDraft = Boolean(t.is_draft || (!t.valid_until && t.is_active === false) || (t.is_active === false && t.batch_name === "Saved / Unassigned"));
+  const isExpired = !isDraft && t.valid_until ? new Date(t.valid_until) <= new Date() : false;
+  const isTeacherLive = !isDraft && !isExpired && t.is_active !== false;
+  const isTeacherPaused = !isDraft && !isExpired && t.is_active === false;
+  const studentLive = !isTeacher && !isDraft && t.is_active && !isExpired;
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
       className="relative group rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 flex flex-col justify-between shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all">
@@ -145,31 +150,74 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-head font-bold uppercase tracking-wide px-3 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B]">{t.subject}</span>
             {isTeacher && (
-              <button
-                type="button"
-                data-testid={`toggle-active-${t.id}`}
-                onClick={() => onToggleActive(t)}
-                disabled={togglingActive === t.id}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-head font-bold border-2 transition-all cursor-pointer ${
-                  t.is_active !== false
-                    ? "bg-[#EAF7EE] text-[#2F8A5F] border-[#2F8A5F]/50 hover:bg-[#d5f0dd]"
-                    : "bg-[#F1F5F9] text-[#64748B] border-[#94A3B8]/60 hover:bg-[#E2E8F0]"
-                }`}
-                title="Click to toggle Active / Inactive"
-              >
-                {togglingActive === t.id ? (
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                ) : (
-                  <span className={`h-2 w-2 rounded-full ${t.is_active !== false ? "bg-[#2F8A5F] animate-pulse" : "bg-[#94A3B8]"}`} />
-                )}
-                {t.is_active !== false ? "Active" : "Inactive"}
-              </button>
+              isDraft ? (
+                <button
+                  type="button"
+                  data-testid={`assign-template-${t.id}`}
+                  onClick={() => onReuse(t)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-head font-bold border-2 transition-all bg-[#F3E8FF] text-[#7E22CE] border-[#7E22CE]/40 hover:bg-[#E9D5FF] cursor-pointer"
+                  title="Master Template. Click to assign to a batch as a live test."
+                >
+                  <span className="h-2 w-2 rounded-full bg-[#9333EA]" />
+                  Template
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid={`toggle-active-${t.id}`}
+                  onClick={() => onToggleActive(t)}
+                  disabled={togglingActive === t.id || isExpired}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-head font-bold border-2 transition-all ${
+                    isExpired
+                      ? "bg-[#F1F5F9] text-[#64748B] border-[#94A3B8]/60 cursor-not-allowed opacity-90"
+                      : isTeacherLive
+                      ? "bg-[#EAF7EE] text-[#2F8A5F] border-[#2F8A5F]/50 hover:bg-[#d5f0dd] cursor-pointer"
+                      : "bg-[#FFFBEB] text-[#B45309] border-[#F59E0B]/50 hover:bg-[#FEF3C7] cursor-pointer"
+                  }`}
+                  title={
+                    isExpired
+                      ? "Test window has expired. Click Edit (pencil icon) to extend."
+                      : isTeacherLive
+                      ? "Currently live for students. Click to pause."
+                      : "Currently paused. Click to make live."
+                  }
+                >
+                  {togglingActive === t.id ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  ) : (
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        isExpired
+                          ? "bg-[#94A3B8]"
+                          : isTeacherLive
+                          ? "bg-[#2F8A5F] animate-pulse"
+                          : "bg-[#F59E0B]"
+                      }`}
+                    />
+                  )}
+                  {isExpired ? "Expired" : isTeacherLive ? "Live" : "Paused"}
+                </button>
+              )
             )}
           </div>
-          {!isTeacher && (done
-            ? <span className="flex items-center gap-1 text-xs font-head font-bold text-[#4CAF7D]"><CheckCircle2 className="h-4 w-4" /> {t.score}%</span>
-            : active ? <span className="flex items-center gap-1 text-xs font-head font-bold text-[#5B9BD5]"><PlayCircle className="h-4 w-4" /> Live</span>
-            : <span className="flex items-center gap-1 text-xs font-head font-bold text-[#64748B]"><Lock className="h-3.5 w-3.5" /> Closed</span>)}
+          {!isTeacher && (done ? (
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-xs font-head font-bold text-[#64748B]">
+                <Lock className="h-3.5 w-3.5" /> Closed
+              </span>
+              <span className="flex items-center gap-1 text-xs font-head font-bold text-[#4CAF7D]">
+                <CheckCircle2 className="h-4 w-4" /> {t.score}%
+              </span>
+            </div>
+          ) : studentLive ? (
+            <span className="flex items-center gap-1.5 text-xs font-head font-bold text-[#2F8A5F] bg-[#EAF7EE] px-2.5 py-0.5 rounded-full border border-[#2F8A5F]/40">
+              <span className="h-2 w-2 rounded-full bg-[#2F8A5F] animate-pulse" /> Live
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs font-head font-bold text-[#64748B] bg-[#F1F5F9] px-2.5 py-0.5 rounded-full border border-[#94A3B8]/40">
+              <Lock className="h-3.5 w-3.5" /> Closed
+            </span>
+          ))}
         </div>
         <h3 className="font-head text-lg font-900 leading-snug text-[#1E293B]">{t.title}</h3>
         <div className="text-xs text-[#64748B] mt-1 font-bold">
@@ -183,9 +231,17 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
             <span className="flex items-center gap-1 text-[#64748B]"><Clock className="h-3.5 w-3.5 text-[#64748B]" /> Untimed</span>
           ) : null}
         </div>
-        {!isTeacher && !isDpp && active && !done && (
-          <div className="text-xs text-[#5B9BD5] font-bold mt-2 font-mono">{timeLeft(t.valid_until)}</div>
-        )}
+        {isDraft ? (
+          <div className="text-xs font-bold mt-2 font-mono flex items-center gap-1.5 text-[#7E22CE]">
+            <Clock className="h-3.5 w-3.5" />
+            <span>Master Template • Ready to assign</span>
+          </div>
+        ) : t.valid_until ? (
+          <div className={`text-xs font-bold mt-2 font-mono flex items-center gap-1.5 ${isExpired ? "text-[#64748B]" : "text-[#5B9BD5]"}`}>
+            <Clock className="h-3.5 w-3.5" />
+            <span>{isExpired ? "Expired:" : "Expires:"} {formatExpiry(t.valid_until)}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-5">
@@ -194,6 +250,19 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
             <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Building…</Button>
           ) : t.status === "failed" ? (
             <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#FF6B5E] border-2 border-[#1E293B]">Failed</Button>
+          ) : isDraft ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold shadow-[2px_2px_0_#1E293B] text-xs h-9">
+                <Link to={`/quiz/${t.id}`}>Preview</Link>
+              </Button>
+              <Button
+                data-testid={`assign-quiz-${t.id}`}
+                onClick={() => onReuse(t)}
+                className="rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 flex items-center justify-center gap-1.5"
+              >
+                <Send className="h-3.5 w-3.5" /> Assign to Batch
+              </Button>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               <Button data-testid={`view-quiz-${t.id}`} asChild variant="outline" className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold shadow-[2px_2px_0_#1E293B] text-xs h-9">
@@ -210,12 +279,12 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
           )
         ) : done ? (
           <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Completed</Button>
-        ) : active ? (
+        ) : studentLive ? (
           <Button data-testid={`start-quiz-${t.id}`} asChild className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold">
             <Link to={`/quiz/${t.id}`}>{isDpp ? "Practice Sprint" : "Start Test"}</Link>
           </Button>
         ) : (
-          <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Not Active</Button>
+          <Button disabled className="w-full rounded-full font-head font-bold bg-[#F1F5F9] text-[#64748B] border-2 border-[#1E293B]">Closed</Button>
         )}
       </div>
       {!isDpp && <Leaderboard testId={t.id} />}
@@ -241,15 +310,37 @@ export default function QuizList({ kind }) {
     }
   }, [isTeacher]);
 
-  // Active / Inactive toggle state
+  // Live / Paused / Draft toggle state
   const [togglingActive, setTogglingActive] = useState(null);
   const handleToggleActive = async (test) => {
+    const isDraft = Boolean(test.is_draft || (!test.valid_until && test.is_active === false) || (test.is_active === false && test.batch_name === "Saved / Unassigned"));
+    const isExpired = !isDraft && test.valid_until ? new Date(test.valid_until) <= new Date() : false;
+    if (isExpired) {
+      toast.info("This test has expired. Click Edit (pencil icon) to extend the active window.");
+      return;
+    }
     setTogglingActive(test.id);
     const nextVal = test.is_active === false;
     try {
-      await api.patch(`/tests/${test.id}`, { is_active: nextVal });
-      setItems((prev) => prev.map((t) => (t.id === test.id ? { ...t, is_active: nextVal } : t)));
-      toast.success(nextVal ? "Test activated for students" : "Test paused / marked inactive");
+      const payload = { is_active: nextVal, is_draft: false };
+      if (isDraft) {
+        payload.valid_hours = test.valid_hours || 24;
+      }
+      const res = await api.patch(`/tests/${test.id}`, payload);
+      setItems((prev) =>
+        prev.map((t) =>
+          t.id === test.id
+            ? { ...t, ...res.data, is_active: res.data?.is_active ?? nextVal, is_draft: false }
+            : t
+        )
+      );
+      toast.success(
+        isDraft
+          ? "Draft published and now Live for students!"
+          : nextVal
+          ? "Test is now Live for students"
+          : "Test Paused (hidden from students)"
+      );
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Failed to update status");
     } finally {
@@ -272,7 +363,7 @@ export default function QuizList({ kind }) {
     setReuseTest(test);
     const dur = test.duration_minutes || 0;
     setReuseForm({
-      title: `${test.title} (New Batch)`,
+      title: test.title, // Option A: same title as template
       batch_id: test.batch_id || "all",
       duration_minutes: dur,
       valid_hours: test.valid_hours || 24,
@@ -285,13 +376,17 @@ export default function QuizList({ kind }) {
     setReusing(true);
     try {
       const payload = {
-        title: reuseForm.title,
+        title: reuseForm.title || reuseTest.title,
         batch_id: reuseForm.batch_id === "all" ? "" : reuseForm.batch_id,
         duration_minutes: reuseForm.timing_mode === "timed" ? Number(reuseForm.duration_minutes) || 15 : 0,
         valid_hours: Number(reuseForm.valid_hours) || 24,
       };
       const res = await api.post(`/tests/${reuseTest.id}/duplicate`, payload);
-      toast.success(`Test created & assigned${res.data?.batch_name ? ` to ${res.data.batch_name}` : ""}!`);
+      toast.success(
+        reuseTest.is_draft
+          ? `Test launched live${res.data?.batch_name ? ` for ${res.data.batch_name}` : ""}! Master template preserved.`
+          : `Test created & assigned${res.data?.batch_name ? ` to ${res.data.batch_name}` : ""}!`
+      );
       setReuseTest(null);
       load();
     } catch (e) {
@@ -444,8 +539,8 @@ export default function QuizList({ kind }) {
         <DialogContent className="bg-white border-[3px] border-[#1E293B] max-w-lg rounded-3xl p-6 shadow-[6px_6px_0_#1E293B] text-[#1E293B]">
           <DialogHeader>
             <DialogTitle className="text-[#1E293B] font-head text-xl font-900 flex items-center gap-2">
-              <Copy className="h-5 w-5 text-[#5B9BD5]" />
-              Reuse Test / Assign to Batch
+              <Sparkles className="h-5 w-5 text-[#F5C842]" />
+              {reuseTest?.is_draft ? "Assign Template to Batch" : "Reuse / Assign Test"}
             </DialogTitle>
           </DialogHeader>
 
@@ -461,7 +556,9 @@ export default function QuizList({ kind }) {
                   {reuseTest.chapter}{reuseTest.topic ? ` • ${reuseTest.topic}` : ""}
                 </div>
                 <div className="text-[11px] text-[#2F8A5F] font-bold pt-0.5">
-                  ✓ Reuses exact questions with a fresh attempt history & leaderboard.
+                  {reuseTest.is_draft
+                    ? "✓ Creates a fresh live test for the batch. Master template remains preserved in your library."
+                    : "✓ Reuses exact questions with a fresh attempt history & leaderboard."}
                 </div>
               </div>
 
@@ -551,6 +648,11 @@ export default function QuizList({ kind }) {
                     value={reuseForm.valid_hours}
                     onChange={(e) => setReuseForm({ ...reuseForm, valid_hours: e.target.value })}
                   />
+                  {reuseForm.valid_hours && (
+                    <div className="text-[11px] text-[#5B9BD5] font-bold font-mono mt-1">
+                      Expires: {formatExpiry(new Date(Date.now() + (Number(reuseForm.valid_hours) || 24) * 3600000))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -577,8 +679,8 @@ export default function QuizList({ kind }) {
               disabled={reusing}
               onClick={handleDuplicate}
             >
-              {reusing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
-              Launch Fresh Test
+              {reusing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+              {reuseTest?.is_draft ? "Launch to Batch" : "Launch Fresh Test"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -620,19 +722,22 @@ export default function QuizList({ kind }) {
               <Input className={inp} value={editForm.title || ""}
                 onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
             </div>
-            {!isDpp && (
-              <div>
-                <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">
-                  Active window (hours from start)
-                </Label>
-                <Input
-                  className={inp}
-                  type="number" min={1} max={720}
-                  value={editForm.valid_hours || ""}
-                  onChange={(e) => setEditForm({ ...editForm, valid_hours: parseInt(e.target.value, 10) || 24 })}
-                />
-              </div>
-            )}
+            <div>
+              <Label className="font-head font-bold text-xs uppercase text-[#1E293B]">
+                Active window (hours from now)
+              </Label>
+              <Input
+                className={inp}
+                type="number" min={1} max={720}
+                value={editForm.valid_hours || ""}
+                onChange={(e) => setEditForm({ ...editForm, valid_hours: parseInt(e.target.value, 10) || 24 })}
+              />
+              {editForm.valid_hours && (
+                <div className="text-[11px] text-[#5B9BD5] font-bold font-mono mt-1">
+                  Expires: {formatExpiry(new Date(Date.now() + (Number(editForm.valid_hours) || 24) * 3600000))}
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter className="gap-2 mt-4">
             <Button variant="outline" className="rounded-full border-2 border-[#1E293B] text-[#1E293B]"

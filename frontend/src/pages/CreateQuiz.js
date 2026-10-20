@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../lib/api";
+import { formatExpiry } from "../lib/utils";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -351,7 +352,8 @@ export default function CreateQuiz({ kind }) {
       duration_minutes: timingMode === "timed" ? Number(f.duration_minutes || 20) : 0,
       valid_hours: Number(f.valid_hours || 24),
       is_active: !saveOnly,
-      activate_now: !saveOnly
+      activate_now: !saveOnly,
+      is_draft: saveOnly,
     };
 
     if (creationMode === "manual") {
@@ -1148,6 +1150,11 @@ export default function CreateQuiz({ kind }) {
                 value={f.valid_hours}
                 onChange={(e) => setF({ ...f, valid_hours: e.target.value })}
               />
+              {f.valid_hours && (
+                <div className="text-[11px] text-[#5B9BD5] font-bold font-mono mt-1">
+                  Expires: {formatExpiry(new Date(Date.now() + (Number(f.valid_hours) || 24) * 3600000))}
+                </div>
+              )}
             </div>
           </div>
         </div>

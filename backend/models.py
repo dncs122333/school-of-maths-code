@@ -79,6 +79,7 @@ class GenerateTestInput(BaseModel):
     valid_hours: int = 24
     activate_now: bool = True
     is_active: Optional[bool] = None
+    is_draft: Optional[bool] = None
     question_ids: Optional[List[str]] = None
 
 

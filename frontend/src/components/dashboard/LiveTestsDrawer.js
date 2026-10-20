@@ -15,6 +15,15 @@ import {
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 
+function formatExpiry(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return `${datePart}, ${timePart}`;
+}
+
 /** Slide-over drawer listing all live tests with toggle capability. */
 export default function LiveTestsDrawer({ open, onClose }) {
   const [tests, setTests] = useState([]);
@@ -36,6 +45,11 @@ export default function LiveTestsDrawer({ open, onClose }) {
   }, [fetchLive]);
 
   const handleToggle = async (test) => {
+    const isExpired = test.valid_until ? new Date(test.valid_until) <= new Date() : false;
+    if (isExpired) {
+      toast.info("This test has expired. Edit it from the Tests page to extend the active window.");
+      return;
+    }
     const nextVal = !test.is_active;
     setToggling((p) => ({ ...p, [test.id]: true }));
     try {
@@ -43,12 +57,12 @@ export default function LiveTestsDrawer({ open, onClose }) {
       setTests((prev) =>
         nextVal
           ? prev.map((t) => (t.id === test.id ? { ...t, is_active: true } : t))
-          : prev.filter((t) => t.id !== test.id) // removing from live list when deactivated
+          : prev.filter((t) => t.id !== test.id) // removing from live list when paused
       );
       toast.success(
         nextVal
-          ? `"${test.title}" is now live.`
-          : `"${test.title}" deactivated.`
+          ? `"${test.title}" is now Live.`
+          : `"${test.title}" is now Paused.`
       );
     } catch {
       toast.error("Failed to update test status");
@@ -163,7 +177,7 @@ function TestRow({ test, toggling, onToggle }) {
           className={`shrink-0 transition-all ${
             toggling ? "opacity-50 cursor-not-allowed" : "hover:scale-110"
           }`}
-          title={test.is_active ? "Click to deactivate" : "Click to activate"}
+          title={test.is_active ? "Click to pause" : "Click to make live"}
         >
           {toggling ? (
             <Loader2 className="h-6 w-6 animate-spin text-[#64748B]" />
@@ -197,6 +211,12 @@ function TestRow({ test, toggling, onToggle }) {
         )}
         {test.question_count != null && (
           <span>{test.question_count} Qs</span>
+        )}
+        {test.valid_until && test.is_active && new Date(test.valid_until) > new Date() && (
+          <span className="flex items-center gap-1 text-[#5B9BD5]">
+            <Clock className="h-2.5 w-2.5" />
+            Expires: {formatExpiry(test.valid_until)}
+          </span>
         )}
       </div>
     </div>
