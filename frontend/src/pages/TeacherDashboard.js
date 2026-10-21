@@ -161,6 +161,7 @@ export default function TeacherDashboard() {
                 <Sparkles className="h-4 w-4" /> + Chapterwise Test
               </Link>
             </Button>
+            <div className="hidden sm:block h-6 w-[2px] bg-[#1E293B]/20 mx-0.5" />
             <Button
               type="button"
               onClick={() => openImportModal("ai_vision")}

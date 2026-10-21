@@ -14,7 +14,6 @@ export default function Navbar() {
   const links = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/materials", label: "Class Notes", icon: FolderOpen },
-    ...(isTeacher ? [{ to: "/question-bank", label: "Question Bank", icon: Database }] : []),
     { to: "/tests", label: "Class Test", icon: FileQuestion },
     { to: "/dpp", label: "Chapterwise Test", icon: Sparkles },
     ...(isTeacher ? [{ to: "/reports", label: "Reports", icon: BarChart3 }, { to: "/batches", label: "Batches", icon: Users }] : [{ to: "/mastery", label: "Mastery", icon: Brain }]),
