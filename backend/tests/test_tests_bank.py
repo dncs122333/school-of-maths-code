@@ -142,3 +142,45 @@ class TestBankDrivenTests:
         # Cleanup duplicated test
         requests.delete(f"{API}/tests/{new_id}", headers=self.state["th"], timeout=15)
 
+    def test_06_master_template_creation_and_batch_assignment(self):
+        tag = self.state["tag"]
+        # 1. Create a Master Template using batch_id: "template"
+        r = requests.post(f"{API}/tests", headers=self.state["th"], json={
+            "title": f"Master Template {tag}", "kind": "test", "class_level": "9",
+            "subject": "Maths", "chapter": f"Chapter {tag}", "topic": "",
+            "batch_id": "template",
+            "question_count": 3, "duration_minutes": 15, "valid_hours": 24}, timeout=30)
+        assert r.status_code == 200, r.text
+        template_id = r.json()["id"]
+
+        tpl = self._wait_ready(template_id)
+        assert tpl["is_draft"] is True
+        assert tpl["is_active"] is False
+        assert tpl["valid_until"] is None
+        assert tpl["valid_from"] is None
+
+        # 2. Assign to batch creates live copy
+        dup_r = requests.post(f"{API}/tests/{template_id}/duplicate", headers=self.state["th"], json={
+            "title": f"Live Batch Test {tag}",
+            "batch_id": "all",
+            "duration_minutes": 15,
+            "valid_hours": 24
+        }, timeout=15)
+        assert dup_r.status_code == 200, dup_r.text
+        live_data = dup_r.json()
+        assert live_data["is_draft"] is False
+        assert live_data["is_active"] is True
+        assert live_data["valid_until"] is not None
+        assert live_data["batch_name"] == "All Students"
+        live_id = live_data["id"]
+
+        # 3. Master template remains untouched as a template in library
+        tpl_after = requests.get(f"{API}/tests/{template_id}", headers=self.state["th"], timeout=15).json()
+        assert tpl_after["is_draft"] is True
+        assert tpl_after["is_active"] is False
+        assert tpl_after["valid_until"] is None
+
+        # Cleanup
+        requests.delete(f"{API}/tests/{template_id}", headers=self.state["th"], timeout=15)
+        requests.delete(f"{API}/tests/{live_id}", headers=self.state["th"], timeout=15)
+

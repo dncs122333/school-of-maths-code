@@ -336,19 +336,22 @@ export default function CreateQuiz({ kind }) {
       finalChapters = [f.chapter];
     }
 
-    const saveOnly = options?.saveOnly === true;
+    const isTemplateSelection = f.batch_id === "template";
+    const saveOnly = options?.saveOnly === true || isTemplateSelection;
 
-    if (!saveOnly && !isDpp && !f.batch_id) {
-      toast.error("Select a batch to activate this test, or click 'Save for Future' to keep it as a draft");
+    if (!saveOnly && !isDpp && (!f.batch_id || f.batch_id === "template")) {
+      toast.error("Please select a target batch or 'All Students' to activate, or choose 'Master Template' to save to your library");
       return;
     }
+
+    const targetBatchId = (!f.batch_id || f.batch_id === "template") ? null : f.batch_id;
 
     const payload = {
       ...f,
       kind,
       chapter: finalChapter,
       chapters: finalChapters,
-      batch_id: f.batch_id || null,
+      batch_id: targetBatchId,
       duration_minutes: timingMode === "timed" ? Number(f.duration_minutes || 20) : 0,
       valid_hours: Number(f.valid_hours || 24),
       is_active: !saveOnly,
@@ -374,7 +377,7 @@ export default function CreateQuiz({ kind }) {
       await api.post("/tests", payload);
       toast.success(
         saveOnly
-          ? "Test saved to your library! You can assign or activate it anytime."
+          ? `Master Template saved under Class ${f.class_level} → Master Templates!`
           : isDpp
           ? "Chapterwise Test published and live!"
           : "Test created and live for students!"
@@ -1087,12 +1090,20 @@ export default function CreateQuiz({ kind }) {
               <Label className="font-800 text-[#1E293B]">
                 Target Batch {!isDpp ? "" : <span className="text-[#64748B] font-normal">(Optional)</span>}
               </Label>
-              <Select value={f.batch_id || "all"} onValueChange={(v) => setF({ ...f, batch_id: v === "all" ? "" : v })}>
+              <Select
+                value={f.batch_id || (isDpp ? "all" : "")}
+                onValueChange={(v) => setF({ ...f, batch_id: v })}
+              >
                 <SelectTrigger data-testid="quiz-batch" className={inp}>
-                  <SelectValue placeholder={isDpp ? "All Students / Open" : "Choose batch"} />
+                  <SelectValue placeholder={isDpp ? "All Students / Open" : "Choose target batch or Master Template"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{isDpp ? "All Students / Open (Classwide)" : "All Students"}</SelectItem>
+                  <SelectItem value="template">
+                    📁 None (Save as Master Template in Library)
+                  </SelectItem>
+                  <SelectItem value="all">
+                    {isDpp ? "All Students / Open (Classwide)" : "👥 All Students (Classwide)"}
+                  </SelectItem>
                   {availableBatches.map((b) => (
                     <SelectItem key={b.id} value={b.id}>
                       {b.name} {b.class_level ? `(Class ${b.class_level})` : ""}
@@ -1100,6 +1111,12 @@ export default function CreateQuiz({ kind }) {
                   ))}
                 </SelectContent>
               </Select>
+              {f.batch_id === "template" && (
+                <div className="mt-1.5 p-2 rounded-xl bg-[#F3E8FF] border border-[#9333EA]/30 text-[11px] font-bold text-[#7E22CE] flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#9333EA]" />
+                  <span>Stored in Class {f.class_level} → Master Templates. Won&apos;t go live until assigned.</span>
+                </div>
+              )}
             </div>
 
             {/* Duration Input (if timed) */}
@@ -1160,35 +1177,53 @@ export default function CreateQuiz({ kind }) {
         </div>
 
         {/* Action Buttons: Save for Future vs Publish & Activate */}
-        <div className="grid sm:grid-cols-2 gap-3 mt-4">
-          <Button
-            type="button"
-            data-testid="save-test-later-btn"
-            onClick={() => submit({ saveOnly: true })}
-            disabled={busy}
-            variant="outline"
-            className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-bold border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none h-12 text-sm flex items-center justify-center gap-2"
-          >
-            {busy ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
-            ) : (
-              <><Bookmark className="h-4 w-4 text-[#5B9BD5]" /> Save for Future (Draft)</>
-            )}
-          </Button>
+        <div className="mt-4">
+          {f.batch_id === "template" ? (
+            <Button
+              type="button"
+              data-testid="generate-quiz-btn"
+              onClick={() => submit({ saveOnly: true })}
+              disabled={busy}
+              className="w-full rounded-full bg-[#9333EA] hover:bg-[#7E22CE] text-white font-900 border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none h-12 text-sm flex items-center justify-center gap-2"
+            >
+              {busy ? (
+                <><Loader2 className="h-5 w-5 animate-spin" /> Saving template…</>
+              ) : (
+                <><Bookmark className="h-4 w-4 text-[#F5C842]" /> Save as Master Template in Library</>
+              )}
+            </Button>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Button
+                type="button"
+                data-testid="save-test-later-btn"
+                onClick={() => submit({ saveOnly: true })}
+                disabled={busy}
+                variant="outline"
+                className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-bold border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none h-12 text-sm flex items-center justify-center gap-2"
+              >
+                {busy ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+                ) : (
+                  <><Bookmark className="h-4 w-4 text-[#9333EA]" /> Save as Master Template</>
+                )}
+              </Button>
 
-          <Button
-            type="button"
-            data-testid="generate-quiz-btn"
-            onClick={() => submit({ saveOnly: false })}
-            disabled={busy}
-            className="rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] font-900 border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none h-12 text-sm flex items-center justify-center gap-2"
-          >
-            {busy ? (
-              <><Sparkles className="h-5 w-5 mr-2 animate-spin" /> Assembling questions…</>
-            ) : (
-              <><Sparkles className="h-4 w-4 mr-1" /> {isDpp ? "Publish & Activate" : "Create & Activate Test"}</>
-            )}
-          </Button>
+              <Button
+                type="button"
+                data-testid="generate-quiz-btn"
+                onClick={() => submit({ saveOnly: false })}
+                disabled={busy}
+                className="rounded-full bg-[#F5C842] hover:bg-[#ebd438] text-[#1E293B] font-900 border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none h-12 text-sm flex items-center justify-center gap-2"
+              >
+                {busy ? (
+                  <><Sparkles className="h-5 w-5 mr-2 animate-spin" /> Assembling questions…</>
+                ) : (
+                  <><Sparkles className="h-4 w-4 mr-1" /> {isDpp ? "Publish & Activate" : "Create & Activate Test"}</>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>

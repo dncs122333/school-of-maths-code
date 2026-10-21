@@ -416,7 +416,10 @@ export default function QuizList({ kind }) {
   const classGroups = useMemo(() => {
     return items.reduce((acc, t) => {
       const cl = `Class ${t.class_level || "?"}`;
-      const batch = t.batch_name?.trim() || (isTeacher ? "Saved / Unassigned" : "General");
+      const isDraft = Boolean(t.is_draft || (!t.valid_until && t.is_active === false) || (t.is_active === false && t.batch_name === "Saved / Unassigned"));
+      const batch = (isDraft && isTeacher)
+        ? "Master Templates"
+        : (t.batch_name?.trim() || (isTeacher ? "Saved / Unassigned" : "General"));
       if (!acc[cl]) acc[cl] = {};
       if (!acc[cl][batch]) acc[cl][batch] = [];
       acc[cl][batch].push(t);
@@ -491,7 +494,13 @@ export default function QuizList({ kind }) {
         <div className="space-y-10">
           {sortedClasses.map((cl) => {
             const batchMap = classGroups[cl];
-            const sortedBatches = Object.keys(batchMap).sort((a, b) => a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
+            const sortedBatches = Object.keys(batchMap).sort((a, b) => {
+              if (a === "Master Templates") return -1;
+              if (b === "Master Templates") return 1;
+              if (a === "General") return 1;
+              if (b === "General") return -1;
+              return a.localeCompare(b);
+            });
             return (
               <div key={cl}>
                 {/* Class header */}
@@ -506,15 +515,34 @@ export default function QuizList({ kind }) {
                 <div className="space-y-6 pl-2 border-l-2 border-[#1E293B]">
                   {sortedBatches.map((batch) => {
                     const batchItems = batchMap[batch];
+                    const isTemplateFolder = batch === "Master Templates";
                     return (
                       <div key={batch}>
                         {/* Batch sub-header */}
-                        <div className="flex items-center gap-2 mb-4 ml-4">
-                          <Folder className="h-4 w-4 text-[#F5C842]" />
-                          <h3 className="font-head font-bold text-[#1E293B] text-sm tracking-wide uppercase">{batch}</h3>
-                          <span className="text-xs text-[#64748B] font-mono font-bold">({batchItems.length})</span>
-                          <div className="flex-1 h-0.5 bg-[#1E293B]/20 ml-1" />
-                        </div>
+                        {isTemplateFolder ? (
+                          <div className="flex items-center gap-2.5 mb-4 ml-4 p-2.5 rounded-2xl bg-[#F3E8FF]/80 border-2 border-[#9333EA]/30 pr-4 shadow-[2px_2px_0_#9333EA]/20">
+                            <div className="h-7 w-7 rounded-xl bg-[#9333EA] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center">
+                              <Sparkles className="h-3.5 w-3.5 text-white" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-head font-900 text-[#7E22CE] text-sm tracking-wide uppercase">
+                                📁 Master Templates
+                              </h3>
+                              <span className="text-[10px] font-sans font-bold px-2.5 py-0.5 rounded-full bg-white text-[#7E22CE] border border-[#7E22CE]/40">
+                                Reusable Library
+                              </span>
+                            </div>
+                            <span className="text-xs text-[#7E22CE] font-mono font-bold">({batchItems.length})</span>
+                            <div className="flex-1 h-0.5 bg-[#9333EA]/30 ml-1" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 mb-4 ml-4">
+                            <Folder className="h-4 w-4 text-[#F5C842]" />
+                            <h3 className="font-head font-bold text-[#1E293B] text-sm tracking-wide uppercase">{batch}</h3>
+                            <span className="text-xs text-[#64748B] font-mono font-bold">({batchItems.length})</span>
+                            <div className="flex-1 h-0.5 bg-[#1E293B]/20 ml-1" />
+                          </div>
+                        )}
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 pl-4">
                           {batchItems.map((t, i) => (
                             <TestCard

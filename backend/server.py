@@ -1790,8 +1790,12 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
     if active_chaps and not chap_name:
         chap_name = ", ".join(active_chaps)
     batch_val = body.batch_id
-    if batch_val in ("all", ""):
-        batch_val = None if body.kind == "dpp" else "all"
+    is_draft = body.is_draft if body.is_draft is not None else (body.is_active is False or not body.activate_now)
+    if batch_val in ("template", "none"):
+        batch_val = None
+        is_draft = True
+    elif batch_val in ("all", ""):
+        batch_val = None if (body.kind == "dpp" or is_draft) else "all"
 
     batch_name = None
     if batch_val and batch_val != "all":
@@ -1803,7 +1807,6 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
     elif not batch_val:
         batch_name = "Saved / Unassigned" if body.kind == "test" else None
 
-    is_draft = body.is_draft if body.is_draft is not None else (body.is_active is False or not body.activate_now)
     is_act = False if is_draft else (body.is_active if body.is_active is not None else body.activate_now)
 
     valid_from_val = None if is_draft else valid_from.isoformat()
