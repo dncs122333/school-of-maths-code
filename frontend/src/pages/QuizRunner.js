@@ -280,7 +280,7 @@ export default function QuizRunner() {
             Question {idx + 1} of {quiz.questions.length}
           </div>
           <div className="flex items-center gap-1.5">
-            {q.topic && (
+            {isTeacher && q.topic && (
               <Badge variant="outline" className="text-[10px] bg-[#FFF9E8] border-[#1E293B] text-[#1E293B] font-bold">
                 {q.topic}
               </Badge>

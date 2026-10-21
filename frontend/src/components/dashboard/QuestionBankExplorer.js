@@ -21,6 +21,7 @@ import {
   HelpCircle,
   CheckCircle2,
   RefreshCw,
+  Tag,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -587,6 +588,14 @@ export default function QuestionBankExplorer({ onQuestionsChange }) {
                                             <span className="text-[10px] font-mono text-[#64748B]">
                                               {q.marks || 1.0} Marks
                                             </span>
+                                            {(q.topic || (topicName && topicName !== "General")) && (
+                                              <span className="inline-flex items-center gap-1 text-[10px] font-head font-bold bg-[#F1F5F9] text-[#1E293B] px-2 py-0.5 rounded-full border border-[#1E293B]/20">
+                                                <Tag className="h-2.5 w-2.5 text-[#5B9BD5]" />
+                                                <span className="max-w-[220px] truncate" title={q.topic || topicName}>
+                                                  Topic: {q.topic || topicName}
+                                                </span>
+                                              </span>
+                                            )}
                                           </div>
                                           <p className="font-head text-sm font-800 text-[#1E293B] leading-relaxed">
                                             {q.question}

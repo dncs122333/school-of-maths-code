@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { api, formatApiErrorDetail } from "../../lib/api";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Check, X, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { Check, X, AlertTriangle, CheckCircle2, Loader2, Tag } from "lucide-react";
 import { toast } from "sonner";
 
 export default function PendingReviewsQueue({ onQueueChange }) {
@@ -90,6 +90,12 @@ export default function PendingReviewsQueue({ onQueueChange }) {
                       {q.subject}
                     </Badge>
                     <span className="text-xs text-[#64748B] font-bold">{q.chapter}</span>
+                    {q.topic && (
+                      <span className="text-[10px] text-[#1E293B] font-bold bg-white px-2 py-0.5 rounded-full border border-[#1E293B] flex items-center gap-1">
+                        <Tag className="h-2.5 w-2.5 text-[#5B9BD5]" />
+                        {q.topic}
+                      </span>
+                    )}
                   </div>
                   <h4 className="font-head font-bold text-sm text-[#1E293B] mt-1">{q.question}</h4>
                 </div>
