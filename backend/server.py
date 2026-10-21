@@ -2669,7 +2669,7 @@ async def extract_questions_endpoint(
     class_level: str = Form("10"),
     subject: str = Form("Maths"),
     chapter: str = Form(...),
-    model: str = Form("gemini-2.5-flash"),
+    model: str = Form("gemini-3.8-flash"),
     user: dict = Depends(require_role("teacher", "admin"))
 ):
     """Teacher provides question paper image/pdf and their Gemini API key.
@@ -2707,7 +2707,7 @@ async def extract_questions_endpoint(
             subject=subject,
             chapter=chapter,
             allowed_topics=allowed_topics,
-            model=model.strip() or "gemini-2.5-flash"
+            model=model.strip() or "gemini-3.8-flash"
         )
     except Exception as e:
         logger.error(f"AI question extraction error: {e}")

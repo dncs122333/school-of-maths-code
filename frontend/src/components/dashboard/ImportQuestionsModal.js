@@ -144,7 +144,7 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
     formData.append("class_level", aiClass);
     formData.append("subject", aiSubj);
     formData.append("chapter", aiChap);
-    formData.append("model", "gemini-2.5-flash");
+    formData.append("model", "gemini-3.8-flash");
 
     try {
       const res = await api.post("/questions/ai-extract", formData, {

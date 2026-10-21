@@ -272,7 +272,7 @@ async def extract_questions_from_media(
     subject: str,
     chapter: str,
     allowed_topics: list,
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3.8-flash"
 ) -> list:
     """
     Directly calls Google Generative Language API (Gemini multimodal) with teacher's key.
@@ -325,8 +325,8 @@ async def extract_questions_from_media(
     )
 
     # Candidate models for Google Generative Language REST API
-    # Prioritizes requested flash model, with standard fallbacks
-    models_to_try = [model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    # Prioritizes requested flash model (including gemini-3.8-flash), with standard fallbacks
+    models_to_try = [model, "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     seen = set()
     candidate_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
 
@@ -430,6 +430,9 @@ async def extract_questions_from_media(
             else:
                 err_data = resp.json().get("error", {}) if resp.text.startswith("{") else {}
                 err_msg = err_data.get("message") or resp.text
+                if resp.status_code == 400 and any(w in err_msg.lower() for w in ("not found", "is not supported", "invalid model", "unknown model", "does not exist", "unsupported")):
+                    last_error = f"Model {target_model} not supported ({err_msg})"
+                    continue
                 raise ValueError(f"Gemini API returned error ({resp.status_code}): {err_msg}")
         except requests.RequestException as e:
             last_error = str(e)

@@ -277,7 +277,7 @@ class TestAIExtractionAPI:
                 class_level="10",
                 subject="Maths",
                 chapter="Real Numbers",
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 user=self.state["teacher_user"],
             )
 
