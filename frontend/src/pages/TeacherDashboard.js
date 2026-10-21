@@ -135,55 +135,77 @@ export default function TeacherDashboard() {
             </p>
           </div>
 
-          {/* Quick Action Creation Toolkit */}
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0 bg-white p-3.5 rounded-3xl border-2 border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
-            <Button
-              asChild
-              className="rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
-            >
-              <Link to="/materials" className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4" /> Class Notes
-              </Link>
-            </Button>
-            <Button
-              asChild
-              className="rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
-            >
-              <Link to="/tests/new" className="flex items-center gap-2">
-                <FileQuestion className="h-4 w-4" /> + Class Test
-              </Link>
-            </Button>
-            <Button
-              asChild
-              className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
-            >
-              <Link to="/dpp/new" className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4" /> + Chapterwise Test
-              </Link>
-            </Button>
-            <div className="hidden sm:block h-6 w-[2px] bg-[#1E293B]/20 mx-0.5" />
-            <Button
-              type="button"
-              onClick={() => openImportModal("ai_vision")}
-              className="rounded-full bg-[#8E44AD] hover:bg-[#7D3C98] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
-            >
-              <Sparkles className="h-4 w-4 mr-1.5" /> Scan Paper (AI)
-            </Button>
-            <Button
-              type="button"
-              onClick={() => openImportModal("file")}
-              className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
-            >
-              <UploadCloud className="h-4 w-4 mr-1.5" /> Import Questions
-            </Button>
-            <Button
-              asChild
-              className="rounded-full bg-[#1E293B] hover:bg-[#334155] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
-            >
-              <Link to="/question-bank" className="flex items-center gap-1.5">
-                <Database className="h-4 w-4 text-[#F5C842]" /> Question Bank
-              </Link>
-            </Button>
+          {/* Quick Action Creation Toolkit - 3x2 Structured Alignment */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-3xl border-2 border-[#1E293B] shadow-[4px_4px_0_#1E293B] space-y-3 shrink-0 max-w-xl w-full lg:w-auto">
+            {/* Row 1: Assessments & Notes */}
+            <div>
+              <div className="flex items-center gap-1.5 mb-1.5 px-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#64748B]">
+                  Assessments & Study Notes
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Button
+                  asChild
+                  className="rounded-full bg-[#5B9BD5] hover:bg-[#4D8BC4] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 px-3 justify-center"
+                >
+                  <Link to="/materials" className="flex items-center justify-center gap-1.5">
+                    <BookOpen className="h-3.5 w-3.5" /> Class Notes
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  className="rounded-full bg-[#FF6B5E] hover:bg-[#EE594B] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 px-3 justify-center"
+                >
+                  <Link to="/tests/new" className="flex items-center justify-center gap-1.5">
+                    <FileQuestion className="h-3.5 w-3.5" /> + Class Test
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 px-3 justify-center"
+                >
+                  <Link to="/dpp/new" className="flex items-center justify-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" /> + Chapterwise
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            <div className="h-[1px] bg-[#1E293B]/10" />
+
+            {/* Row 2: Question Vault & Ingestion */}
+            <div>
+              <div className="flex items-center gap-1.5 mb-1.5 px-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#64748B]">
+                  Question Vault & Ingestion
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  onClick={() => openImportModal("ai_vision")}
+                  className="rounded-full bg-[#8E44AD] hover:bg-[#7D3C98] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 px-3 justify-center"
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1" /> Scan Paper (AI)
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => openImportModal("file")}
+                  className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 px-3 justify-center"
+                >
+                  <UploadCloud className="h-3.5 w-3.5 mr-1" /> Import Questions
+                </Button>
+                <Button
+                  asChild
+                  className="rounded-full bg-[#1E293B] hover:bg-[#334155] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-9 px-3 justify-center"
+                >
+                  <Link to="/question-bank" className="flex items-center justify-center gap-1.5">
+                    <Database className="h-3.5 w-3.5 text-[#F5C842]" /> Question Bank
+                  </Link>
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
 
