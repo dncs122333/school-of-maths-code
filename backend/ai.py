@@ -1,4 +1,5 @@
 """External integrations: Emergent object storage + Gemini (notes, images)."""
+import asyncio
 import base64
 import io
 import json
@@ -324,13 +325,48 @@ async def extract_questions_from_media(
         "}"
     )
 
-    # Candidate models for Google Generative Language REST API
-    # Prioritizes requested flash model (including gemini-3.8-flash), with standard fallbacks
-    models_to_try = [model, "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    # Dynamically check models supported by the teacher's key, prioritizing flash models
+    discovered_flash = []
+    discovered_other = []
+    try:
+        m_resp = requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key.strip()}",
+            timeout=5
+        )
+        if m_resp.status_code == 200:
+            for item in m_resp.json().get("models", []):
+                m_name = item.get("name", "").replace("models/", "")
+                methods = item.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    if "flash" in m_name.lower():
+                        discovered_flash.append(m_name)
+                    else:
+                        discovered_other.append(m_name)
+    except Exception as e:
+        logger.warning(f"Could not list available Gemini models: {e}")
+
+    # Prioritize:
+    # 1. User/Teacher requested model (e.g. gemini-3.8-flash)
+    # 2. Main stable models (gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash)
+    # 3. Discovered flash models from user's key
+    # 4. Pro models as high-accuracy fallbacks
+    static_priority = [
+        model,
+        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-2.5-pro",
+        "gemini-1.5-pro",
+    ]
+    raw_list = static_priority + discovered_flash + discovered_other
     seen = set()
-    candidate_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
+    candidate_models = [m for m in raw_list if m and not (m in seen or seen.add(m))]
 
     last_error = None
+    had_high_demand = False
+
     for target_model in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key.strip()}"
         req_body = {
@@ -424,20 +460,43 @@ async def extract_questions_from_media(
                         "question_type": "single_choice"
                     })
                 return cleaned
+
+            elif resp.status_code in (503, 429):
+                had_high_demand = True
+                err_data = resp.json().get("error", {}) if resp.text.startswith("{") else {}
+                err_msg = err_data.get("message") or resp.text
+                last_error = f"Model {target_model} returned {resp.status_code} ({err_msg})"
+                logger.warning(f"Gemini {target_model} busy/high-demand ({resp.status_code}), trying next available model...")
+                await asyncio.sleep(0.5)
+                continue
+
             elif resp.status_code in (404,):
                 last_error = f"Model {target_model} not found (404)"
+                logger.info(f"Gemini {target_model} not found (404), trying next...")
                 continue
+
+            elif resp.status_code in (500, 502, 504):
+                last_error = f"Model {target_model} returned server error {resp.status_code}"
+                logger.warning(f"Gemini {target_model} server error ({resp.status_code}), trying next...")
+                continue
+
             else:
                 err_data = resp.json().get("error", {}) if resp.text.startswith("{") else {}
                 err_msg = err_data.get("message") or resp.text
                 if resp.status_code == 400 and any(w in err_msg.lower() for w in ("not found", "is not supported", "invalid model", "unknown model", "does not exist", "unsupported")):
                     last_error = f"Model {target_model} not supported ({err_msg})"
+                    logger.info(f"Gemini {target_model} not supported ({err_msg}), trying next...")
                     continue
+                if resp.status_code == 400 and "api key" in err_msg.lower():
+                    raise ValueError(f"Invalid Gemini API Key: {err_msg}")
                 raise ValueError(f"Gemini API returned error ({resp.status_code}): {err_msg}")
+
         except requests.RequestException as e:
             last_error = str(e)
             continue
 
+    if had_high_demand:
+        raise ValueError("Google Gemini servers are currently experiencing temporary high demand spikes (503). Please retry in a few moments.")
     raise ValueError(f"Failed to generate content with Gemini: {last_error}")
 
 
