@@ -19,6 +19,7 @@ import Reports from "./pages/Reports";
 import DataSourceStatus from "./pages/DataSourceStatus";
 
 import TeacherDashboard from "./pages/TeacherDashboard";
+import QuestionBank from "./pages/QuestionBank";
 
 function Shell({ children }) {
   return (
@@ -41,6 +42,7 @@ function App() {
               <Route path="/dashboard" element={<ProtectedRoute><Shell><Dashboard /></Shell></ProtectedRoute>} />
               <Route path="/teacher/dashboard" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><TeacherDashboard /></Shell></ProtectedRoute>} />
               <Route path="/materials" element={<ProtectedRoute><Shell><Materials /></Shell></ProtectedRoute>} />
+              <Route path="/question-bank" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><QuestionBank /></Shell></ProtectedRoute>} />
               <Route path="/tests" element={<ProtectedRoute><Shell><QuizList kind="test" /></Shell></ProtectedRoute>} />
               <Route path="/dpp" element={<ProtectedRoute><Shell><QuizList kind="dpp" /></Shell></ProtectedRoute>} />
               <Route path="/tests/new" element={<ProtectedRoute roles={["teacher","admin"]}><Shell><CreateQuiz kind="test" /></Shell></ProtectedRoute>} />

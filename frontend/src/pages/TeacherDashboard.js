@@ -27,7 +27,6 @@ import StudentRosterRadar from "../components/dashboard/StudentRosterRadar";
 import PendingReviewsQueue from "../components/dashboard/PendingReviewsQueue";
 import ImportQuestionsModal from "../components/dashboard/ImportQuestionsModal";
 import LiveTestsDrawer from "../components/dashboard/LiveTestsDrawer";
-import QuestionBankExplorer from "../components/dashboard/QuestionBankExplorer";
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
@@ -45,13 +44,6 @@ export default function TeacherDashboard() {
   const openImportModal = (initialTab = "ai_vision") => {
     setImportInitialTab(initialTab);
     setImportModalOpen(true);
-  };
-
-  const scrollToQuestionBank = () => {
-    const el = document.getElementById("question-bank-explorer");
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
   };
 
   // Time-of-day greeting
@@ -184,11 +176,12 @@ export default function TeacherDashboard() {
               <UploadCloud className="h-4 w-4 mr-1.5" /> Import Questions
             </Button>
             <Button
-              type="button"
-              onClick={scrollToQuestionBank}
+              asChild
               className="rounded-full bg-[#1E293B] hover:bg-[#334155] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
             >
-              <Database className="h-4 w-4 mr-1.5 text-[#F5C842]" /> Question Bank
+              <Link to="/question-bank" className="flex items-center gap-1.5">
+                <Database className="h-4 w-4 text-[#F5C842]" /> Question Bank
+              </Link>
             </Button>
           </div>
         </div>
@@ -447,11 +440,11 @@ export default function TeacherDashboard() {
                 variant="outline"
                 className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
-                <Link to="/materials" className="space-y-1 w-full">
-                  <FolderOpen className="h-4 w-4 text-[#4CAF7D]" />
-                  <span className="font-head font-bold text-xs text-[#1E293B] block">Class Materials</span>
+                <Link to="/question-bank" className="space-y-1 w-full">
+                  <Database className="h-4 w-4 text-[#F5C842]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">Question Bank</span>
                   <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
-                    Upload PDFs & sheets
+                    Curriculum vault & MCQs
                   </span>
                 </Link>
               </Button>
@@ -474,13 +467,6 @@ export default function TeacherDashboard() {
           </div>
         </div>
       </div>
-
-      {/* 5. QUESTION BANK EXPLORER (Chapterwise Expandable/Collapsible) */}
-      <QuestionBankExplorer
-        onQuestionsChange={() => {
-          api.get("/stats").then((r) => setStats(r.data || {})).catch(() => {});
-        }}
-      />
 
       {/* Question Import / AI Scanner Modal */}
       <ImportQuestionsModal
