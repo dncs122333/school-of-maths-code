@@ -37,7 +37,13 @@ export default function TeacherDashboard() {
   const [reportData, setReportData] = useState(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importInitialTab, setImportInitialTab] = useState("ai_vision");
   const [liveDrawerOpen, setLiveDrawerOpen] = useState(false);
+
+  const openImportModal = (initialTab = "ai_vision") => {
+    setImportInitialTab(initialTab);
+    setImportModalOpen(true);
+  };
 
   // Time-of-day greeting
   const greeting = useMemo(() => {
@@ -156,7 +162,14 @@ export default function TeacherDashboard() {
             </Button>
             <Button
               type="button"
-              onClick={() => setImportModalOpen(true)}
+              onClick={() => openImportModal("ai_vision")}
+              className="rounded-full bg-[#8E44AD] hover:bg-[#7D3C98] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
+            >
+              <Sparkles className="h-4 w-4 mr-1.5" /> Scan Paper (AI)
+            </Button>
+            <Button
+              type="button"
+              onClick={() => openImportModal("file")}
               className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
             >
               <UploadCloud className="h-4 w-4 mr-1.5" /> Import Questions
@@ -429,15 +442,15 @@ export default function TeacherDashboard() {
 
               <Button
                 type="button"
-                onClick={() => setImportModalOpen(true)}
+                onClick={() => openImportModal("ai_vision")}
                 variant="outline"
                 className="h-auto py-3.5 px-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:-translate-y-0.5 flex flex-col items-start text-left justify-start"
               >
                 <div className="space-y-1 w-full">
-                  <UploadCloud className="h-4 w-4 text-[#F5C842]" />
-                  <span className="font-head font-bold text-xs text-[#1E293B] block">Import Questions</span>
+                  <Sparkles className="h-4 w-4 text-[#8E44AD]" />
+                  <span className="font-head font-bold text-xs text-[#1E293B] block">AI Question Scanner</span>
                   <span className="text-[10px] text-[#64748B] block leading-tight font-medium">
-                    Upload JSON or CSV to bank
+                    Scan PDF/Image paper with Gemini
                   </span>
                 </div>
               </Button>
@@ -446,9 +459,10 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
-      {/* CSV Question Import Modal */}
+      {/* Question Import / AI Scanner Modal */}
       <ImportQuestionsModal
         open={importModalOpen}
+        initialTab={importInitialTab}
         onOpenChange={setImportModalOpen}
         onImportSuccess={() => {
           api.get("/stats").then((r) => setStats(r.data || {})).catch(() => {});

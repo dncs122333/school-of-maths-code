@@ -3,6 +3,7 @@ import os
 import uuid
 import json
 import io
+import mimetypes
 import secrets
 import asyncio
 import csv
@@ -31,7 +32,8 @@ from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, Joi
                     SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
                   require_claim_role, user_from_token)
-from ai import init_storage, put_object, get_object, delete_object, gen_concept_image, extract_text_from_file, llm_generate_notes
+from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
+                extract_text_from_file, llm_generate_notes, extract_questions_from_media)
 from lib.mastery import compute_topic_mastery
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import CURRICULUM, get_canonical_topics, generate_gemini_prompt
@@ -2657,6 +2659,71 @@ async def import_questions_json(
         raise HTTPException(status_code=400, detail="No questions provided in payload")
 
     return await _ingest_questions_list(q_list, meta, user["id"], source="json_import", is_csv=False, row_offset=1)
+
+
+@api_router.post("/questions/ai-extract")
+async def extract_questions_endpoint(
+    file: UploadFile = File(...),
+    api_key: Optional[str] = Form(None),
+    gemini_api_key: Optional[str] = Form(None),
+    class_level: str = Form("10"),
+    subject: str = Form("Maths"),
+    chapter: str = Form(...),
+    model: str = Form("gemini-2.5-flash"),
+    user: dict = Depends(require_role("teacher", "admin"))
+):
+    """Teacher provides question paper image/pdf and their Gemini API key.
+    Extracts MCQs with topic strictly selected from the chapter's official topics."""
+    key = (api_key or gemini_api_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="Gemini API key is required.")
+
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+    if filename.endswith(".pdf") or "pdf" in content_type:
+        mime_type = "application/pdf"
+    elif filename.endswith((".png", ".jpg", ".jpeg", ".webp")) or any(t in content_type for t in ("png", "jpeg", "jpg", "webp")):
+        mime_type = content_type if "image/" in content_type else (mimetypes.guess_type(filename)[0] or "image/jpeg")
+    else:
+        raise HTTPException(status_code=400, detail="Supported file formats: PDF, PNG, JPG, JPEG, WEBP")
+
+    raw_bytes = await file.read()
+    if not raw_bytes or len(raw_bytes) < 100:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # Retrieve approved canonical topics strictly for this class, subject, and chapter
+    allowed_topics = CURRICULUM.get(str(class_level), {}).get(subject, {}).get(chapter, [])
+    if not allowed_topics:
+        allowed_topics = get_canonical_topics(str(class_level), subject, chapter)
+    if not allowed_topics:
+        raise HTTPException(status_code=400, detail=f"Chapter '{chapter}' not found in curriculum for Class {class_level} {subject}.")
+
+    try:
+        questions = await extract_questions_from_media(
+            file_bytes=raw_bytes,
+            mime_type=mime_type,
+            api_key=key,
+            class_level=class_level,
+            subject=subject,
+            chapter=chapter,
+            allowed_topics=allowed_topics,
+            model=model.strip() or "gemini-2.5-flash"
+        )
+    except Exception as e:
+        logger.error(f"AI question extraction error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not questions:
+        raise HTTPException(status_code=400, detail="No multiple choice questions could be extracted from this document. Please check clarity.")
+
+    return {
+        "questions": questions,
+        "count": len(questions),
+        "class_level": str(class_level),
+        "subject": str(subject),
+        "chapter": str(chapter),
+        "allowed_topics": allowed_topics
+    }
 
 
 @api_router.get("/questions/hierarchy")
