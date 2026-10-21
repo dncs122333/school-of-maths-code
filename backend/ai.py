@@ -325,9 +325,13 @@ async def extract_questions_from_media(
         "}"
     )
 
-    # Dynamically check models supported by the teacher's key, prioritizing flash models
+    # Dynamically check models supported by the teacher's key, filtering for vision-capable models
     discovered_flash = []
     discovered_other = []
+    NON_VISION_KEYWORDS = (
+        "tts", "audio", "embed", "bidi", "realtime", "imagen", "search",
+        "whisper", "transcribe", "aqa", "banana", "robotics", "computer-use", "argon"
+    )
     try:
         m_resp = requests.get(
             f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key.strip()}",
@@ -338,29 +342,41 @@ async def extract_questions_from_media(
                 m_name = item.get("name", "").replace("models/", "")
                 methods = item.get("supportedGenerationMethods", [])
                 if "generateContent" in methods:
+                    if any(k in m_name.lower() for k in NON_VISION_KEYWORDS):
+                        continue
                     if "flash" in m_name.lower():
                         discovered_flash.append(m_name)
                     else:
                         discovered_other.append(m_name)
+            logger.info(f"Discovered vision models for key: flash={discovered_flash}, other={discovered_other}")
     except Exception as e:
         logger.warning(f"Could not list available Gemini models: {e}")
 
     # Prioritize:
     # 1. User/Teacher requested model (e.g. gemini-3.8-flash)
-    # 2. Main stable models (gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash)
-    # 3. Discovered flash models from user's key
-    # 4. Pro models as high-accuracy fallbacks
+    # 2. Verified active working flash models
+    # 3. Discovered flash models from user's account
+    # 4. Fallback pro and open models
     static_priority = [
         model,
         "gemini-3.8-flash",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash-lite",
+        "gemini-3.7-flash",
+        "gemini-3.5-flash",
+        "gemini-3.6-flash",
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemma-4-26b-a4b-it",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
         "gemini-2.0-flash-exp",
         "gemini-2.5-pro",
         "gemini-1.5-pro",
     ]
-    raw_list = static_priority + discovered_flash + discovered_other
+    raw_list = [model, "gemini-3-flash-preview", "gemini-3.5-flash-lite"] + discovered_flash + static_priority + discovered_other
     seen = set()
     candidate_models = [m for m in raw_list if m and not (m in seen or seen.add(m))]
 
@@ -483,7 +499,7 @@ async def extract_questions_from_media(
             else:
                 err_data = resp.json().get("error", {}) if resp.text.startswith("{") else {}
                 err_msg = err_data.get("message") or resp.text
-                if resp.status_code == 400 and any(w in err_msg.lower() for w in ("not found", "is not supported", "invalid model", "unknown model", "does not exist", "unsupported")):
+                if resp.status_code == 400 and any(w in err_msg.lower() for w in ("not found", "is not supported", "invalid model", "unknown model", "does not exist", "unsupported", "modality", "not enabled")):
                     last_error = f"Model {target_model} not supported ({err_msg})"
                     logger.info(f"Gemini {target_model} not supported ({err_msg}), trying next...")
                     continue
