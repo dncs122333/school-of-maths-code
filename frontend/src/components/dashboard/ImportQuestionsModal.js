@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import {
   UploadCloud, CheckCircle2, AlertTriangle, FileText, Loader2, Code2,
   Bot, Copy, Check, Sparkles, Eye, EyeOff, Trash2, ArrowLeft,
-  ShieldCheck, CheckSquare, Square, Image as ImageIcon, ExternalLink
+  ShieldCheck, CheckSquare, Square, Image as ImageIcon, ExternalLink, X
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -199,6 +199,12 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
 
   const handleDeleteQuestion = (id) => {
     setReviewedQuestions((prev) => prev.filter((q) => q._id !== id));
+  };
+
+  const handleCancelReview = () => {
+    setReviewMode(false);
+    setReviewedQuestions([]);
+    toast.info("Question import cancelled. No questions were added.");
   };
 
   const handleSaveReviewedQuestions = async () => {
@@ -563,10 +569,10 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setReviewMode(false)}
-                    className="rounded-xl border border-[#1E293B] bg-white text-xs font-bold h-8 flex items-center gap-1"
+                    onClick={handleCancelReview}
+                    className="rounded-xl border border-[#E04A3C]/40 text-[#E04A3C] hover:bg-[#E04A3C]/10 bg-white text-xs font-bold h-8 flex items-center gap-1"
                   >
-                    <ArrowLeft className="h-3.5 w-3.5" /> Back / Re-upload
+                    <X className="h-3.5 w-3.5" /> Cancel Adding
                   </Button>
                   <span className="font-head font-bold text-sm text-[#1E293B]">
                     Review Extracted Questions ({reviewedQuestions.length})
@@ -589,6 +595,14 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
                   <span className="text-xs font-bold text-[#64748B]">
                     {selectedCount} of {reviewedQuestions.length} selected
                   </span>
+                </div>
+              </div>
+
+              {/* Mandatory Review Notice Banner */}
+              <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#FFFDF5] border-2 border-[#F5C842] text-xs text-[#1E293B] shadow-[2px_2px_0_#F5C842]">
+                <Sparkles className="h-4 w-4 text-[#B45309] shrink-0 mt-0.5" />
+                <div className="flex-1 leading-relaxed">
+                  <span className="font-bold">Mandatory Verification Step:</span> Review each question below. Confirm the correct answer radio button, verify mathematical symbols, and ensure the approved NCERT topic is accurate. Unchecked questions will be excluded from the question bank.
                 </div>
               </div>
 
@@ -744,15 +758,15 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
               <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#1E293B]/10">
                 <Button
                   variant="outline"
-                  onClick={() => setReviewMode(false)}
-                  className="rounded-full border-2 border-[#1E293B] bg-white text-xs font-bold"
+                  onClick={handleCancelReview}
+                  className="rounded-full border-2 border-[#E04A3C]/40 text-[#E04A3C] hover:bg-[#E04A3C]/10 bg-white text-xs font-bold px-4"
                 >
-                  ← Back to Upload
+                  ✕ Cancel & Discard Questions
                 </Button>
 
                 <div className="flex items-center gap-3">
                   <div className="text-xs font-bold text-[#64748B]">
-                    Status: <span className="text-[#2F8A5F] font-black">{status === "active" ? "Active (Live)" : "Draft"}</span>
+                    Target Status: <span className="text-[#2F8A5F] font-black">Active (Live in Bank)</span>
                   </div>
                   <Button
                     onClick={handleSaveReviewedQuestions}
@@ -765,7 +779,7 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="h-4 w-4 mr-1 text-[#F5C842]" /> Add {selectedCount} Questions to Question Bank
+                        <CheckCircle2 className="h-4 w-4 mr-1 text-[#F5C842]" /> Add {selectedCount} Approved Question{selectedCount === 1 ? "" : "s"} to Question Bank
                       </>
                     )}
                   </Button>
