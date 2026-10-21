@@ -108,7 +108,12 @@ function Leaderboard({ testId }) {
 
 function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse, onToggleActive, togglingActive }) {
   const done = t.submitted;
-  const isDraft = Boolean(t.is_draft || (!t.valid_until && t.is_active === false) || (t.is_active === false && t.batch_name === "Saved / Unassigned"));
+  const isDraft = Boolean(
+    t.is_draft ||
+    (!t.valid_until && t.is_active === false) ||
+    (t.is_active === false && (!t.batch_name || t.batch_name === "Saved / Unassigned")) ||
+    (!t.batch_id && (!t.batch_name || t.batch_name === "Saved / Unassigned"))
+  );
   const isExpired = !isDraft && t.valid_until ? new Date(t.valid_until) <= new Date() : false;
   const isTeacherLive = !isDraft && !isExpired && t.is_active !== false;
   const isTeacherPaused = !isDraft && !isExpired && t.is_active === false;
@@ -221,7 +226,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
         </div>
         <h3 className="font-head text-lg font-900 leading-snug text-[#1E293B]">{t.title}</h3>
         <div className="text-xs text-[#64748B] mt-1 font-bold">
-          Class {t.class_level} • {t.chapter}{t.topic ? ` • ${t.topic}` : ""}{t.batch_name ? ` • Batch: ${t.batch_name}` : ""}
+          Class {t.class_level} • {t.chapter}{t.topic ? ` • ${t.topic}` : ""}{isDraft ? " • Reusable Master Template" : (t.batch_name ? ` • Batch: ${t.batch_name}` : "")}
         </div>
         <div className="mt-4 flex items-center gap-3 text-xs text-[#1E293B] font-mono font-bold">
           <span className="flex items-center gap-1"><FileQuestion className="h-3.5 w-3.5 text-[#5B9BD5]" /> {t.question_count} Qs</span>
@@ -416,10 +421,15 @@ export default function QuizList({ kind }) {
   const classGroups = useMemo(() => {
     return items.reduce((acc, t) => {
       const cl = `Class ${t.class_level || "?"}`;
-      const isDraft = Boolean(t.is_draft || (!t.valid_until && t.is_active === false) || (t.is_active === false && t.batch_name === "Saved / Unassigned"));
+      const isDraft = Boolean(
+        t.is_draft ||
+        (!t.valid_until && t.is_active === false) ||
+        (t.is_active === false && (!t.batch_name || t.batch_name === "Saved / Unassigned")) ||
+        (!t.batch_id && (!t.batch_name || t.batch_name === "Saved / Unassigned"))
+      );
       const batch = (isDraft && isTeacher)
         ? "Master Templates"
-        : (t.batch_name?.trim() || (isTeacher ? "Saved / Unassigned" : "General"));
+        : (t.batch_name?.trim() || (isTeacher ? "Master Templates" : "General"));
       if (!acc[cl]) acc[cl] = {};
       if (!acc[cl][batch]) acc[cl][batch] = [];
       acc[cl][batch].push(t);

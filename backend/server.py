@@ -1983,9 +1983,18 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
     if user["role"] == "teacher":
         q["teacher_id"] = user["id"]
         tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
+        missing_bids = {t["batch_id"] for t in tests if t.get("batch_id") and not t.get("batch_name") and t.get("batch_id") not in ("all", "")}
+        if missing_bids:
+            batch_docs = await db.batches.find({"id": {"$in": list(missing_bids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(missing_bids))
+            b_map = {b["id"]: b.get("name") for b in batch_docs}
+            for t in tests:
+                if not t.get("batch_name") and t.get("batch_id") in b_map:
+                    t["batch_name"] = b_map[t["batch_id"]]
         for t in tests:
+            if not t.get("batch_name") and t.get("batch_id") == "all":
+                t["batch_name"] = "All Students"
             t["is_active"] = t.get("is_active", True) is not False
-            is_draft = bool(t.get("is_draft") or (t.get("is_active") is False and (not t.get("valid_until") or t.get("batch_name") == "Saved / Unassigned")))
+            is_draft = bool(t.get("is_draft") or (t.get("is_active") is False and (not t.get("valid_until") or t.get("batch_name") in ("Saved / Unassigned", None, ""))))
             t["is_draft"] = is_draft
         return tests
     if user["role"] == "student":
