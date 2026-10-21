@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Orbit,
   Radio,
+  Database,
 } from "lucide-react";
 import { toast } from "sonner";
 import ClassHeatmap from "../components/dashboard/ClassHeatmap";
@@ -26,6 +27,7 @@ import StudentRosterRadar from "../components/dashboard/StudentRosterRadar";
 import PendingReviewsQueue from "../components/dashboard/PendingReviewsQueue";
 import ImportQuestionsModal from "../components/dashboard/ImportQuestionsModal";
 import LiveTestsDrawer from "../components/dashboard/LiveTestsDrawer";
+import QuestionBankExplorer from "../components/dashboard/QuestionBankExplorer";
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
@@ -43,6 +45,13 @@ export default function TeacherDashboard() {
   const openImportModal = (initialTab = "ai_vision") => {
     setImportInitialTab(initialTab);
     setImportModalOpen(true);
+  };
+
+  const scrollToQuestionBank = () => {
+    const el = document.getElementById("question-bank-explorer");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   };
 
   // Time-of-day greeting
@@ -173,6 +182,13 @@ export default function TeacherDashboard() {
               className="rounded-full bg-[#4CAF7D] hover:bg-[#429E6F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
             >
               <UploadCloud className="h-4 w-4 mr-1.5" /> Import Questions
+            </Button>
+            <Button
+              type="button"
+              onClick={scrollToQuestionBank}
+              className="rounded-full bg-[#1E293B] hover:bg-[#334155] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs h-10 px-4"
+            >
+              <Database className="h-4 w-4 mr-1.5 text-[#F5C842]" /> Question Bank
             </Button>
           </div>
         </div>
@@ -458,6 +474,13 @@ export default function TeacherDashboard() {
           </div>
         </div>
       </div>
+
+      {/* 5. QUESTION BANK EXPLORER (Chapterwise Expandable/Collapsible) */}
+      <QuestionBankExplorer
+        onQuestionsChange={() => {
+          api.get("/stats").then((r) => setStats(r.data || {})).catch(() => {});
+        }}
+      />
 
       {/* Question Import / AI Scanner Modal */}
       <ImportQuestionsModal

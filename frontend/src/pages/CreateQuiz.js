@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { formatExpiry } from "../lib/utils";
 import { Button } from "../components/ui/button";
@@ -16,6 +16,11 @@ import { toast } from "sonner";
 
 export default function CreateQuiz({ kind }) {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initClass = searchParams.get("class_level") || "9";
+  const initSubject = searchParams.get("subject") || "";
+  const initChapter = searchParams.get("chapter") || "";
+
   const isDpp = kind === "dpp";
   const [catalog, setCatalog] = useState({});
   const [bankHierarchy, setBankHierarchy] = useState({});
@@ -46,10 +51,10 @@ export default function CreateQuiz({ kind }) {
   const [sortInsideChapter, setSortInsideChapter] = useState("topic");
 
   const [f, setF] = useState({
-    title: "",
-    class_level: "9",
-    subject: "",
-    chapter: "",
+    title: initChapter ? `${initChapter} Practice Test` : "",
+    class_level: initClass,
+    subject: initSubject,
+    chapter: initChapter,
     topic: "",
     batch_id: "",
     question_count: 10,
