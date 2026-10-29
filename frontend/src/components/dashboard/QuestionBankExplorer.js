@@ -260,7 +260,7 @@ export default function QuestionBankExplorer({ onQuestionsChange }) {
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-[#64748B] font-medium">
-            Browse verified question items organized chapterwise. Expand any chapter and topic to inspect questions or launch tests.
+            Browse verified question items organized by chapter. Expand any chapter and topic to inspect questions or launch practice tests.
           </p>
         </div>
 

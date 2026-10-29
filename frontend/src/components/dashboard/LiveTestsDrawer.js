@@ -150,7 +150,7 @@ export default function LiveTestsDrawer({ open, onClose }) {
 function TestRow({ test, toggling, onToggle }) {
   const isClassTest = test.kind === "test";
   const kindColor = isClassTest ? "#FF6B5E" : "#5B9BD5";
-  const kindLabel = isClassTest ? "Class Test" : "Chapterwise";
+  const kindLabel = isClassTest ? "Class Test" : "Practice Test";
   const KindIcon = isClassTest ? FileQuestion : BookOpen;
 
   return (

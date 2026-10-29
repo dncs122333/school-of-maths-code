@@ -630,7 +630,7 @@ export default function StudentDashboard() {
             to="/dpp"
             className="hub-btn hub-btn-blue px-5 py-3 text-xs sm:text-sm uppercase tracking-wider"
           >
-            ⚡ Chapterwise DPP Practice
+            ⚡ Practice Tests (DPP)
           </Link>
 
           <Link

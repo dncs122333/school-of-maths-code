@@ -24,7 +24,7 @@ function formatExpiry(iso) {
   return `${datePart}, ${timePart}`;
 }
 
-function ChapterwiseSubmissions({ testId }) {
+function PracticeTestSubmissions({ testId }) {
   const [open, setOpen] = useState(false);
   const [submissions, setSubmissions] = useState(null);
   const toggle = () => {
@@ -49,7 +49,7 @@ function ChapterwiseSubmissions({ testId }) {
           {submissions === null ? (
             <div className="text-xs text-[#64748B] font-bold">Loading attempts…</div>
           ) : submissions.length === 0 ? (
-            <div className="text-xs text-[#64748B]">No students have attempted this chapterwise test yet.</div>
+            <div className="text-xs text-[#64748B]">No students have attempted this practice test yet.</div>
           ) : (
             <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
               {submissions.map((s, idx) => (
@@ -293,7 +293,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
         )}
       </div>
       {!isDpp && <Leaderboard testId={t.id} />}
-      {isDpp && isTeacher && <ChapterwiseSubmissions testId={t.id} />}
+      {isDpp && isTeacher && <PracticeTestSubmissions testId={t.id} />}
     </motion.div>
   );
 }
@@ -480,16 +480,16 @@ export default function QuizList({ kind }) {
       <div className="flex flex-wrap items-center justify-between gap-4 p-6 sm:p-8 rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B]">
         <div>
           <span className="text-xs uppercase tracking-widest text-[#1E293B] font-head font-extrabold px-3 py-1 bg-white rounded-full border-2 border-[#1E293B]">
-            {isDpp ? "Chapterwise Practice" : "Board Assessments"}
+            {isDpp ? "Practice Tests" : "Board Assessments"}
           </span>
           <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight text-[#1E293B] uppercase mt-2">
-            {isDpp ? "Chapterwise Tests (DPP)" : "Class Tests"}
+            {isDpp ? "Practice Tests (DPP)" : "Class Tests"}
           </h1>
         </div>
         {isTeacher && (
           <Button data-testid="new-quiz-btn" asChild className="rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold hover:bg-[#FFF9E8]">
             <Link to={isDpp ? "/dpp/new" : "/tests/new"}>
-              <Plus className="h-4 w-4 mr-1" /> + Create {isDpp ? "DPP" : "Test"}
+              <Plus className="h-4 w-4 mr-1" /> + Create {isDpp ? "Practice Test" : "Test"}
             </Link>
           </Button>
         )}

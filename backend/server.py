@@ -3009,11 +3009,39 @@ async def stats(user: dict = Depends(get_current_user)):
             "active_week_days": active_week_days,
         }
     q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
+    if user["role"] == "admin":
+        student_count = await db.users.count_documents({"role": "student"})
+        enrollment_pipeline = [
+            {"$match": {"role": "student", "batch_ids.0": {"$exists": True}}},
+            {"$unwind": "$batch_ids"},
+            {"$count": "total"}
+        ]
+        total_enrollments = 0
+        async for doc in db.users.aggregate(enrollment_pipeline):
+            total_enrollments = doc["total"]
+    else:
+        teacher_batches = [b["id"] async for b in db.batches.find({"teacher_id": user["id"]}, {"id": 1})]
+        if teacher_batches:
+            student_count = await db.users.count_documents({"role": "student", "batch_ids": {"$in": teacher_batches}})
+            enrollment_pipeline = [
+                {"$match": {"role": "student", "batch_ids": {"$in": teacher_batches}}},
+                {"$unwind": "$batch_ids"},
+                {"$match": {"batch_ids": {"$in": teacher_batches}}},
+                {"$count": "total"}
+            ]
+            total_enrollments = 0
+            async for doc in db.users.aggregate(enrollment_pipeline):
+                total_enrollments = doc["total"]
+        else:
+            student_count = 0
+            total_enrollments = 0
+
     return {"notes": await db.notes.count_documents(q),
             "tests": await db.tests.count_documents({**q, "kind": "test", "is_active": {"$ne": False}}),
             "dpps": await db.tests.count_documents({**q, "kind": "dpp", "is_active": {"$ne": False}}),
             "batches": await db.batches.count_documents(q if user["role"] == "admin" else {"teacher_id": user["id"]}),
-            "students": await db.users.count_documents({"role": "student"})}
+            "students": student_count,
+            "enrollments": total_enrollments}
 
 
 @api_router.get("/batches/{batch_id}/topper")
@@ -3108,11 +3136,27 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
             "streak_days": streak,
         })
 
+    for sid, name in student_map.items():
+        if sid not in student_stats:
+            toppers.append({
+                "student_id": sid,
+                "name": name,
+                "batch_name": batch.get("name", "Batch"),
+                "total_score": 0.0,
+                "avg_score": 0.0,
+                "accuracy": 0,
+                "tests_taken": 0,
+                "streak_days": 0,
+            })
+
     if not toppers:
-        return {"topper": None}
+        return {"topper": None, "leaderboard": []}
 
     toppers.sort(key=lambda t: (t["total_score"], t["avg_score"], t["tests_taken"], t["streak_days"]), reverse=True)
-    return {"topper": toppers[0]}
+    for idx, t in enumerate(toppers):
+        t["rank"] = idx + 1
+    top_student = toppers[0] if toppers and toppers[0]["tests_taken"] > 0 else None
+    return {"topper": top_student, "leaderboard": toppers}
 
 
 @api_router.get("/admin/data-source-status", response_model=DataSourceStatusResponse)

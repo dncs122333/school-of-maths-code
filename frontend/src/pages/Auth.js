@@ -14,7 +14,11 @@ export default function Auth() {
   const nav = useNavigate();
   const [mode, setMode] = useState(params.get("mode") === "register" ? "register" : "login");
   const [role, setRole] = useState(params.get("role") === "teacher" ? "teacher" : "student");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: process.env.NODE_ENV === "development" ? "admin@vidya.com" : "",
+    password: process.env.NODE_ENV === "development" ? "admin123" : ""
+  });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { if (user) nav("/dashboard"); }, [user, nav]);
@@ -143,9 +147,14 @@ export default function Auth() {
             </Button>
           </form>
           {mode === "login" && process.env.NODE_ENV === "development" && (
-            <p className="text-xs text-[#64748B] text-center mt-4 font-mono font-bold">
-              Teacher Demo: admin@vidya.com / admin123
-            </p>
+            <button
+              type="button"
+              id="quick-demo-fill"
+              onClick={() => setForm({ email: "admin@vidya.com", password: "admin123" })}
+              className="block w-full text-xs text-[#3E7CB1] hover:text-[#1E293B] hover:underline text-center mt-4 font-mono font-bold cursor-pointer p-1"
+            >
+              Teacher Demo: admin@vidya.com / admin123 (Click to fill)
+            </button>
           )}
         </div>
       </div>

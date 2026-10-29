@@ -384,7 +384,7 @@ export default function CreateQuiz({ kind }) {
         saveOnly
           ? `Master Template saved under Class ${f.class_level} → Master Templates!`
           : isDpp
-          ? "Chapterwise Test published and live!"
+          ? "Practice Test published and live!"
           : "Test created and live for students!"
       );
       nav(isDpp ? "/dpp" : "/tests");
@@ -405,7 +405,7 @@ export default function CreateQuiz({ kind }) {
           Teacher Studio
         </span>
         <h1 className="font-head text-3xl sm:text-4xl font-900 tracking-tight flex items-center gap-2 text-[#1E293B] mt-2">
-          {isDpp ? "NEW CHAPTERWISE TEST (DPP)" : "LAUNCH A TIMED TEST"} <Wand2 className="h-7 w-7 text-[#1E293B]" />
+          {isDpp ? "NEW PRACTICE TEST (DPP)" : "LAUNCH A TIMED TEST"} <Wand2 className="h-7 w-7 text-[#1E293B]" />
         </h1>
         <p className="text-[#1E293B]/80 font-medium mt-2">
           {isDpp
@@ -423,7 +423,7 @@ export default function CreateQuiz({ kind }) {
             className={inp}
             value={f.title}
             onChange={(e) => setF({ ...f, title: e.target.value })}
-            placeholder={isDpp ? "e.g. Quadratic Equations — Chapterwise DPP" : "e.g. Unit Test 1 — Real Numbers & Polynomials"}
+            placeholder={isDpp ? "e.g. Quadratic Equations — Practice Test" : "e.g. Unit Test 1 — Real Numbers & Polynomials"}
           />
         </div>
 
@@ -588,7 +588,7 @@ export default function CreateQuiz({ kind }) {
                 <Select
                   value={f.chapter}
                   onValueChange={(v) => {
-                    const defaultTitle = f.title || (v ? `${v} — ${isDpp ? "Chapterwise Test" : "Class Test"}` : "");
+                    const defaultTitle = f.title || (v ? `${v} — ${isDpp ? "Practice Test" : "Class Test"}` : "");
                     setF({ ...f, chapter: v, topic: "", title: defaultTitle });
                   }}
                 >

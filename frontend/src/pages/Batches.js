@@ -1943,7 +1943,7 @@ export default function Batches() {
                           <div className="min-w-0 pr-2">
                             <span className="text-[#1E293B] font-bold block truncate">{tr.title || "Assessment"}</span>
                             <span className="text-[#1E293B]/70 text-[11px]">
-                              {tr.correct}/{tr.total} correct • {tr.kind === "dpp" ? "Chapterwise Practice" : "Timed Test"}
+                              {tr.correct}/{tr.total} correct • {tr.kind === "dpp" ? "Practice Test" : "Timed Test"}
                             </span>
                           </div>
                           <span
@@ -1977,7 +1977,7 @@ export default function Batches() {
                     className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] font-bold shadow-[2px_2px_0_#1E293B]"
                   >
                     <Link to="/dpp/new">
-                      <Sparkles className="h-4 w-4 mr-1.5" /> Launch Chapterwise Test for Cohort
+                      <Sparkles className="h-4 w-4 mr-1.5" /> Launch Practice Test for Cohort
                     </Link>
                   </Button>
                 </div>

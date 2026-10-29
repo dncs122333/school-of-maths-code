@@ -86,7 +86,7 @@ export default function Landing() {
           {/* Subtext */}
           <p className="text-base sm:text-xl font-medium text-[#1E293B]/85 max-w-3xl mx-auto leading-relaxed">
             No confusion, just crystal-clear clarity. Prepare for CBSE board exams with
-            structured topper notes, timed batch examinations, daily chapterwise practice, and
+            structured topper notes, timed batch examinations, daily practice tests, and
             real-time weak-topic detection.
           </p>
 
@@ -135,7 +135,7 @@ export default function Landing() {
             </div>
             <div className="p-3.5 rounded-2xl bg-white/70 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
               <div className="flex items-center gap-2 font-head font-black text-xs sm:text-sm text-[#1E293B]">
-                <Sparkles className="h-4 w-4 text-[#E04A3C]" /> Chapterwise DPPs
+                <Sparkles className="h-4 w-4 text-[#E04A3C]" /> Practice Tests (DPP)
               </div>
               <div className="text-[11px] text-[#1E293B]/70 mt-1">Bite-sized daily practice sets</div>
             </div>
@@ -403,7 +403,7 @@ export default function Landing() {
             title="98% Accuracy"
             batchName="Batch: Alpha Scholars"
             badgeText="CBSE Class 10 Topper"
-            quote="Solving daily chapterwise questions with instant reasoning helped me turn Quadratic Equations and Triangles from my weakest topics into my highest-scoring board exam areas!"
+            quote="Solving daily practice test questions with instant reasoning helped me turn Quadratic Equations and Triangles from my weakest topics into my highest-scoring board exam areas!"
             streakDays={7}
             accuracy={96}
             testsCompleted={14}
