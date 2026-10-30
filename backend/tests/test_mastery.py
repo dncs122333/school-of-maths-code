@@ -93,3 +93,14 @@ class TestMastery:
     def test_04_rbac_student_cannot_see_teacher_report(self):
         assert requests.get(f"{API}/mastery/teacher", headers=self.state["sh"],
                             params={"batch_id": "x"}, timeout=15).status_code == 403
+
+    def test_05_targeted_weak_topic_sprint_generation(self):
+        tag = self.state["tag"]
+        r = requests.post(f"{API}/tests/diagnostic", headers=self.state["sh"],
+                          json={"class_level": "9", "subject": "Maths",
+                                "chapter": f"Chapter {tag}", "topic": f"Topic {tag}"}, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["status"] == "ready"
+        assert d["question_count"] >= 1
+        assert "Practice Sprint" in d["title"]

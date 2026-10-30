@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import {
   Plus, FileQuestion, Sparkles, Clock, CheckCircle2, Lock,
   PlayCircle, Trophy, ChevronDown, Folder, Pencil, Trash2, Loader2, Users,
-  Copy, Send,
+  Copy, Send, UserX, Search, Target, Zap, X, ChevronRight, ChevronLeft, BarChart2,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { motion } from "framer-motion";
@@ -24,89 +24,725 @@ function formatExpiry(iso) {
   return `${datePart}, ${timePart}`;
 }
 
-function PracticeTestSubmissions({ testId }) {
-  const [open, setOpen] = useState(false);
-  const [submissions, setSubmissions] = useState(null);
-  const toggle = () => {
-    if (!open && submissions === null) {
-      api.get(`/tests/${testId}/submissions`).then((r) => setSubmissions(r.data || [])).catch(() => setSubmissions([]));
-    }
-    setOpen(!open);
+function TestStudentsModal({ testData, onClose, isTeacher }) {
+  const [activeTab, setActiveTab] = useState("leaderboard");
+  const [leaderboard, setLeaderboard] = useState(null);
+  const [missedData, setMissedData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentDrillLoading, setStudentDrillLoading] = useState(false);
+  const [studentReview, setStudentReview] = useState(null);
+  const [studentMastery, setStudentMastery] = useState(null);
+  const [questionFilter, setQuestionFilter] = useState("all");
+  const [topicSortOrder, setTopicSortOrder] = useState("weakest");
+
+  const test = testData?.test;
+
+  useEffect(() => {
+    if (!test?.id) return;
+    setActiveTab(testData?.initialTab || "leaderboard");
+    setSelectedStudent(null);
+    setStudentReview(null);
+    setStudentMastery(null);
+    setLoading(true);
+    setSearch("");
+    setCopied(false);
+    setTopicSortOrder("weakest");
+
+    const p1 = api
+      .get(`/tests/${test.id}/leaderboard`)
+      .then((r) => setLeaderboard(r.data || []))
+      .catch(() => setLeaderboard([]));
+
+    const p2 = isTeacher
+      ? api
+          .get(`/tests/${test.id}/missed-students`)
+          .then((r) => setMissedData(r.data || null))
+          .catch(() => setMissedData(null))
+      : Promise.resolve();
+
+    Promise.all([p1, p2]).finally(() => setLoading(false));
+  }, [test?.id, testData?.initialTab, isTeacher]);
+
+  const handleSelectStudent = (studentItem, medal, rankNum) => {
+    if (!isTeacher || !studentItem.student_id) return;
+    setSelectedStudent({
+      ...studentItem,
+      medal,
+      rank: rankNum
+    });
+    setStudentDrillLoading(true);
+    setQuestionFilter("all");
+    setTopicSortOrder("weakest");
+
+    const pReview = api
+      .get(`/tests/${test.id}/submissions/${studentItem.student_id}`)
+      .then((r) => setStudentReview(r.data))
+      .catch(() => setStudentReview(null));
+
+    const pMastery = api
+      .get(`/mastery/teacher/student/${studentItem.student_id}`)
+      .then((r) => setStudentMastery(r.data))
+      .catch(() => setStudentMastery(null));
+
+    Promise.all([pReview, pMastery]).finally(() => {
+      setStudentDrillLoading(false);
+    });
   };
+
+  const sortedTopics = useMemo(() => {
+    let list = [];
+    if (studentMastery?.topics?.length) {
+      list = [...studentMastery.topics];
+    } else if (studentReview?.topic_summary?.length) {
+      list = [...studentReview.topic_summary].map((t) => ({
+        topic: t.topic,
+        chapter: t.chapter,
+        score: t.accuracy,
+      }));
+    }
+    return list.sort((a, b) => {
+      const sa = a.score ?? 0;
+      const sb = b.score ?? 0;
+      return topicSortOrder === "strongest" ? sb - sa : sa - sb;
+    });
+  }, [studentMastery, studentReview, topicSortOrder]);
+
+  const filteredQuestions = useMemo(() => {
+    const list = studentReview?.questions || [];
+    if (questionFilter === "correct") return list.filter((q) => q.is_correct);
+    if (questionFilter === "incorrect") return list.filter((q) => !q.is_correct);
+    return list;
+  }, [studentReview, questionFilter]);
+
+  if (!test) return null;
+
+  const handleCopyAbsent = () => {
+    if (!missedData?.missed_students?.length) return;
+    const names = missedData.missed_students
+      .map((s, idx) => `${idx + 1}. ${s.name}${s.email ? ` (${s.email})` : ""}`)
+      .join("\n");
+    const textToCopy = `Missed Test Roster: ${test.title}\nBatch: ${missedData.batch_name || "All Students"}\nTotal Absent: ${missedData.missed_count} students\n\n${names}`;
+    navigator.clipboard
+      .writeText(textToCopy)
+      .then(() => {
+        setCopied(true);
+        toast.success("Absent student roster copied to clipboard!");
+        setTimeout(() => setCopied(false), 2500);
+      })
+      .catch(() => {
+        toast.error("Failed to copy to clipboard");
+      });
+  };
+
+  const filteredLeaderboard = (leaderboard || []).filter((s) =>
+    (s.student_name || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredMissed = (missedData?.missed_students || []).filter(
+    (s) =>
+      (s.name || "").toLowerCase().includes(search.toLowerCase()) ||
+      (s.email || "").toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
-    <div className="mt-3">
-      <button
-        data-testid={`submissions-${testId}`}
-        onClick={toggle}
-        className="w-full flex items-center justify-center gap-1.5 text-xs font-head font-bold text-[#1E293B] hover:text-[#2F8A5F] py-1 transition-colors"
-      >
-        <Users className="h-3.5 w-3.5 text-[#2F8A5F]" />
-        Student Attempts ({submissions === null ? "View" : submissions.length})
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="mt-2 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-3 shadow-[2px_2px_0_#1E293B] space-y-2">
-          {submissions === null ? (
-            <div className="text-xs text-[#64748B] font-bold">Loading attempts…</div>
-          ) : submissions.length === 0 ? (
-            <div className="text-xs text-[#64748B]">No students have attempted this practice test yet.</div>
-          ) : (
-            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-              {submissions.map((s, idx) => (
-                <div key={s.id || idx} className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-white border border-[#1E293B]/20 text-xs">
-                  <div className="min-w-0 flex-1 pr-2">
-                    <span className="font-bold text-[#1E293B] truncate block">{s.student_name}</span>
-                    <span className="text-[10px] text-[#64748B] font-mono">
-                      {s.created_at ? new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-head font-bold text-[#1E293B]">{s.score}%</span>
-                    <span className="text-[10px] text-[#64748B] block font-mono">({s.correct}/{s.total} Qs)</span>
-                  </div>
-                </div>
-              ))}
+    <Dialog open={!!test} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className={`bg-white border-[3px] border-[#1E293B] ${selectedStudent ? "max-w-2xl" : "max-w-lg"} rounded-3xl p-6 shadow-[6px_6px_0_#1E293B] text-[#1E293B] max-h-[88vh] flex flex-col transition-all duration-150`}>
+        {selectedStudent ? (
+          /* DRILL-DOWN HEADER */
+          <div className="flex items-center justify-between pb-3 border-b-2 border-[#1E293B]/10">
+            <button
+              type="button"
+              onClick={() => { setSelectedStudent(null); setStudentReview(null); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFF9E8] hover:bg-[#FBEFC8] border-2 border-[#1E293B] font-head font-bold text-xs text-[#1E293B] shadow-[1.5px_1.5px_0_#1E293B] cursor-pointer"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span>Back to Leaderboard</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="font-head font-black text-xs px-2.5 py-1 rounded-lg bg-[#FFF9E8] border border-[#1E293B]">
+                {selectedStudent.medal} Rank #{selectedStudent.rank}
+              </span>
+              <span className="font-head font-black text-xs px-2.5 py-1 rounded-lg bg-[#F5C842] border-2 border-[#1E293B] text-[#1E293B] shadow-[1px_1px_0_#1E293B]">
+                {selectedStudent.score}%
+              </span>
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+          </div>
+        ) : (
+          /* DEFAULT TEST HEADER */
+          <>
+            <DialogHeader className="space-y-1 pb-3 border-b-2 border-[#1E293B]/10">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full bg-[#FFF9E8] border border-[#1E293B] text-[11px] font-mono font-bold text-[#1E293B]">
+                  Class {test.class_level || 9}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-[#5B9BD5]/15 border border-[#5B9BD5] text-[11px] font-mono font-bold text-[#3E7CB1]">
+                  {test.batch_name || "All Students"}
+                </span>
+                <span className="text-xs text-[#64748B] font-mono font-bold">
+                  {test.kind === "dpp" ? "Practice Test" : "Class Test"}
+                </span>
+              </div>
+              <DialogTitle className="text-[#1E293B] font-head text-2xl font-black truncate">
+                {test.title}
+              </DialogTitle>
+              <p className="text-xs text-[#64748B] font-medium truncate">
+                {test.chapter}{test.topic ? ` • ${test.topic}` : ""}
+              </p>
+            </DialogHeader>
 
-function Leaderboard({ testId }) {
-  const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState(null);
-  const toggle = () => {
-    if (!open && rows === null) {
-      api.get(`/tests/${testId}/leaderboard`).then((r) => setRows(r.data)).catch(() => setRows([]));
-    }
-    setOpen(!open);
-  };
-  return (
-    <div className="mt-3">
-      <button data-testid={`leaderboard-${testId}`} onClick={toggle}
-        className="w-full flex items-center justify-center gap-1 text-xs font-head font-bold text-[#1E293B] hover:text-[#5B9BD5] py-1 transition-colors">
-        <Trophy className="h-3.5 w-3.5 text-[#F5C842]" /> Leaderboard
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="mt-2 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-3 shadow-[2px_2px_0_#1E293B]">
-          {rows === null ? <div className="text-xs text-[#64748B] font-bold">Loading…</div>
-            : rows.length === 0 ? <div className="text-xs text-[#64748B]">No submissions yet.</div>
-            : rows.slice(0, 5).map((r, i) => (
-                <div key={i} className="flex items-center justify-between py-1 text-xs">
-                  <span className="text-[#1E293B] font-medium truncate">{i + 1}. {r.student_name}</span>
-                  <span className="font-head font-bold text-[#1E293B]">{r.score}% <span className="text-[#64748B] font-normal">({r.correct}/{r.total})</span></span>
+            {/* Tab Switcher Pills */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => { setActiveTab("leaderboard"); setSearch(""); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-2xl text-xs font-head font-900 border-2 border-[#1E293B] transition-all cursor-pointer ${
+                  activeTab === "leaderboard"
+                    ? "bg-[#F5C842] text-[#1E293B] shadow-[2px_2px_0_#1E293B]"
+                    : "bg-white text-[#64748B] hover:bg-[#FFF9E8] hover:text-[#1E293B]"
+                }`}
+              >
+                <Trophy className="h-4 w-4 text-[#F5C842]" />
+                <span>Leaderboard</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-white border border-[#1E293B] font-bold">
+                  {leaderboard ? leaderboard.length : "…"}
+                </span>
+              </button>
+
+              {isTeacher && (
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("missed"); setSearch(""); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-2xl text-xs font-head font-900 border-2 border-[#1E293B] transition-all cursor-pointer ${
+                    activeTab === "missed"
+                      ? "bg-[#FF6B5E] text-white shadow-[2px_2px_0_#1E293B]"
+                      : "bg-white text-[#64748B] hover:bg-[#FEE2E2] hover:text-[#E04A3C]"
+                  }`}
+                >
+                  <UserX className="h-4 w-4" />
+                  <span>Missed Test</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono border font-bold ${
+                    activeTab === "missed"
+                      ? "bg-white text-[#E04A3C] border-[#1E293B]"
+                      : "bg-[#FFF9E8] text-[#1E293B] border-[#1E293B]"
+                  }`}>
+                    {missedData ? missedData.missed_count : "…"}
+                  </span>
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Tab / Drill-down Body */}
+        {selectedStudent ? (
+          /* STUDENT DETAIL VIEW (ANSWERS + TOPIC BAR GRAPH) */
+          <div className="flex-1 overflow-y-auto space-y-4 pt-2 pr-1 min-h-[300px]">
+            {/* Student Overview Strip */}
+            <div className="p-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex items-center justify-between gap-3 shadow-[1.5px_1.5px_0_#1E293B]">
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[#64748B] font-bold">
+                  Student Assessment Drill-Down
                 </div>
-              ))}
-        </div>
-      )}
-    </div>
+                <h3 className="font-head text-lg font-black text-[#1E293B]">
+                  {selectedStudent.student_name}
+                </h3>
+                <p className="text-[11px] text-[#64748B] font-medium">
+                  {test.title} • {test.chapter}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="text-center px-3 py-1 rounded-xl bg-white border border-[#1E293B]">
+                  <span className="block font-head font-black text-sm text-[#2F8A5F]">
+                    {studentReview?.summary?.correct ?? selectedStudent.correct}
+                  </span>
+                  <span className="text-[9px] font-mono text-[#64748B] uppercase font-bold">Correct</span>
+                </div>
+                <div className="text-center px-3 py-1 rounded-xl bg-white border border-[#1E293B]">
+                  <span className="block font-head font-black text-sm text-[#E04A3C]">
+                    {(studentReview?.summary?.total ?? selectedStudent.total) - (studentReview?.summary?.correct ?? selectedStudent.correct)}
+                  </span>
+                  <span className="text-[9px] font-mono text-[#64748B] uppercase font-bold">Incorrect</span>
+                </div>
+              </div>
+            </div>
+
+            {studentDrillLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-[#64748B] space-y-2">
+                <span className="h-6 w-6 border-3 border-[#1E293B] border-t-transparent rounded-full animate-spin" />
+                <span className="font-head text-xs font-bold text-[#1E293B]">Loading student submission and topic calibrations…</span>
+              </div>
+            ) : (
+              <>
+                {/* 1. DUAL-COLOR TOPIC MASTERY & GAP ANALYSIS BAR GRAPH */}
+                <div className="rounded-2xl bg-white border-2 border-[#1E293B] p-4 shadow-[2px_2px_0_#1E293B] space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <BarChart2 className="h-4 w-4 text-[#3E7CB1]" />
+                      <h4 className="font-head font-black text-sm text-[#1E293B] uppercase tracking-wide">
+                        Topic Mastery & Gap Analysis
+                      </h4>
+                    </div>
+
+                    {/* Legend & Sort Toggle */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Mini Legend */}
+                      <div className="flex items-center gap-2 bg-[#FFF9E8] px-2.5 py-1 rounded-lg border border-[#1E293B] text-[10px] font-head font-bold">
+                        <span className="flex items-center gap-1 text-[#2F8A5F]">
+                          <span className="h-2 w-2 rounded-full bg-[#2F8A5F]" />
+                          Mastered
+                        </span>
+                        <span className="text-[#64748B]">|</span>
+                        <span className="flex items-center gap-1 text-[#E04A3C]">
+                          <span className="h-2 w-2 rounded-full bg-[#E04A3C]" />
+                          Gap (Needs Work)
+                        </span>
+                      </div>
+
+                      {/* Sort Toggle */}
+                      <div className="flex items-center bg-[#FFF9E8] p-0.5 rounded-lg border border-[#1E293B] text-[10px] font-head font-bold">
+                        <button
+                          id="btn-sort-weakest"
+                          type="button"
+                          onClick={() => setTopicSortOrder("weakest")}
+                          className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                            topicSortOrder === "weakest"
+                              ? "bg-[#1E293B] text-white shadow-[1px_1px_0_#1E293B]"
+                              : "text-[#64748B] hover:text-[#1E293B]"
+                          }`}
+                        >
+                          Weakest First
+                        </button>
+                        <button
+                          id="btn-sort-strongest"
+                          type="button"
+                          onClick={() => setTopicSortOrder("strongest")}
+                          className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                            topicSortOrder === "strongest"
+                              ? "bg-[#1E293B] text-white shadow-[1px_1px_0_#1E293B]"
+                              : "text-[#64748B] hover:text-[#1E293B]"
+                          }`}
+                        >
+                          Strongest First
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {sortedTopics.length === 0 ? (
+                    <p className="text-xs text-[#64748B] text-center py-4">No topic calibrations available yet.</p>
+                  ) : (
+                    <div className="space-y-3 pt-1">
+                      {sortedTopics.map((top, idx) => {
+                        const rawScore = top.score ?? 0;
+                        const score = Math.round(Math.max(0, Math.min(100, rawScore)));
+                        const gap = 100 - score;
+                        const isWeak = score < 55;
+                        const isDev = score >= 55 && score < 75;
+                        const bandLabel = isWeak ? "Needs Work" : isDev ? "Developing" : "Mastered";
+                        const bandClass = isWeak
+                          ? "text-[#E04A3C] border-[#E04A3C] bg-[#FEE2E2]"
+                          : isDev
+                          ? "text-[#B45309] border-[#B45309] bg-[#FEF3C7]"
+                          : "text-[#2F8A5F] border-[#2F8A5F] bg-[#EAF7EE]";
+
+                        return (
+                          <div key={idx} className="space-y-1.5 p-2.5 rounded-xl bg-[#FFF9E8]/50 border border-[#1E293B]/20">
+                            <div className="flex items-center justify-between text-xs gap-2 flex-wrap">
+                              <span className="font-head font-bold text-[#1E293B] truncate max-w-[260px]">
+                                {top.topic}
+                                {top.chapter ? (
+                                  <span className="text-[10px] text-[#64748B] font-mono font-normal"> ({top.chapter})</span>
+                                ) : null}
+                              </span>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className={`text-[10px] font-head font-black uppercase px-2 py-0.5 rounded-full border ${bandClass}`}>
+                                  {bandLabel}
+                                </span>
+                                <span className="font-mono text-[10px] font-bold text-[#2F8A5F] bg-white px-1.5 py-0.5 rounded border border-[#2F8A5F]/40 shadow-xs">
+                                  {score}% Mastered
+                                </span>
+                                {gap > 0 && (
+                                  <span className="font-mono text-[10px] font-bold text-[#E04A3C] bg-white px-1.5 py-0.5 rounded border border-[#E04A3C]/40 shadow-xs">
+                                    {gap}% Gap
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Dual-Color Bar Track */}
+                            <div className="h-4 w-full bg-[#FFF9E8] rounded-full border-2 border-[#1E293B] overflow-hidden flex shadow-[1px_1px_0_#1E293B]">
+                              {/* Green Segment (Score) */}
+                              {score > 0 && (
+                                <div
+                                  className="h-full bg-[#2F8A5F] flex items-center justify-center text-[9px] font-mono font-black text-white transition-all duration-500 overflow-hidden"
+                                  style={{ width: `${score}%` }}
+                                  title={`Mastered: ${score}%`}
+                                >
+                                  {score >= 18 ? `${score}%` : ""}
+                                </div>
+                              )}
+                              {/* Red Segment (Gap) */}
+                              {gap > 0 && (
+                                <div
+                                  className="h-full bg-[#E04A3C] flex items-center justify-center text-[9px] font-mono font-black text-white transition-all duration-500 overflow-hidden"
+                                  style={{ width: `${gap}%` }}
+                                  title={`Gap (Needs Work): ${gap}%`}
+                                >
+                                  {gap >= 18 ? `${gap}%` : ""}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. CORRECT & INCORRECT ANSWERS BREAKDOWN */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-[#2F8A5F]" />
+                      <h4 className="font-head font-black text-sm text-[#1E293B] uppercase tracking-wide">
+                        Test Questions & Student Answers
+                      </h4>
+                    </div>
+
+                    {/* Filter Pills */}
+                    <div className="flex items-center gap-1.5 bg-[#FFF9E8] p-1 rounded-xl border border-[#1E293B]">
+                      <button
+                        type="button"
+                        onClick={() => setQuestionFilter("all")}
+                        className={`px-2.5 py-0.5 rounded-lg text-[11px] font-head font-bold transition-all cursor-pointer ${
+                          questionFilter === "all"
+                            ? "bg-[#1E293B] text-white shadow-[1px_1px_0_#1E293B]"
+                            : "text-[#64748B] hover:text-[#1E293B]"
+                        }`}
+                      >
+                        All ({studentReview?.questions?.length || 0})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionFilter("correct")}
+                        className={`px-2.5 py-0.5 rounded-lg text-[11px] font-head font-bold transition-all cursor-pointer ${
+                          questionFilter === "correct"
+                            ? "bg-[#2F8A5F] text-white shadow-[1px_1px_0_#1E293B]"
+                            : "text-[#2F8A5F] hover:bg-[#EAF7EE]"
+                        }`}
+                      >
+                        Correct ({studentReview?.summary?.correct || 0})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionFilter("incorrect")}
+                        className={`px-2.5 py-0.5 rounded-lg text-[11px] font-head font-bold transition-all cursor-pointer ${
+                          questionFilter === "incorrect"
+                            ? "bg-[#E04A3C] text-white shadow-[1px_1px_0_#1E293B]"
+                            : "text-[#E04A3C] hover:bg-[#FEE2E2]"
+                        }`}
+                      >
+                        Incorrect ({(studentReview?.summary?.total || 0) - (studentReview?.summary?.correct || 0)})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Question Cards List */}
+                  <div className="space-y-3">
+                    {filteredQuestions.map((q) => {
+                      const isCorrect = q.is_correct;
+                      const isUnattempted = q.is_unattempted;
+                      return (
+                        <div
+                          key={q.index}
+                          className={`rounded-2xl border-2 p-4 space-y-3 text-xs bg-white shadow-[2px_2px_0_#1E293B] ${
+                            isCorrect
+                              ? "border-[#2F8A5F]/60"
+                              : isUnattempted
+                              ? "border-[#64748B]/60"
+                              : "border-[#E04A3C]/60"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-head font-black text-sm text-[#1E293B]">
+                                Q{q.index}.
+                              </span>
+                              {q.topic && (
+                                <span className="px-2 py-0.5 rounded-md bg-[#FFF9E8] border border-[#1E293B] text-[10px] font-mono font-bold text-[#1E293B]">
+                                  {q.topic}
+                                </span>
+                              )}
+                            </div>
+
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-head font-black border uppercase ${
+                                isCorrect
+                                  ? "bg-[#EAF7EE] text-[#2F8A5F] border-[#2F8A5F]"
+                                  : isUnattempted
+                                  ? "bg-[#F1F5F9] text-[#64748B] border-[#64748B]"
+                                  : "bg-[#FEE2E2] text-[#E04A3C] border-[#E04A3C]"
+                              }`}
+                            >
+                              {isCorrect ? "✓ Correct" : isUnattempted ? "— Unattempted" : "✗ Incorrect"}
+                            </span>
+                          </div>
+
+                          <p className="font-bold text-[#1E293B] text-xs leading-relaxed">
+                            {q.question}
+                          </p>
+
+                          <div className="space-y-1.5 pt-1">
+                            {q.options.map((opt, optIdx) => {
+                              const isChosen = q.chosen_index === optIdx;
+                              const isRightAns = q.correct_index === optIdx;
+
+                              let optClass = "border-[#1E293B]/20 bg-white text-[#1E293B]";
+                              if (isRightAns) {
+                                optClass = "border-[#2F8A5F] bg-[#EAF7EE] font-bold text-[#2F8A5F]";
+                              }
+                              if (isChosen && !isCorrect) {
+                                optClass = "border-[#E04A3C] bg-[#FEE2E2] font-bold text-[#E04A3C]";
+                              }
+
+                              return (
+                                <div
+                                  key={optIdx}
+                                  className={`flex items-center justify-between p-2 rounded-xl border-2 text-xs transition-colors ${optClass}`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 pr-2">
+                                    <span className="font-mono font-bold text-[11px] w-5">
+                                      {String.fromCharCode(65 + optIdx)}.
+                                    </span>
+                                    <span className="truncate">{opt}</span>
+                                  </div>
+
+                                  <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-head font-bold">
+                                    {isChosen && (
+                                      <span className="px-1.5 py-0.2 rounded bg-white/80 border border-current">
+                                        Student's Choice
+                                      </span>
+                                    )}
+                                    {isRightAns && (
+                                      <span className="px-1.5 py-0.2 rounded bg-[#2F8A5F] text-white">
+                                        Correct Answer
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {q.explanation && (
+                            <div className="p-2.5 rounded-xl bg-[#FFF9E8] border border-[#1E293B]/30 text-[11px] space-y-1">
+                              <span className="font-head font-bold text-[#1E293B] block">💡 Explanation:</span>
+                              <p className="text-[#64748B] leading-relaxed font-medium">
+                                {q.explanation}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          /* DEFAULT LEADERBOARD & MISSED TABS */
+          <div className="flex-1 overflow-y-auto space-y-3 pt-2 pr-1 min-h-[220px]">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-[#64748B] space-y-2">
+                <span className="h-6 w-6 border-3 border-[#1E293B] border-t-transparent rounded-full animate-spin" />
+                <span className="font-head text-xs font-bold text-[#1E293B]">Retrieving student roster…</span>
+              </div>
+            ) : activeTab === "leaderboard" ? (
+              /* LEADERBOARD VIEW */
+              <div className="space-y-2.5">
+                {isTeacher && leaderboard && leaderboard.length > 0 && (
+                  <p className="text-[11px] text-[#3E7CB1] font-head font-bold px-1">
+                    💡 Click on any student to review their answers & topic mastery bar graph.
+                  </p>
+                )}
+                {leaderboard && leaderboard.length > 4 && (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#64748B]" />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search students in leaderboard…"
+                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B] focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {leaderboard?.length === 0 ? (
+                  <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-8 text-center space-y-1">
+                    <Trophy className="h-8 w-8 mx-auto text-[#64748B]/40" />
+                    <p className="font-head font-bold text-sm text-[#1E293B]">No Submissions Yet</p>
+                    <p className="text-xs text-[#64748B]">
+                      Students have not submitted this test yet. Once submitted, their ranks and scores will appear here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filteredLeaderboard.map((r, i) => {
+                      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`;
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => isTeacher && handleSelectStudent(r, medal, i + 1)}
+                          className={`flex items-center justify-between p-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] text-xs transition-all ${
+                            isTeacher && r.student_id
+                              ? "hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#1E293B] hover:bg-[#FBEFC8] cursor-pointer"
+                              : ""
+                          }`}
+                          title={isTeacher ? "Click to view student answers & topic breakdown" : undefined}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                            <span className="font-head font-900 text-sm w-7 text-center shrink-0">
+                              {medal}
+                            </span>
+                            <span className="font-head font-bold text-[#1E293B] truncate">
+                              {r.student_name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-mono text-[11px] text-[#64748B]">
+                              {r.correct}/{r.total} Qs
+                            </span>
+                            <span className="font-head font-black px-2.5 py-0.5 rounded-lg bg-white border border-[#1E293B] text-xs text-[#1E293B]">
+                              {r.score}%
+                            </span>
+                            {isTeacher && r.student_id && (
+                              <span className="text-[10px] font-head font-bold text-[#3E7CB1] flex items-center gap-0.5 pl-1">
+                                Review <ChevronRight className="h-3 w-3" />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* MISSED TEST VIEW */
+              <div className="space-y-2.5">
+                {!missedData || !missedData.has_batch ? (
+                  <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-8 text-center space-y-1">
+                    <p className="font-head font-bold text-sm text-[#1E293B]">Unassigned Test</p>
+                    <p className="text-xs text-[#64748B]">
+                      Assign this test to a specific batch using the <strong>Reuse</strong> button to track batch attendance.
+                    </p>
+                  </div>
+                ) : missedData.missed_count === 0 ? (
+                  <div className="rounded-2xl bg-[#4CAF7D]/10 border-2 border-[#4CAF7D] p-6 text-center space-y-1">
+                    <CheckCircle2 className="h-8 w-8 mx-auto text-[#4CAF7D]" />
+                    <p className="font-head font-900 text-sm text-[#2F8A5F]">100% Attendance!</p>
+                    <p className="text-xs text-[#2F8A5F]/80">
+                      All {missedData.total_enrolled} enrolled students in <strong>{missedData.batch_name}</strong> completed this test.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Summary & Copy Strip */}
+                    <div className="flex items-center justify-between p-2.5 rounded-2xl bg-[#FEE2E2] border-2 border-[#E04A3C] text-xs">
+                      <div>
+                        <span className="font-head font-900 text-[#E04A3C]">
+                          {missedData.missed_count} of {missedData.total_enrolled} Absent
+                        </span>
+                        <span className="block text-[10px] text-[#64748B] font-mono">
+                          {missedData.batch_name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCopyAbsent}
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white border-2 border-[#E04A3C] font-head font-bold text-xs text-[#E04A3C] hover:bg-[#E04A3C] hover:text-white transition-colors shadow-[1px_1px_0_#E04A3C] cursor-pointer"
+                      >
+                        {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        <span>{copied ? "Copied!" : "Copy Absent List"}</span>
+                      </button>
+                    </div>
+
+                    {missedData.missed_students.length > 4 && (
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#64748B]" />
+                        <input
+                          type="text"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Search absent student…"
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B] focus:outline-none"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      {filteredMissed.map((st, idx) => (
+                        <div
+                          key={st.id || idx}
+                          className="flex items-center justify-between p-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] text-xs"
+                        >
+                          <div className="min-w-0 pr-2">
+                            <span className="font-head font-bold text-[#1E293B] truncate block">
+                              {idx + 1}. {st.name}
+                            </span>
+                            {st.email && (
+                              <span className="text-[10px] text-[#64748B] font-mono truncate block">
+                                {st.email}
+                              </span>
+                            )}
+                          </div>
+                          <span className="px-2 py-0.5 rounded-lg bg-[#E04A3C]/10 border border-[#E04A3C]/40 text-[#E04A3C] font-mono text-[10px] font-bold">
+                            Missed
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="mt-3 pt-2 border-t border-[#1E293B]/10 flex items-center justify-between">
+          {selectedStudent ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setSelectedStudent(null); setStudentReview(null); }}
+              className="rounded-full border-2 border-[#1E293B] bg-white font-head font-bold text-xs h-9 px-4 shadow-[1.5px_1.5px_0_#1E293B]"
+            >
+              ← Back to Leaderboard
+            </Button>
+          ) : <div />}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="rounded-full border-2 border-[#1E293B] bg-white font-head font-bold text-xs h-9 px-4 shadow-[1.5px_1.5px_0_#1E293B]"
+          >
+            Close Window
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse, onToggleActive, togglingActive }) {
+function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse, onToggleActive, togglingActive, onOpenStudentsModal, isTargeted }) {
   const done = t.submitted;
   const isDraft = Boolean(
     t.is_draft ||
@@ -120,9 +756,15 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
   const studentLive = !isTeacher && !isDraft && t.is_active && !isExpired;
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-      className="relative group rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 flex flex-col justify-between shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-all">
+      className={`relative group rounded-3xl bg-white border-[2.5px] ${isTargeted ? "border-[#E04A3C] ring-2 ring-[#E04A3C]/30 shadow-[5px_5px_0_#E04A3C]" : "border-[#1E293B] shadow-[4px_4px_0_#1E293B]"} p-6 flex flex-col justify-between hover:-translate-y-1 transition-all`}>
 
       <div>
+        {isTargeted && (
+          <div className="mb-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E04A3C]/10 border-2 border-[#E04A3C] text-[#E04A3C] text-[11px] font-head font-black shadow-[1.5px_1.5px_0_#E04A3C]">
+            <Target className="h-3.5 w-3.5 animate-pulse" />
+            <span>🎯 TARGETED WEAK CONCEPT</span>
+          </div>
+        )}
         {/* Teacher action buttons */}
         {isTeacher && (
           <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -285,15 +927,50 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
         ) : done ? (
           <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Completed</Button>
         ) : studentLive ? (
-          <Button data-testid={`start-quiz-${t.id}`} asChild className="w-full rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold">
-            <Link to={`/quiz/${t.id}`}>{isDpp ? "Practice Sprint" : "Start Test"}</Link>
+          <Button data-testid={`start-quiz-${t.id}`} asChild className={`w-full rounded-full border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold ${
+            isTargeted
+              ? "bg-[#E04A3C] hover:bg-[#c93f33] text-white"
+              : "bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B]"
+          }`}>
+            <Link to={`/quiz/${t.id}`}>
+              {isTargeted ? "Fix Concept Sprint ➔" : isDpp ? "Practice Sprint" : "Start Test"}
+            </Link>
           </Button>
         ) : (
           <Button disabled className="w-full rounded-full font-head font-bold bg-[#F1F5F9] text-[#64748B] border-2 border-[#1E293B]">Closed</Button>
         )}
       </div>
-      {!isDpp && <Leaderboard testId={t.id} />}
-      {isDpp && isTeacher && <PracticeTestSubmissions testId={t.id} />}
+      {/* Student Standings (Leaderboard) & Missed Test Modal Buttons */}
+      <div className="mt-3 pt-2.5 border-t border-[#1E293B]/10 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          data-testid={`open-leaderboard-${t.id}`}
+          onClick={() => onOpenStudentsModal(t, "leaderboard")}
+          className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#FFF9E8] hover:bg-[#FBEFC8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold text-[#1E293B] transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+        >
+          <Trophy className="h-3.5 w-3.5 text-[#F5C842]" />
+          <span>Leaderboard</span>
+        </button>
+        {isTeacher ? (
+          <button
+            type="button"
+            data-testid={`open-missed-${t.id}`}
+            onClick={() => onOpenStudentsModal(t, "missed")}
+            className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#FFF9E8] hover:bg-[#FEE2E2] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold text-[#1E293B] transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+          >
+            <UserX className="h-3.5 w-3.5 text-[#E04A3C]" />
+            <span>Missed Test</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onOpenStudentsModal(t, "leaderboard")}
+            className="flex items-center justify-center gap-1 py-2 px-2.5 rounded-xl bg-white border border-[#1E293B]/20 text-xs font-head font-bold text-[#64748B] hover:text-[#1E293B] cursor-pointer"
+          >
+            <span>Class Ranks</span>
+          </button>
+        )}
+      </div>
     </motion.div>
   );
 }
@@ -305,7 +982,61 @@ export default function QuizList({ kind }) {
   const isTeacher = user.role === "teacher" || user.role === "admin";
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [studentsModal, setStudentsModal] = useState(null);
   const isDpp = kind === "dpp";
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const nav = useNavigate();
+
+  const targetSubject = searchParams.get("subject") || location.state?.subject || "";
+  const targetChapter = searchParams.get("chapter") || location.state?.chapter || "";
+  const targetTopic = searchParams.get("topic") || location.state?.topic || "";
+  const hasTarget = isDpp && Boolean(targetSubject || targetChapter || targetTopic);
+
+  const [generatingSprint, setGeneratingSprint] = useState(false);
+  const handleStartTargetedSprint = async () => {
+    setGeneratingSprint(true);
+    try {
+      const res = await api.post("/tests/diagnostic", {
+        subject: targetSubject,
+        chapter: targetChapter,
+        topic: targetTopic,
+      });
+      toast.success(`Targeted sprint generated for ${targetTopic || targetChapter}!`);
+      nav(`/quiz/${res.data.id}`);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Failed to generate targeted sprint");
+    } finally {
+      setGeneratingSprint(false);
+    }
+  };
+
+  const isTargetMatch = (t) => {
+    if (!hasTarget) return false;
+    const topicNorm = (targetTopic || "").toLowerCase().trim();
+    const chapterNorm = (targetChapter || "").toLowerCase().trim();
+    const subjectNorm = (targetSubject || "").toLowerCase().trim();
+
+    const tTopic = (t.topic || "").toLowerCase();
+    const tChapter = (t.chapter || "").toLowerCase();
+    const tTitle = (t.title || "").toLowerCase();
+    const tSubject = (t.subject || "").toLowerCase();
+
+    if (subjectNorm && tSubject && !tSubject.includes(subjectNorm) && !subjectNorm.includes(tSubject)) {
+      return false;
+    }
+
+    if (topicNorm && (tTopic.includes(topicNorm) || tTitle.includes(topicNorm) || topicNorm.includes(tTopic))) {
+      return true;
+    }
+
+    if (chapterNorm && (tChapter.includes(chapterNorm) || tTitle.includes(chapterNorm) || chapterNorm.includes(tChapter))) {
+      return true;
+    }
+
+    return false;
+  };
 
   // Batches for reuse modal
   const [batches, setBatches] = useState([]);
@@ -495,6 +1226,67 @@ export default function QuizList({ kind }) {
         )}
       </div>
 
+      {/* Targeted Weak Concept Hero Banner for Students */}
+      {hasTarget && !isTeacher && (
+        <div className="p-6 sm:p-7 rounded-3xl bg-[#FFF9E8] border-[3px] border-[#1E293B] shadow-[5px_5px_0_#1E293B] space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-1 rounded-full bg-[#E04A3C] text-white text-xs font-head font-black border-2 border-[#1E293B] shadow-[1.5px_1.5px_0_#1E293B] flex items-center gap-1.5">
+                <Target className="h-3.5 w-3.5 animate-pulse" /> TARGETED CONCEPT PRESCRIPTION
+              </span>
+              {targetSubject && (
+                <span className="px-2.5 py-0.5 rounded-full bg-white text-[#1E293B] text-xs font-mono font-bold border border-[#1E293B]">
+                  {targetSubject}
+                </span>
+              )}
+              {targetChapter && (
+                <span className="px-2.5 py-0.5 rounded-full bg-[#5B9BD5]/20 text-[#3E7CB1] text-xs font-mono font-bold border border-[#5B9BD5]">
+                  {targetChapter}
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchParams({});
+                nav("/dpp", { replace: true, state: {} });
+              }}
+              className="flex items-center gap-1 text-xs font-head font-bold text-[#64748B] hover:text-[#1E293B] underline cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" /> Clear filter (Show all practice sets)
+            </button>
+          </div>
+
+          <div>
+            <h2 className="font-head text-2xl sm:text-3xl font-black text-[#1E293B]">
+              Fix Concept: {targetTopic || targetChapter}
+            </h2>
+            <p className="text-xs sm:text-sm text-[#64748B] font-medium mt-1">
+              Personalized practice set targeting your diagnosed weakness to build mastery for CBSE board exams.
+            </p>
+          </div>
+
+          <div className="pt-1 flex flex-wrap items-center gap-3">
+            <Button
+              onClick={handleStartTargetedSprint}
+              disabled={generatingSprint}
+              className="rounded-full bg-[#E04A3C] hover:bg-[#c93f33] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-bold text-xs h-10 px-5 flex items-center gap-2 active:translate-x-[1px] active:translate-y-[1px]"
+            >
+              {generatingSprint ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Calibrating 10 Questions…
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 fill-white" /> Start Instant 10-Q Sprint on {targetTopic || targetChapter}
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {loading ? <p className="text-[#64748B] font-bold">Loading assessments…</p> : items.length === 0 ? (
         <div className="rounded-3xl border-2 border-dashed border-[#1E293B] bg-white p-16 text-center shadow-[4px_4px_0_#1E293B]">
           {isDpp ? <Sparkles className="h-10 w-10 mx-auto text-[#64748B]" /> : <FileQuestion className="h-10 w-10 mx-auto text-[#64748B]" />}
@@ -554,13 +1346,18 @@ export default function QuizList({ kind }) {
                           </div>
                         )}
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 pl-4">
-                          {batchItems.map((t, i) => (
-                            <TestCard
-                              key={t.id} t={t} isTeacher={isTeacher} isDpp={isDpp} i={i}
-                              onEdit={openEdit} onDelete={setDeleteConfirm} deleting={deleting}
-                              onReuse={openReuse} onToggleActive={handleToggleActive} togglingActive={togglingActive}
-                            />
-                          ))}
+                          {batchItems
+                            .slice()
+                            .sort((a, b) => (isTargetMatch(b) ? 1 : 0) - (isTargetMatch(a) ? 1 : 0))
+                            .map((t, i) => (
+                              <TestCard
+                                key={t.id} t={t} isTeacher={isTeacher} isDpp={isDpp} i={i}
+                                onEdit={openEdit} onDelete={setDeleteConfirm} deleting={deleting}
+                                onReuse={openReuse} onToggleActive={handleToggleActive} togglingActive={togglingActive}
+                                onOpenStudentsModal={(test, initialTab) => setStudentsModal({ test, initialTab })}
+                                isTargeted={isTargetMatch(t)}
+                              />
+                            ))}
                         </div>
                       </div>
                     );
@@ -788,6 +1585,13 @@ export default function QuizList({ kind }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ---- Student Standings & Missed Test Modal Window ---- */}
+      <TestStudentsModal
+        testData={studentsModal}
+        onClose={() => setStudentsModal(null)}
+        isTeacher={isTeacher}
+      />
     </div>
   );
 }

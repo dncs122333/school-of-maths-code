@@ -423,7 +423,7 @@ export default function Landing() {
             Structured CBSE Weekly Timetable
           </h2>
           <p className="text-xs sm:text-sm text-[#1E293B]/70 font-medium max-w-xl mx-auto">
-            Stay aligned with your coaching cohorts through an organized, colorful weekly schedule.
+            Stay aligned with your coaching batches through an organized, colorful weekly schedule.
           </p>
         </div>
 

@@ -14,6 +14,13 @@ const BAND_CONFIG = {
     badgeCls: "bg-[#E04A3C] text-white border-2 border-[#1E293B]",
     dot: "bg-white",
   },
+  not_attempted: {
+    label: "Not attempted yet",
+    glow: "border-[#D97706] bg-[#FEF3C7] text-[#B45309]",
+    barColor: "bg-[#F59E0B]",
+    badgeCls: "bg-[#F59E0B] text-[#1E293B] border-2 border-[#1E293B]",
+    dot: "bg-[#1E293B]",
+  },
   developing: {
     label: "Developing",
     glow: "border-[#F5C842] bg-[#F5C842]/10 text-[#1E293B]",
@@ -40,9 +47,10 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
     return (t.subject || "").toLowerCase() === filterSubject.toLowerCase();
   });
 
-  // AI Focus Today: pick the weakest topic or first weak topic
+  // AI Focus Today: pick the weakest topic or first unattempted topic
   const focusTopic =
     topics.find((t) => t.band === "weak") ||
+    topics.find((t) => t.band === "not_attempted") ||
     topics.find((t) => t.band === "developing") ||
     topics[0];
 
@@ -187,16 +195,22 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
 
                 <div className="mt-3.5 flex items-center gap-3">
                   <div className="flex-1 bg-[#FFF9E8] rounded-full h-3 overflow-hidden border-2 border-[#1E293B]">
-                    <div
-                      className={`h-full rounded-full transition-all duration-700 ${config.barColor}`}
-                      style={{ width: `${Math.min(100, Math.max(8, t.score || 0))}%` }}
-                    />
+                    {t.band === "not_attempted" ? (
+                      <div className="h-full w-full bg-[#F59E0B]/30" />
+                    ) : (
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${config.barColor}`}
+                        style={{ width: `${Math.min(100, Math.max(8, t.score || 0))}%` }}
+                      />
+                    )}
                   </div>
-                  <span className="font-mono text-xs font-black text-[#1E293B] w-10 text-right">{t.score}%</span>
+                  <span className="font-mono text-xs font-black text-[#1E293B] w-14 text-right">
+                    {t.band === "not_attempted" ? "Untested" : `${t.score}%`}
+                  </span>
                 </div>
 
                 <div className="mt-3 pt-2.5 flex items-center justify-between text-[11px] text-[#64748B] border-t-2 border-[#1E293B]/15 font-mono font-bold">
-                  <span>{t.attempts || 0} questions attempted</span>
+                  <span>{t.attempts ? `${t.attempts} questions attempted` : "Not attempted yet"}</span>
                   <span className="text-[#3E7CB1] flex items-center gap-0.5 font-head font-bold">
                     Drilldown <ArrowUpRight className="h-3.5 w-3.5" />
                   </span>
@@ -214,7 +228,7 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
             <DialogHeader>
               <div className="flex items-center gap-2">
                 <Badge className={`text-[11px] border ${(BAND_CONFIG[selectedTopic.band] || BAND_CONFIG.developing).badgeCls}`}>
-                  {(BAND_CONFIG[selectedTopic.band] || BAND_CONFIG.developing).label} Band
+                  {(BAND_CONFIG[selectedTopic.band] || BAND_CONFIG.developing).label}
                 </Badge>
                 <span className="text-xs text-[#64748B] font-mono font-bold">{selectedTopic.subject}</span>
               </div>
@@ -227,7 +241,7 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
             <div className="mt-4 space-y-4">
               <div className="flex items-center justify-around p-5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B]">
                 <CircularProgress
-                  score={selectedTopic.score}
+                  score={selectedTopic.band === "not_attempted" ? 0 : selectedTopic.score}
                   size={76}
                   strokeWidth={6}
                   color={
@@ -235,17 +249,23 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                       ? "#E04A3C"
                       : selectedTopic.band === "strong"
                       ? "#2F8A5F"
+                      : selectedTopic.band === "not_attempted"
+                      ? "#F59E0B"
                       : "#F5C842"
                   }
                 />
                 <div className="space-y-1 text-left">
                   <div className="text-xs text-[#64748B] font-mono font-bold">Mastery Index</div>
-                  <div className="font-head text-3xl font-black text-[#1E293B]">{selectedTopic.score}%</div>
+                  <div className="font-head text-3xl font-black text-[#1E293B]">
+                    {selectedTopic.band === "not_attempted" ? "Untested" : `${selectedTopic.score}%`}
+                  </div>
                   <div className="text-[11px] text-[#64748B] font-semibold">
                     {selectedTopic.band === "weak"
                       ? "High-priority practice topic"
                       : selectedTopic.band === "strong"
                       ? "Retained & board ready"
+                      : selectedTopic.band === "not_attempted"
+                      ? "Untested syllabus topic. Start practice to calibrate."
                       : "Developing consistency"}
                   </div>
                 </div>
@@ -262,7 +282,13 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
                   <div className="text-[#64748B] flex items-center gap-1 font-bold">
                     <Clock className="h-3.5 w-3.5 text-[#2F8A5F]" /> Average Pace
                   </div>
-                  <div className="text-base font-black text-[#1E293B]">{selectedTopic.avg_time_s ? `${selectedTopic.avg_time_s}s` : "Untimed"}</div>
+                  <div className="text-base font-black text-[#1E293B]">
+                    {selectedTopic.band === "not_attempted"
+                      ? "Not Attempted"
+                      : selectedTopic.avg_time_s
+                      ? `${selectedTopic.avg_time_s}s`
+                      : "Untimed"}
+                  </div>
                 </div>
               </div>
 

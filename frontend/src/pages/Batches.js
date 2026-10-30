@@ -961,7 +961,7 @@ export default function Batches() {
         <div>
           <div className="flex items-center gap-2">
             <span className="inline-block px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] text-xs font-black uppercase tracking-widest shadow-[2px_2px_0_#1E293B]">
-              Cohort Management
+              Batch Management
             </span>
             <span className="text-xs font-bold text-[#1E293B] font-mono">{batches.length} Active Batches</span>
           </div>
@@ -1131,7 +1131,7 @@ export default function Batches() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge className="bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] text-xs font-mono font-bold shadow-[1px_1px_0_#1E293B]">
-                  Class {currentBatch.class_level} Cohort
+                  Class {currentBatch.class_level} Batch
                 </Badge>
                 <span className="text-xs text-[#1E293B]/70 font-mono">
                   Join Code: <span className="text-[#1E293B] font-black">{currentBatch.code}</span>
@@ -1192,7 +1192,7 @@ export default function Batches() {
               <div className="font-head text-2xl font-black text-[#1E293B] mt-1">
                 {batchStudentsData?.summary?.total_students ?? currentBatch.student_count ?? 0}
               </div>
-              <div className="text-[11px] text-[#1E293B]/60 font-mono mt-0.5">Active in this cohort</div>
+              <div className="text-[11px] text-[#1E293B]/60 font-mono mt-0.5">Active in this batch</div>
             </div>
 
             <div className="p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
@@ -1233,7 +1233,7 @@ export default function Batches() {
                 <span className="text-[#1E293B]/40">•</span>
                 <span className="text-[#E04A3C] text-sm font-black">{batchStudentsData?.summary?.due_count || 0} Due</span>
               </div>
-              <div className="text-[11px] text-[#1E293B]/60 font-mono mt-0.5">Across cohort members</div>
+              <div className="text-[11px] text-[#1E293B]/60 font-mono mt-0.5">Across batch members</div>
             </div>
           </div>
 
@@ -1290,7 +1290,7 @@ export default function Batches() {
                 <Users className="h-9 w-9 mx-auto text-[#1E293B]/50" />
                 <h4 className="font-head text-lg font-bold text-[#1E293B]">No students enrolled yet</h4>
                 <p className="text-xs max-w-sm mx-auto leading-relaxed text-[#1E293B]/70">
-                  Give your students batch code <span className="font-mono text-[#1E293B] font-black bg-white px-2 py-0.5 rounded border border-[#1E293B]">{currentBatch.code}</span> to join this cohort.
+                  Give your students batch code <span className="font-mono text-[#1E293B] font-black bg-white px-2 py-0.5 rounded border border-[#1E293B]">{currentBatch.code}</span> to join this batch.
                 </p>
               </div>
             ) : (
@@ -1977,7 +1977,7 @@ export default function Batches() {
                     className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] font-bold shadow-[2px_2px_0_#1E293B]"
                   >
                     <Link to="/dpp/new">
-                      <Sparkles className="h-4 w-4 mr-1.5" /> Launch Practice Test for Cohort
+                      <Sparkles className="h-4 w-4 mr-1.5" /> Launch Practice Test for Batch
                     </Link>
                   </Button>
                 </div>

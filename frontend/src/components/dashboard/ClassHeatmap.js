@@ -95,7 +95,7 @@ export default function ClassHeatmap({
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase tracking-widest text-[#5B9BD5] font-head font-bold">
-              Cohort Intelligence Matrix
+              Batch Intelligence Matrix
             </span>
             <span className="h-2 w-2 rounded-full bg-[#4CAF7D]" />
             <span className="text-xs text-[#64748B] font-mono font-bold">{students.length} enrolled students</span>
@@ -189,7 +189,7 @@ export default function ClassHeatmap({
       {loading ? (
         <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-16 text-center text-[#1E293B] flex items-center justify-center gap-2.5">
           <span className="h-5 w-5 border-2 border-[#1E293B] border-t-transparent rounded-full animate-spin" />
-          <span className="font-head font-bold text-sm">Synthesizing cohort mastery heatmap…</span>
+          <span className="font-head font-bold text-sm">Synthesizing batch mastery heatmap…</span>
         </div>
       ) : students.length === 0 ? (
         <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-12 text-center space-y-2 text-[#64748B]">

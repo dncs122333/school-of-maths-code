@@ -174,6 +174,25 @@ export default function StudentDashboard() {
     }
   };
 
+  const handleFixConcept = (t) => {
+    const target = t || {};
+    const params = new URLSearchParams();
+    if (target.subject) params.set("subject", target.subject);
+    if (target.chapter) params.set("chapter", target.chapter);
+    if (target.topic) params.set("topic", target.topic);
+    nav({
+      pathname: "/dpp",
+      search: params.toString() ? `?${params.toString()}` : "",
+    }, {
+      state: {
+        subject: target.subject,
+        chapter: target.chapter,
+        topic: target.topic,
+        score: target.score,
+      },
+    });
+  };
+
   const handleDismissReminder = () => {
     try {
       localStorage.setItem("vidya_weekly_reminder_dismissed", "true");
@@ -659,7 +678,7 @@ export default function StudentDashboard() {
           <MasteryMap
             topics={masteryTopics}
             onStartDiagnostic={handleStartDiagnostic}
-            onPracticeTopic={() => nav(`/dpp`)}
+            onPracticeTopic={handleFixConcept}
           />
 
           {/* Weak Topics Panel */}
@@ -691,7 +710,7 @@ export default function StudentDashboard() {
                   <WeakTopicCard
                     key={`${top.subject}|${top.chapter}|${top.topic}`}
                     topic={top}
-                    onPractice={() => nav("/dpp")}
+                    onPractice={handleFixConcept}
                   />
                 ))}
               </div>

@@ -12,6 +12,7 @@ const BAND = {
   weak: { label: "Weak", cls: "bg-[#FF6B5E]/20 text-[#1E293B] font-800 border-2 border-[#1E293B]", bar: "#FF6B5E" },
   developing: { label: "Developing", cls: "bg-[#F5C842]/30 text-[#1E293B] font-800 border-2 border-[#1E293B]", bar: "#F5C842" },
   strong: { label: "Strong", cls: "bg-[#4CAF7D]/25 text-[#1E293B] font-800 border-2 border-[#1E293B]", bar: "#4CAF7D" },
+  not_attempted: { label: "Not attempted yet", cls: "bg-[#F59E0B]/25 text-[#1E293B] font-800 border-2 border-[#1E293B]", bar: "#F59E0B" },
 };
 
 export default function Mastery() {
@@ -35,6 +36,7 @@ export default function Mastery() {
   };
 
   const weak = (topics || []).filter((t) => t.band === "weak").length;
+  const untested = (topics || []).filter((t) => t.band === "not_attempted").length;
   const strong = (topics || []).filter((t) => t.band === "strong").length;
 
   return (
@@ -44,10 +46,10 @@ export default function Mastery() {
           Your learning map
         </span>
         <h1 className="font-head text-3xl sm:text-4xl font-900 mt-2 tracking-tight text-[#1E293B]">
-          MASTERY, {user.name.split(" ")[0].toUpperCase()}
+          MASTERY, {user?.name ? user.name.split(" ")[0].toUpperCase() : "STUDENT"}
         </h1>
         <p className="text-[#1E293B]/80 font-medium mt-2 max-w-lg">
-          Weighted by question difficulty and recency. {topics === null ? "Crunching your numbers…" : `${weak} weak · ${strong} strong across ${(topics || []).length} topics.`}
+          Weighted by question difficulty and recency. {topics === null ? "Crunching your numbers…" : `${weak} weak · ${untested} untested · ${strong} strong across ${(topics || []).length} syllabus topics.`}
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
           <Button data-testid="start-diagnostic" onClick={startDiagnostic} disabled={busy}
@@ -70,6 +72,7 @@ export default function Mastery() {
         <div className="grid sm:grid-cols-2 gap-4">
           {topics.map((t) => {
             const b = BAND[t.band] || BAND.developing;
+            const isUntested = t.band === "not_attempted";
             return (
               <div key={`${t.subject}|${t.chapter}|${t.topic}`} className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-5 shadow-[4px_4px_0_#1E293B]">
                 <div className="flex items-start justify-between gap-3">
@@ -81,13 +84,22 @@ export default function Mastery() {
                 </div>
                 <div className="mt-4 flex items-center gap-3">
                   <div className="flex-1 h-3 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B] overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${t.score}%`, backgroundColor: b.bar }} />
+                    <div className="h-full rounded-full transition-all" style={{ width: `${isUntested ? 100 : t.score}%`, backgroundColor: b.bar, opacity: isUntested ? 0.4 : 1 }} />
                   </div>
-                  <span className="text-sm font-900 font-mono text-[#1E293B] w-12 text-right">{t.score}%</span>
+                  <span className="text-sm font-900 font-mono text-[#1E293B] min-w-14 text-right">
+                    {isUntested ? "Untested" : `${t.score}%`}
+                  </span>
                 </div>
                 <div className="mt-3 flex items-center gap-4 text-xs font-semibold text-[#1E293B]/70">
-                  <span className="flex items-center gap-1"><Activity className="h-3.5 w-3.5 text-[#1E293B]" /> {t.attempts} attempts</span>
-                  <span className="flex items-center gap-1"><BookOpenCheck className="h-3.5 w-3.5 text-[#1E293B]" /> {t.avg_time_s}s avg</span>
+                  <span className="flex items-center gap-1">
+                    <Activity className="h-3.5 w-3.5 text-[#1E293B]" />{" "}
+                    {isUntested ? "Not attempted yet" : `${t.attempts} attempts`}
+                  </span>
+                  {!isUntested && (
+                    <span className="flex items-center gap-1">
+                      <BookOpenCheck className="h-3.5 w-3.5 text-[#1E293B]" /> {t.avg_time_s}s avg
+                    </span>
+                  )}
                 </div>
               </div>
             );

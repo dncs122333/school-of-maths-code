@@ -2006,7 +2006,9 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         elif kind == "dpp":
             user_batches = user.get("batch_ids", [])
             q["$or"] = [
-                {"batch_id": None},
+                {"student_id": user["id"]},
+                {"batch_id": None, "student_id": None},
+                {"batch_id": None, "student_id": {"$exists": False}},
                 {"batch_id": ""},
                 {"batch_id": "all"},
                 {"batch_id": {"$in": user_batches}}
@@ -2198,8 +2200,108 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
 @api_router.get("/tests/{test_id}/leaderboard")
 async def leaderboard(test_id: str, user: dict = Depends(get_current_user)):
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0}).sort("score", -1).to_list(200)
-    return [{"student_name": s["student_name"], "score": s["score"], "correct": s["correct"],
-             "total": s["total"]} for s in subs]
+    return [{
+        "student_id": s.get("student_id"),
+        "submission_id": s.get("id"),
+        "student_name": s["student_name"],
+        "score": s["score"],
+        "correct": s["correct"],
+        "total": s["total"]
+    } for s in subs]
+
+
+@api_router.get("/tests/{test_id}/submissions/{student_id}")
+async def get_student_submission_review(test_id: str, student_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    test = await db.tests.find_one({"id": test_id})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    # Authorization: teacher must own this test or teach the student, or role is admin
+    if user["role"] != "admin":
+        is_owner = (test.get("teacher_id") == user["id"])
+        if not is_owner:
+            q_user = {"_id": ObjectId(student_id)} if ObjectId.is_valid(student_id) else {"id": student_id}
+            student = await db.users.find_one(q_user)
+            student_bids = student.get("batch_ids", []) if student else []
+            shares = await db.batches.find_one({"id": {"$in": student_bids}, "teacher_id": user["id"]}) if student_bids else None
+            if not shares:
+                raise HTTPException(status_code=403, detail="You do not teach this student or own this test")
+
+    sub = await db.submissions.find_one({"test_id": test_id, "student_id": student_id}, {"_id": 0})
+    if not sub:
+        raise HTTPException(status_code=404, detail="No submission found for this student")
+
+    questions = test.get("questions") or []
+    answers = sub.get("answers") or []
+    times = sub.get("times") or []
+
+    review_questions = []
+    for i, q in enumerate(questions):
+        order = _shuffled_order(_option_seed(test_id, student_id, i))
+        shuffled_options = [q["options"][j] for j in order]
+        chosen = answers[i] if i < len(answers) else -1
+        correct_display = order.index(q["correct_index"])
+        is_ok = (chosen == correct_display)
+        is_unattempted = (chosen == -1 or chosen is None)
+
+        chosen_text = shuffled_options[chosen] if (0 <= chosen < len(shuffled_options)) else "Unattempted"
+        correct_text = shuffled_options[correct_display] if (0 <= correct_display < len(shuffled_options)) else ""
+
+        review_questions.append({
+            "index": i + 1,
+            "question": q["question"],
+            "options": shuffled_options,
+            "chosen_index": chosen,
+            "chosen_text": chosen_text,
+            "correct_index": correct_display,
+            "correct_text": correct_text,
+            "is_correct": is_ok,
+            "is_unattempted": is_unattempted,
+            "explanation": q.get("explanation", ""),
+            "topic": q.get("topic", test.get("topic", "")),
+            "chapter": q.get("chapter", test.get("chapter", "")),
+            "subject": q.get("subject", test.get("subject", "")),
+            "difficulty": q.get("difficulty", "medium"),
+            "time_s": times[i] if i < len(times) else 0.0,
+        })
+
+    topic_summary = sub.get("topic_summary")
+    if not topic_summary:
+        topic_summary_map = {}
+        for rq in review_questions:
+            t_name = rq.get("topic") or "General"
+            if t_name not in topic_summary_map:
+                topic_summary_map[t_name] = {"topic": t_name, "chapter": rq.get("chapter", ""), "total": 0, "correct": 0}
+            topic_summary_map[t_name]["total"] += 1
+            if rq.get("is_correct"):
+                topic_summary_map[t_name]["correct"] += 1
+        for t_data in topic_summary_map.values():
+            t_data["accuracy"] = round((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
+        topic_summary = list(topic_summary_map.values())
+
+    return {
+        "student": {
+            "id": student_id,
+            "name": sub.get("student_name", "Student")
+        },
+        "test": {
+            "id": test_id,
+            "title": test.get("title", ""),
+            "class_level": test.get("class_level"),
+            "subject": test.get("subject"),
+            "chapter": test.get("chapter")
+        },
+        "summary": {
+            "score": sub.get("score", 0),
+            "correct": sub.get("correct", 0),
+            "incorrect": sub.get("total", 0) - sub.get("correct", 0),
+            "total": sub.get("total", len(questions)),
+            "tab_switches": sub.get("tab_switches", 0),
+            "created_at": sub.get("created_at")
+        },
+        "questions": review_questions,
+        "topic_summary": topic_summary
+    }
 
 
 @api_router.get("/tests/{test_id}/submissions")
@@ -2209,6 +2311,56 @@ async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
         q["student_id"] = user["id"]
     subs = await db.submissions.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return subs
+
+
+@api_router.get("/tests/{test_id}/missed-students")
+async def get_test_missed_students(test_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    test = await db.tests.find_one({"id": test_id}, {"_id": 0, "questions": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    batch_id = test.get("batch_id")
+    if not batch_id or batch_id in ("Saved / Unassigned", ""):
+        return {
+            "test_id": test_id,
+            "has_batch": False,
+            "batch_id": None,
+            "batch_name": test.get("batch_name") or "Unassigned",
+            "total_enrolled": 0,
+            "submitted_count": 0,
+            "missed_count": 0,
+            "missed_students": [],
+        }
+
+    q = {"role": "student"}
+    if batch_id != "all":
+        q["batch_ids"] = batch_id
+
+    students = await db.users.find(q).sort("name", 1).to_list(1000)
+    subs = await db.submissions.find({"test_id": test_id}, {"_id": 0, "student_id": 1, "student_name": 1}).to_list(1000)
+    submitted_ids = {str(s.get("student_id")) for s in subs if s.get("student_id")}
+
+    missed = []
+    for st in students:
+        sid = str(st.get("id") or st.get("_id"))
+        if sid not in submitted_ids:
+            missed.append({
+                "id": sid,
+                "name": st.get("name", "Student"),
+                "email": st.get("email", ""),
+                "phone": st.get("phone", ""),
+            })
+
+    return {
+        "test_id": test_id,
+        "has_batch": True,
+        "batch_id": batch_id,
+        "batch_name": test.get("batch_name") or ("All Students" if batch_id == "all" else "Assigned Batch"),
+        "total_enrolled": len(students),
+        "submitted_count": len(submitted_ids),
+        "missed_count": len(missed),
+        "missed_students": missed,
+    }
 
 
 class UpdateTestInput(BaseModel):
@@ -2835,6 +2987,10 @@ async def review_question(question_id: str, body: QuestionReviewInput, user: dic
 # ------------------------- Mastery & diagnostic -------------------------
 class DiagnosticInput(BaseModel):
     class_level: Optional[str] = None
+    subject: Optional[str] = None
+    chapter: Optional[str] = None
+    topic: Optional[str] = None
+    kind: Optional[str] = "diagnostic"
 
 
 def _flatten_attempts(subs):
@@ -2851,24 +3007,51 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
     if not class_level:
         batches = await db.batches.find({"id": {"$in": user.get("batch_ids", [])}}, {"_id": 0}).to_list(10)
         class_level = batches[0]["class_level"] if batches else "9"
-    questions = await _sample_bank_questions(class_level, "", "", "", 10)
+
+    subj = (body.subject or "").strip()
+    chap = (body.chapter or "").strip()
+    top = (body.topic or "").strip()
+
+    questions = None
+    if top or chap or subj:
+        if top:
+            questions = await _sample_bank_questions(class_level, subj, chap, top, 10)
+        if not questions and chap:
+            questions = await _sample_bank_questions(class_level, subj, chap, "", 10)
+        if not questions and subj:
+            questions = await _sample_bank_questions(class_level, subj, "", "", 10)
+
     if not questions:
-        raise HTTPException(status_code=400, detail="No active questions available for a diagnostic")
+        questions = await _sample_bank_questions(class_level, "", "", "", 10)
+    if not questions:
+        raise HTTPException(status_code=400, detail="No active questions available for a practice sprint")
+
     now = datetime.now(timezone.utc)
-    doc = {"id": str(uuid.uuid4()), "title": f"Diagnostic — Class {class_level}", "kind": "diagnostic",
-           "class_level": class_level, "subject": "", "chapter": "", "topic": "", "batch_id": None,
+    is_targeted = bool(top or chap)
+    kind = "dpp" if is_targeted else (body.kind or "diagnostic")
+    title = f"Practice Sprint: {top or chap}" if is_targeted else f"Diagnostic — Class {class_level}"
+    doc = {"id": str(uuid.uuid4()), "title": title, "kind": kind,
+           "class_level": class_level, "subject": subj, "chapter": chap, "topic": top, "batch_id": None,
            "student_id": user["id"], "duration_minutes": 0, "valid_hours": 168,
            "valid_from": now.isoformat(), "valid_until": (now + timedelta(hours=168)).isoformat(),
            "questions": questions, "status": "ready", "question_count": len(questions),
-           "teacher_id": None, "teacher_name": "Diagnostic", "created_at": now.isoformat()}
+           "teacher_id": None, "teacher_name": "Targeted Sprint" if is_targeted else "Diagnostic", "created_at": now.isoformat()}
     await db.tests.insert_one(doc)
-    return {"id": doc["id"], "status": "ready", "question_count": len(questions)}
+    return {"id": doc["id"], "status": "ready", "question_count": len(questions), "title": title}
 
 
 @api_router.get("/mastery/me")
 async def my_mastery(user: dict = Depends(require_role("student"))):
     subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).to_list(2000)
-    return compute_topic_mastery(_flatten_attempts(subs))
+    class_levels = []
+    if user.get("class_level"):
+        class_levels.append(user["class_level"])
+    if user.get("batch_ids"):
+        async for b in db.batches.find({"id": {"$in": user["batch_ids"]}}, {"class_level": 1}):
+            if b.get("class_level") and b["class_level"] not in class_levels:
+                class_levels.append(b["class_level"])
+    cl = class_levels if class_levels else None
+    return compute_topic_mastery(_flatten_attempts(subs), class_level=cl)
 
 
 @api_router.get("/mastery/teacher")
@@ -2898,13 +3081,15 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
         async for s in cursor:
             per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
 
+    batch_class = batch.get("class_level")
     topic_scores = {}  # (subject, chapter, topic) -> [scores]
     student_topics = {}
     for sid in student_ids:
-        mastery = compute_topic_mastery(per_student.get(sid, []))
+        mastery = compute_topic_mastery(per_student.get(sid, []), class_level=batch_class)
         student_topics[sid] = {f"{m['subject']}|{m['chapter']}|{m['topic']}": m for m in mastery}
         for m in mastery:
-            topic_scores.setdefault((m["subject"], m["chapter"], m["topic"]), []).append(m["score"])
+            if m.get("attempts", 0) > 0:
+                topic_scores.setdefault((m["subject"], m["chapter"], m["topic"]), []).append(m["score"])
 
     weak_topics = [{"subject": k[0], "chapter": k[1], "topic": k[2],
                     "class_avg": round(sum(v) / len(v))}
@@ -2921,11 +3106,34 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
 
 @api_router.get("/mastery/teacher/student/{student_id}")
 async def teacher_student_mastery(student_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    if not ObjectId.is_valid(student_id):
+        raise HTTPException(status_code=404, detail="Student not found")
     student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"})
     if not student:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Privacy / Authorization check: requesting teacher must own at least one batch the student belongs to (or admin)
+    if user["role"] != "admin":
+        student_bids = student.get("batch_ids", [])
+        if not student_bids:
+            raise HTTPException(status_code=403, detail="You do not teach this student")
+        shares_batch = await db.batches.find_one({
+            "id": {"$in": student_bids},
+            "teacher_id": user["id"]
+        })
+        if not shares_batch:
+            raise HTTPException(status_code=403, detail="You do not teach this student")
+
     subs = await db.submissions.find({"student_id": student_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    topics = compute_topic_mastery(_flatten_attempts(subs))
+    class_levels = []
+    if student.get("class_level"):
+        class_levels.append(student["class_level"])
+    if student.get("batch_ids"):
+        async for b in db.batches.find({"id": {"$in": student.get("batch_ids")}}, {"class_level": 1}):
+            if b.get("class_level") and b["class_level"] not in class_levels:
+                class_levels.append(b["class_level"])
+    cl = class_levels if class_levels else None
+    topics = compute_topic_mastery(_flatten_attempts(subs), class_level=cl)
     trend = [{"test_id": s["test_id"], "title": s.get("title", ""), "kind": s.get("kind", ""),
               "score": s.get("score"), "correct": s.get("correct"), "total": s.get("total"),
               "tab_switches": s.get("tab_switches", 0), "created_at": s.get("created_at")}

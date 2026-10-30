@@ -174,7 +174,7 @@ export default function CohortLeaderboardTab({
               <Users className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h3 className="font-head text-xl font-900 text-[#1E293B]">Complete Cohort Standings</h3>
+              <h3 className="font-head text-xl font-900 text-[#1E293B]">Complete Batch Standings</h3>
               <span className="text-xs text-[#64748B] font-bold">
                 Showing {filteredLeaderboard.length} of {leaderboard.length} enrolled students
               </span>
@@ -404,7 +404,7 @@ export default function CohortLeaderboardTab({
                 <h3 className="font-head text-xl font-900 text-[#1E293B]">
                   Class Weak Topics Leaderboard
                 </h3>
-                <span className="text-xs text-[#64748B] font-bold">Concepts with lowest cohort accuracy</span>
+                <span className="text-xs text-[#64748B] font-bold">Concepts with lowest batch accuracy</span>
               </div>
             </div>
             <Badge className="bg-[#FF6B5E] text-white border-2 border-[#1E293B] font-mono text-[10px] px-2.5 py-0.5">

@@ -38,7 +38,11 @@ def recency_decay(created_at, now: datetime = None) -> float:
     return 0.9 ** (days / 7.0)
 
 
-def band(score: float) -> str:
+import re
+
+def band(score: float, attempts: int = 1) -> str:
+    if attempts == 0:
+        return "not_attempted"
     if score < WEAK_BELOW:
         return "weak"
     if score > STRONG_ABOVE:
@@ -46,20 +50,65 @@ def band(score: float) -> str:
     return "developing"
 
 
-def compute_topic_mastery(attempts, now=None):
-    """Aggregate per-question attempts into per-(subject, chapter, topic) mastery.
+def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
+    if syllabus is not None:
+        return syllabus
+    try:
+        from curriculum import CURRICULUM
+    except ImportError:
+        try:
+            from ..curriculum import CURRICULUM
+        except ImportError:
+            return []
+
+    classes = []
+    if isinstance(class_level, (list, tuple, set)):
+        for item in class_level:
+            c = re.sub(r"[^0-9]", "", str(item))
+            if c in CURRICULUM and c not in classes:
+                classes.append(c)
+    elif class_level:
+        c = re.sub(r"[^0-9]", "", str(class_level))
+        if c in CURRICULUM:
+            classes.append(c)
+    if not classes:
+        classes = ["10"]
+
+    topics = []
+    seen = set()
+    for c in classes:
+        for subj_name, chaps in CURRICULUM.get(c, {}).items():
+            if subject and subject.lower() not in subj_name.lower():
+                continue
+            for chap_name, topic_list in chaps.items():
+                for t in topic_list:
+                    k = (subj_name.lower().strip(), chap_name.lower().strip(), t.lower().strip())
+                    if k not in seen:
+                        seen.add(k)
+                        topics.append({
+                            "subject": subj_name,
+                            "chapter": chap_name,
+                            "topic": t
+                        })
+    return topics
+
+
+def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None):
+    """Aggregate per-question attempts into per-(subject, chapter, topic) mastery,
+    unioned with the official syllabus topic list (marking unattempted topics as 'not_attempted').
 
     `attempts` is an iterable of dicts: {subject, chapter, topic, difficulty,
-    is_correct, time_s, created_at}. Returns a list sorted weakest-first.
+    is_correct, time_s, created_at}. Returns a list sorted weakest/untested first.
     """
     groups = {}
+    detected_class = class_level
     for a in attempts:
-        subject = (a.get("subject") or "").strip()
-        chapter = (a.get("chapter") or "").strip()
-        topic = (a.get("topic") or "").strip() or "General"
-        key = (subject, chapter, topic)
+        subj = (a.get("subject") or "").strip()
+        chap = (a.get("chapter") or "").strip()
+        top = (a.get("topic") or "").strip() or "General"
+        key = (subj.lower(), chap.lower(), top.lower())
         g = groups.setdefault(key, {
-            "subject": subject, "chapter": chapter, "topic": topic,
+            "subject": subj, "chapter": chap, "topic": top,
             "weighted_correct": 0.0, "weighted_total": 0.0,
             "attempts": 0, "time_total": 0.0, "last_attempt": None,
         })
@@ -77,9 +126,40 @@ def compute_topic_mastery(attempts, now=None):
         score = round(g["weighted_correct"] / g["weighted_total"] * 100) if g["weighted_total"] else 0
         out.append({
             "subject": g["subject"], "chapter": g["chapter"], "topic": g["topic"],
-            "score": score, "band": band(score), "attempts": g["attempts"],
+            "score": score, "band": band(score, g["attempts"]), "attempts": g["attempts"],
             "avg_time_s": round(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
             "last_attempt": g["last_attempt"],
         })
-    out.sort(key=lambda x: x["score"])
+
+    # Union with syllabus topics (surfacing unattempted as amber 'not_attempted')
+    s_topics = _extract_syllabus_topics(class_level=detected_class, subject=subject, syllabus=syllabus)
+    for st in s_topics:
+        s_subj = st["subject"]
+        s_chap = st["chapter"]
+        s_top = st["topic"]
+        s_key = (s_subj.lower().strip(), s_chap.lower().strip(), s_top.lower().strip())
+        if s_key not in groups:
+            out.append({
+                "subject": s_subj,
+                "chapter": s_chap,
+                "topic": s_top,
+                "score": 0,
+                "band": "not_attempted",
+                "attempts": 0,
+                "avg_time_s": 0.0,
+                "last_attempt": None,
+            })
+
+    # Sort order:
+    # 0. confirmed weak (score < 55) -> lowest score first
+    # 1. not_attempted -> alphabetical by chapter, topic
+    # 2. developing (55 <= score <= 75) -> lowest score first
+    # 3. strong (score > 75) -> lowest score first
+    def _sort_key(item):
+        b = item["band"]
+        order = {"weak": 0, "not_attempted": 1, "developing": 2, "strong": 3}
+        return (order.get(b, 1), item["score"], item["subject"], item["chapter"], item["topic"])
+
+    out.sort(key=_sort_key)
     return out
+

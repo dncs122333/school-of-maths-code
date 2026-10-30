@@ -216,7 +216,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
       <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-12 text-center text-[#1E293B]">
         <div className="inline-block h-8 w-8 border-3 border-[#1E293B] border-t-transparent rounded-full animate-spin mb-3" />
         <p className="font-head text-base font-bold text-[#1E293B]">
-          Fetching Fee Status for {activeBatch?.name || "Cohort"}…
+          Fetching Fee Status for {activeBatch?.name || "Batch"}…
         </p>
         <p className="text-xs text-[#64748B] font-mono mt-1">Retrieving {selectedMonth} fee telemetry and balances</p>
       </div>
@@ -230,7 +230,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
           <Users className="h-7 w-7 text-[#5B9BD5]" />
         </div>
         <div>
-          <h3 className="font-head text-xl font-900 text-[#1E293B]">No Students Enrolled in this Cohort</h3>
+          <h3 className="font-head text-xl font-900 text-[#1E293B]">No Students Enrolled in this Batch</h3>
           <p className="text-xs sm:text-sm text-[#64748B] font-medium max-w-md mx-auto mt-1">
             Share the batch code with your students so they can join and appear on this fee ledger.
           </p>
@@ -249,7 +249,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
     <div className="space-y-6">
       {/* 1. KEY TELEMETRY STRIP - THIS MONTH FOCUS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Active Cohort Students */}
+        {/* Card 1: Active Batch Students */}
         <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-[#64748B]">
             <span className="font-head font-bold uppercase tracking-wider text-[10px]">
@@ -263,7 +263,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
             {monthTelemetry.totalStudents}
           </div>
           <div className="text-[11px] text-[#64748B] font-mono font-bold mt-1">
-            Class {activeBatch?.class_level || feeData?.class_level} Cohort
+            Class {activeBatch?.class_level || feeData?.class_level} Batch
           </div>
         </div>
 
@@ -343,7 +343,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
             <div className="flex items-center gap-2.5 flex-wrap">
               <h3 className="font-head text-lg sm:text-xl font-900 text-[#1E293B] flex items-center gap-2">
                 <Calendar className="h-5 w-5 text-[#5B9BD5]" />
-                Cohort Fee Status
+                Batch Fee Status
               </h3>
               {/* Month Selector Pill */}
               <div className="relative inline-flex items-center">

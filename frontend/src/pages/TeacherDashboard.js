@@ -116,7 +116,7 @@ export default function TeacherDashboard() {
           <div className="space-y-2.5">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-900 uppercase">
-                👨‍🏫 EDUCATOR COCKPIT
+                👨‍🏫 CBSE EDUCATOR
               </span>
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#5B9BD5] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
                 {formattedDate}
@@ -131,8 +131,8 @@ export default function TeacherDashboard() {
               <span className="inline-block animate-floaty">📚</span>
             </h1>
 
-            <p className="text-[#1E293B] font-medium text-sm sm:text-base max-w-xl leading-relaxed">
-              Live performance telemetry across your coaching cohorts. Monitor batch leaderboards, student rankings, share study materials, and launch practice tests.
+            <p className="text-[#1E293B]/80 font-medium text-sm sm:text-base max-w-xl leading-relaxed italic">
+              “Guiding students from confusion to clarity, curiosity to mastery.”
             </p>
           </div>
 
@@ -232,7 +232,7 @@ export default function TeacherDashboard() {
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-[#4CAF7D] font-mono font-bold mt-1.5">
               <TrendingUp className="h-3.5 w-3.5 shrink-0" />
-              <span>Across {batches.length} {batches.length === 1 ? "cohort" : "cohorts"}</span>
+              <span>Across {batches.length} {batches.length === 1 ? "batch" : "batches"}</span>
             </div>
           </Link>
 
@@ -267,7 +267,7 @@ export default function TeacherDashboard() {
               {avgClassScore}%
             </div>
             <div className="text-[11px] text-[#4CAF7D] font-mono font-bold mt-1">
-              <span>Cohort Retention Index</span>
+              <span>Batch Retention Index</span>
             </div>
           </div>
         </div>
@@ -276,14 +276,14 @@ export default function TeacherDashboard() {
       {/* 2. BATCH SWITCHER CAPSULE STRIP */}
       {batches.length > 0 && (
         <div className="rounded-3xl bg-white p-5 sm:p-6 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] space-y-4">
-          {/* Top Row: Active Cohort telemetry & quick link */}
+          {/* Top Row: Active Batch telemetry & quick link */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b-2 border-[#1E293B]/10">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="h-8 w-8 rounded-xl bg-[#5B9BD5]/20 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center">
                 <Orbit className="h-4 w-4 text-[#1E293B]" />
               </div>
               <span className="font-head text-sm font-900 text-[#1E293B] uppercase tracking-wide">
-                Active Cohort:
+                Active Batch:
               </span>
               <span className="font-head text-base font-bold text-[#1E293B]">
                 {activeBatch?.name}
@@ -391,7 +391,7 @@ export default function TeacherDashboard() {
 
         <div className="hidden md:flex items-center gap-2 text-xs text-[#64748B] font-mono font-bold">
           <span className="h-2 w-2 rounded-full bg-[#4CAF7D] animate-pulse" />
-          <span>Active Cohort Telemetry</span>
+          <span>Active Batch Telemetry</span>
         </div>
       </div>
 
