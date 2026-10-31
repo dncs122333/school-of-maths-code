@@ -99,12 +99,21 @@ def compute_test_analytics(
             if i < len(res_list) and res_list[i].get("is_correct"):
                 correct_total += 1
 
-        accuracy = round_half_up(correct_total / submitted_count * 100, 1) if submitted_count else 0.0
+        answered = sum(1 for s in submissions if i < len(s.get("results") or []))
+        accuracy = round_half_up(correct_total / answered * 100, 1) if answered else 0.0
 
         # Discrimination Index D = P(Top) - P(Bottom)
         d_val = None
         d_rating = "N/A"
         if can_discriminate:
+            top_answered = sum(
+                1 for s in top_cohort
+                if i < len(s.get("results") or [])
+            )
+            bottom_answered = sum(
+                1 for s in bottom_cohort
+                if i < len(s.get("results") or [])
+            )
             top_correct = sum(
                 1 for s in top_cohort
                 if i < len(s.get("results") or []) and s["results"][i].get("is_correct")
@@ -113,18 +122,21 @@ def compute_test_analytics(
                 1 for s in bottom_cohort
                 if i < len(s.get("results") or []) and s["results"][i].get("is_correct")
             )
-            p_top = top_correct / len(top_cohort)
-            p_bot = bottom_correct / len(bottom_cohort)
-            d_val = round_half_up(p_top - p_bot, 2)
+            p_top = (top_correct / top_answered) if top_answered else 0.0
+            p_bot = (bottom_correct / bottom_answered) if bottom_answered else 0.0
+            d_val = round_half_up(p_top - p_bot, 2) if (top_answered and bottom_answered) else None
 
-            if d_val >= 0.35:
-                d_rating = "Excellent"
-            elif d_val >= 0.20:
-                d_rating = "Good"
-            elif d_val >= 0.0:
-                d_rating = "Fair"
+            if d_val is not None:
+                if d_val >= 0.35:
+                    d_rating = "Excellent"
+                elif d_val >= 0.20:
+                    d_rating = "Good"
+                elif d_val >= 0.0:
+                    d_rating = "Fair"
+                else:
+                    d_rating = "Poor / Ambiguous"
             else:
-                d_rating = "Poor / Ambiguous"
+                d_rating = "N/A"
 
         times_for_q = q_times_map.get(i, [])
         avg_q_time = round_half_up(sum(times_for_q) / len(times_for_q), 1) if times_for_q else 0.0
@@ -142,6 +154,7 @@ def compute_test_analytics(
             "chapter": q.get("chapter") or test.get("chapter") or "General",
             "difficulty": (q.get("difficulty") or "medium").lower(),
             "correct_count": correct_total,
+            "answered_count": answered,
             "accuracy": accuracy,
             "discrimination_index": d_val,
             "discrimination_rating": d_rating,

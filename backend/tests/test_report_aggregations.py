@@ -725,6 +725,60 @@ class TestReportsAPI:
             compute_term_report("b_inv", batch_invalid, submissions, student_map, subject="Maths")
         assert "not found in CURRICULUM" in str(excinfo.value)
 
+    def test_18_question_accuracy_uses_answered_count_not_submitted_count(self):
+        """
+        Verify that accuracy does not penalize questions near the end of a test
+        that some students did not reach.
+        If 4 students submitted, but 2 students only answered Q1 & Q2 (did not reach Q3),
+        and both students who reached Q3 answered correctly:
+        - Q3 accuracy must be 100.0% (2 / 2 answered), NOT 50.0% (2 / 4 submitted).
+        - Q3 answered_count must be 2.
+        - Questions not reached by any students should have accuracy 0.0 and answered_count 0.
+        """
+        test_doc = {
+            "id": "test_unreached",
+            "title": "Speed Test",
+            "duration_minutes": 10,
+            "questions": [
+                {"question": "Q1", "topic": "Algebra"},
+                {"question": "Q2", "topic": "Geometry"},
+                {"question": "Q3", "topic": "Trigonometry"},
+                {"question": "Q4", "topic": "Calculus"}
+            ]
+        }
+        subs = [
+            {"student_id": "s1", "score": 100, "results": [{"is_correct": True}, {"is_correct": True}, {"is_correct": True}]},
+            {"student_id": "s2", "score": 100, "results": [{"is_correct": True}, {"is_correct": True}, {"is_correct": True}]},
+            {"student_id": "s3", "score": 50, "results": [{"is_correct": True}, {"is_correct": False}]},
+            {"student_id": "s4", "score": 50, "results": [{"is_correct": True}, {"is_correct": False}]}
+        ]
+        res = compute_test_analytics(test_doc, subs, enrolled_count=4)
+        assert res["submitted_count"] == 4
+
+        q_analysis = res["question_analysis"]
+        assert len(q_analysis) == 4
+
+        # Q1: all 4 answered, all 4 correct
+        assert q_analysis[0]["answered_count"] == 4
+        assert q_analysis[0]["correct_count"] == 4
+        assert q_analysis[0]["accuracy"] == 100.0
+
+        # Q2: all 4 answered, 2 correct
+        assert q_analysis[1]["answered_count"] == 4
+        assert q_analysis[1]["correct_count"] == 2
+        assert q_analysis[1]["accuracy"] == 50.0
+
+        # Q3: only 2 students reached, both got it right
+        assert q_analysis[2]["answered_count"] == 2
+        assert q_analysis[2]["correct_count"] == 2
+        assert q_analysis[2]["accuracy"] == 100.0  # NOT 50.0% !
+
+        # Q4: 0 students reached
+        assert q_analysis[3]["answered_count"] == 0
+        assert q_analysis[3]["correct_count"] == 0
+        assert q_analysis[3]["accuracy"] == 0.0
+
+
 
 
 
