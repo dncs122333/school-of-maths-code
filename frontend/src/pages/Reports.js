@@ -28,7 +28,8 @@ const BAND = {
   weak: { label: "Weak", cell: "bg-[#FF6B5E]/20 text-[#1E293B] border-2 border-[#1E293B]", badge: "bg-[#FF6B5E]/20 text-[#1E293B] border-2 border-[#1E293B] font-bold" },
   developing: { label: "Developing", cell: "bg-[#F5C842]/30 text-[#1E293B] border-2 border-[#1E293B]", badge: "bg-[#F5C842]/30 text-[#1E293B] border-2 border-[#1E293B] font-bold" },
   strong: { label: "Strong", cell: "bg-[#4CAF7D]/25 text-[#1E293B] border-2 border-[#1E293B]", badge: "bg-[#4CAF7D]/25 text-[#1E293B] border-2 border-[#1E293B] font-bold" },
-  not_attempted: { label: "Untested", cell: "bg-gray-100 text-[#1E293B]/40 border border-gray-300", badge: "bg-gray-100 text-[#1E293B]/50" }
+  not_attempted: { label: "Untested", cell: "bg-gray-100 text-[#1E293B]/40 border border-gray-300", badge: "bg-gray-100 text-[#1E293B]/50" },
+  insufficient_data: { label: "Too few Qs", cell: "bg-gray-100 text-[#1E293B]/60 border border-dashed border-gray-400", badge: "bg-gray-100 text-[#1E293B]/60 border border-dashed border-[#1E293B]/40" }
 };
 
 const key = (t) => `${t.subject}|${t.chapter}|${t.topic}`;
@@ -474,7 +475,7 @@ export default function Reports() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="font-900 text-sm text-[#1E293B]">{t.accuracy}%</span>
-                          <Badge className={BAND[t.band]?.badge}>{t.band}</Badge>
+                          <Badge className={BAND[t.band]?.badge}>{BAND[t.band]?.label || t.band}</Badge>
                         </div>
                       </div>
                     ))}
@@ -578,7 +579,10 @@ export default function Reports() {
                   <tbody>
                     {weeklyDigest.topic_movement.map((t, idx) => (
                       <tr key={idx} className="border-b border-[#1E293B]/10 hover:bg-[#FFF9E8]/40">
-                        <td className="py-3 px-3 font-bold text-[#1E293B]">{t.topic}</td>
+                        <td className="py-3 px-3 font-bold text-[#1E293B]">
+                          {t.topic}
+                          {t.chapter && <span className="block text-[10px] font-semibold text-[#64748B]">{t.chapter}</span>}
+                        </td>
                         <td className="py-3 px-2 font-mono font-bold text-[#1E293B]">
                           {t.current_accuracy !== null && t.current_accuracy !== undefined ? `${t.current_accuracy}%` : "—"}
                         </td>
@@ -601,10 +605,12 @@ export default function Reports() {
                             <span className="inline-flex items-center gap-1 text-[#E04A3C] font-bold">
                               <TrendingDown className="h-3.5 w-3.5" /> Lagging
                             </span>
-                          ) : t.trajectory === "regressed" ? (
-                            <span className="inline-flex items-center gap-1 text-[#E04A3C] font-bold">
-                              <TrendingDown className="h-3.5 w-3.5" /> Regressed
+                          ) : t.trajectory === "not_practised" ? (
+                            <span className="inline-flex items-center gap-1 text-[#B4881B] font-bold">
+                              <Clock className="h-3.5 w-3.5" /> Not practised
                             </span>
+                          ) : t.trajectory === "new" ? (
+                            <span className="text-[#3E7CB1] font-bold">✦ New</span>
                           ) : (
                             <span className="text-[#64748B] font-bold">● Steady</span>
                           )}

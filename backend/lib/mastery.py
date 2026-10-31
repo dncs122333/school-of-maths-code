@@ -243,56 +243,68 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     for a in attempts:
         if a.get("answered") is False:
             continue
-        subj = (a.get("subject") or "").strip()
-        chap = (a.get("chapter") or "").strip()
-        top = (a.get("topic") or "").strip() or "General"
 
-        # If subject or chapter is missing (e.g. diagnostic results), infer from curriculum
-        if not subj or not chap:
-            inferred_subj, inferred_chap = infer_subject_and_chapter(detected_class, chap, top)
-            if not subj and inferred_subj:
-                subj = inferred_subj
-            if not chap and inferred_chap:
-                chap = inferred_chap
-            if not subj:
-                subj = "Unknown"
+        # A question tagged with several topics counts toward each of them. Its weight is split
+        # evenly so a multi-topic question carries the same total influence as a single-topic one.
+        tops = []
+        seen_tops = set()
+        for t in [a.get("topic")] + list(a.get("topics") or []):
+            t = (t or "").strip() if isinstance(t, str) else ""
+            if t and normalize_key(t) not in seen_tops:
+                seen_tops.add(normalize_key(t))
+                tops.append(t)
+        if not tops:
+            tops = ["General"]
+        base_w = recency_decay(a.get("created_at"), now) * difficulty_weight(a.get("difficulty")) / len(tops)
 
-        # If a specific subject is requested, do not pollute with other or unknown subjects
-        if subject and not subjects_match(subj, subject):
-            continue
+        for top in tops:
+            subj = (a.get("subject") or "").strip()
+            chap = (a.get("chapter") or "").strip()
 
-        key = (normalize_key(subj), normalize_key(chap), normalize_key(top))
+            # If subject or chapter is missing (e.g. diagnostic results), infer from curriculum
+            if not subj or not chap:
+                inferred_subj, inferred_chap = infer_subject_and_chapter(detected_class, chap, top)
+                if not subj and inferred_subj:
+                    subj = inferred_subj
+                if not chap and inferred_chap:
+                    chap = inferred_chap
+                if not subj:
+                    subj = "Unknown"
 
-        # Use canonical display names from syllabus when matched, or normalized title
-        if key in s_lookup:
-            display_subj = s_lookup[key]["subject"]
-            display_chap = s_lookup[key]["chapter"]
-            display_top = s_lookup[key]["topic"]
-        else:
-            display_subj = normalize_subject(subj) if subj else "Unknown"
-            display_chap = chap or "General"
-            display_top = canonicalize_topic_title(top)
+            # If a specific subject is requested, do not pollute with other or unknown subjects
+            if subject and not subjects_match(subj, subject):
+                continue
 
+            key = (normalize_key(subj), normalize_key(chap), normalize_key(top))
 
-        g = groups.setdefault(key, {
-            "subject": display_subj, "chapter": display_chap, "topic": display_top,
-            "weighted_correct": 0.0, "weighted_total": 0.0,
-            "attempts": 0, "sessions": set(), "time_total": 0.0, "last_attempt": None,
-        })
-        w = recency_decay(a.get("created_at"), now) * difficulty_weight(a.get("difficulty"))
-        g["weighted_total"] += w
-        if a.get("is_correct"):
-            g["weighted_correct"] += w
-        g["attempts"] += 1
-        sess_key = a.get("submission_id") or a.get("session_id") or a.get("created_at")
-        if sess_key:
-            if a.get("student_id"):
-                g["sessions"].add((a.get("student_id"), sess_key))
+            # Use canonical display names from syllabus when matched, or normalized title
+            if key in s_lookup:
+                display_subj = s_lookup[key]["subject"]
+                display_chap = s_lookup[key]["chapter"]
+                display_top = s_lookup[key]["topic"]
             else:
-                g["sessions"].add(sess_key)
-        g["time_total"] += float(a.get("time_s") or 0)
-        if g["last_attempt"] is None or (a.get("created_at") or "") > (g["last_attempt"] or ""):
-            g["last_attempt"] = a.get("created_at")
+                display_subj = normalize_subject(subj) if subj else "Unknown"
+                display_chap = chap or "General"
+                display_top = canonicalize_topic_title(top)
+
+            g = groups.setdefault(key, {
+                "subject": display_subj, "chapter": display_chap, "topic": display_top,
+                "weighted_correct": 0.0, "weighted_total": 0.0,
+                "attempts": 0, "sessions": set(), "time_total": 0.0, "last_attempt": None,
+            })
+            g["weighted_total"] += base_w
+            if a.get("is_correct"):
+                g["weighted_correct"] += base_w
+            g["attempts"] += 1
+            sess_key = a.get("submission_id") or a.get("session_id") or a.get("created_at")
+            if sess_key:
+                if a.get("student_id"):
+                    g["sessions"].add((a.get("student_id"), sess_key))
+                else:
+                    g["sessions"].add(sess_key)
+            g["time_total"] += float(a.get("time_s") or 0)
+            if g["last_attempt"] is None or (a.get("created_at") or "") > (g["last_attempt"] or ""):
+                g["last_attempt"] = a.get("created_at")
 
     out = []
     for g in groups.values():

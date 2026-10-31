@@ -10,6 +10,17 @@ except ImportError:
     from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered
     from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 
+# Raw per-test / per-week topic accuracies need at least this many answered questions
+# before they are labelled weak/developing/strong (one wrong question is not a weakness).
+MIN_TOPIC_QUESTIONS = 2
+
+
+def topic_band(accuracy: float, questions: int) -> str:
+    """band() for raw topic accuracy, returning 'insufficient_data' below MIN_TOPIC_QUESTIONS."""
+    if 0 < questions < MIN_TOPIC_QUESTIONS:
+        return "insufficient_data"
+    return band(accuracy, attempts=questions)
+
 
 def compute_test_analytics(
     test: Dict[str, Any],
@@ -194,10 +205,10 @@ def compute_test_analytics(
             "total_attempts": v["total"],
             "correct_attempts": v["correct"],
             "accuracy": acc,
-            "band": band(acc, attempts=v["total"])
+            "band": topic_band(acc, v["total"])
         })
-    # Sort weakest first
-    topic_breakdown.sort(key=lambda t: (t["accuracy"], t["topic"]))
+    # Sort weakest first; topics with too few questions to judge go last
+    topic_breakdown.sort(key=lambda t: (t["band"] == "insufficient_data", t["accuracy"], t["topic"]))
 
     # Anomaly detection (tab switches & fast submissions)
     anomalies = []
@@ -342,15 +353,21 @@ def compute_weekly_digest(
             for i, r in enumerate(s.get("results") or []):
                 if not is_answered(r, s.get("answers"), i):
                     continue
+                subj = r.get("subject") or ""
+                chap = r.get("chapter") or ""
                 top = r.get("topic") or "General"
-                k = normalize_key(top)
+                # Key on (subject, chapter, topic) so e.g. 'Introduction' in two chapters stays separate
+                k = (normalize_key(normalize_subject(subj)) if subj else "", normalize_key(chap), normalize_key(top))
                 if k not in t_data:
-                    t_data[k] = {"topic": canonicalize_topic_title(top), "correct": 0, "total": 0}
+                    t_data[k] = {"subject": normalize_subject(subj) if subj else "", "chapter": chap,
+                                 "topic": canonicalize_topic_title(top), "correct": 0, "total": 0}
                 t_data[k]["total"] += 1
                 if r.get("is_correct"):
                     t_data[k]["correct"] += 1
         return {
             k: {
+                "subject": v["subject"],
+                "chapter": v["chapter"],
                 "topic": v["topic"],
                 "acc": round_half_up(v["correct"] / v["total"] * 100) if v["total"] else 0,
                 "total": v["total"]
@@ -374,29 +391,35 @@ def compute_weekly_digest(
             trajectory = "new"
 
         topic_movement.append({
+            "subject": v["subject"],
+            "chapter": v["chapter"],
             "topic": v["topic"],
             "current_accuracy": cur_acc,
             "prior_accuracy": prev_acc,
             "delta": diff,
             "trajectory": trajectory,
-            "band": band(cur_acc, attempts=v["total"])
+            "band": topic_band(cur_acc, v["total"])
         })
 
-    # 2. Union prior-only topics with trajectory 'regressed' so neglected/abandoned topics are visible
+    # 2. Union prior-only topics with trajectory 'not_practised' so neglected/abandoned topics stay visible
+    #    (no recent attempts says nothing about accuracy, so this is not a regression)
     for k, v in pri_t.items():
         if k not in rec_t:
             topic_movement.append({
+                "subject": v["subject"],
+                "chapter": v["chapter"],
                 "topic": v["topic"],
                 "current_accuracy": None,
                 "prior_accuracy": v["acc"],
                 "delta": None,
-                "trajectory": "regressed",
+                "trajectory": "not_practised",
                 "band": "not_attempted"
             })
 
-    # Sort topics with regressed and slipping first, then lowest accuracy
+    # Sort slipping first, then not practised, then lowest accuracy
+    trajectory_order = {"slipping": 0, "not_practised": 1}
     topic_movement.sort(key=lambda t: (
-        0 if t["trajectory"] in ("regressed", "slipping") else 1,
+        trajectory_order.get(t["trajectory"], 2),
         t["current_accuracy"] if t["current_accuracy"] is not None else (t["prior_accuracy"] or 0)
     ))
 
@@ -466,6 +489,49 @@ def compute_term_report(
                 for t in topics:
                     all_curriculum_topics.add((norm_s, norm_c, normalize_key(t)))
 
+    # Sorted so tie-breaks never depend on set iteration order (which varies per process via hash seeds)
+    curriculum_sorted = sorted(all_curriculum_topics)
+
+    def _is_partial(a: str, b: str) -> bool:
+        return len(a) >= 4 and (a in b or b in a)
+
+    def _match_curriculum_topic(r_subj: str, r_chap: str, r_top: str):
+        """Resolves one tested topic to a single curriculum (subject, chapter, topic), or None.
+        Exact matches win; partial (substring) matches only count when exactly one candidate fits,
+        so a short tag like 'Area' never silently claims one of several similarly named topics."""
+        # 1. Exact 3-tuple match: (subject, chapter, topic)
+        if r_subj and r_chap and (r_subj, r_chap, r_top) in all_curriculum_topics:
+            return (r_subj, r_chap, r_top)
+
+        in_subj = [c for c in curriculum_sorted if not r_subj or c[0] == r_subj or subjects_match(c[0], r_subj)]
+
+        def _unique(cands):
+            return cands[0] if len(cands) == 1 else None
+
+        # 2. Known chapter: match strictly within chapter to prevent cross-chapter topic collisions
+        if r_chap:
+            same_chap = [c for c in in_subj if c[1] == r_chap]
+            exact = [c for c in same_chap if c[2] == r_top]
+            if exact:
+                return exact[0]
+            hit = _unique([c for c in same_chap if _is_partial(r_top, c[2])])
+            if hit:
+                return hit
+
+            # Fuzzy chapter name match (e.g. "Chapter 1: Real Numbers" vs "Real Numbers")
+            fuzzy_chap = [c for c in in_subj if _is_partial(r_chap, c[1])]
+            hit = _unique([c for c in fuzzy_chap if c[2] == r_top]) or _unique(
+                [c for c in fuzzy_chap if _is_partial(r_top, c[2])]
+            )
+            if hit:
+                return hit
+
+        # 3. Chapter unknown or unmatched: topic across the subject, only when unambiguous
+        return _unique([c for c in in_subj if c[2] == r_top]) or _unique(
+            [c for c in in_subj if _is_partial(r_top, c[2])]
+        )
+
+    coverage_cache: Dict[Any, Any] = {}
     covered_topics = set()
     for s in all_submissions:
         sub_subj = s.get("subject") or batch.get("subject") or target_subject or ""
@@ -491,63 +557,12 @@ def compute_term_report(
                 r_top = normalize_key(top_raw)
                 if not r_top:
                     continue
-
-                # 1. Exact 3-tuple match: (subject, chapter, topic)
-                if r_subj and r_chap and (r_subj, r_chap, r_top) in all_curriculum_topics:
-                    covered_topics.add((r_subj, r_chap, r_top))
-                    continue
-
-                # 2. Known chapter: match strictly within chapter to prevent cross-chapter topic collisions
-                matched_chap = False
-                if r_chap:
-                    # Exact chapter + exact topic
-                    for (cs, cc, ct) in all_curriculum_topics:
-                        if (not r_subj or cs == r_subj or subjects_match(cs, r_subj)) and cc == r_chap:
-                            if ct == r_top:
-                                covered_topics.add((cs, cc, ct))
-                                matched_chap = True
-                                break
-                    if matched_chap:
-                        continue
-
-                    # Exact chapter + substring topic match
-                    for (cs, cc, ct) in all_curriculum_topics:
-                        if (not r_subj or cs == r_subj or subjects_match(cs, r_subj)) and cc == r_chap:
-                            if len(r_top) >= 4 and (r_top in ct or ct in r_top):
-                                covered_topics.add((cs, cc, ct))
-                                matched_chap = True
-                                break
-                    if matched_chap:
-                        continue
-
-                    # Fuzzy chapter name match (e.g. "Chapter 1: Real Numbers" vs "Real Numbers")
-                    for (cs, cc, ct) in all_curriculum_topics:
-                        if (not r_subj or cs == r_subj or subjects_match(cs, r_subj)) and (
-                            len(r_chap) >= 4 and (r_chap in cc or cc in r_chap)
-                        ):
-                            if ct == r_top or (len(r_top) >= 4 and (r_top in ct or ct in r_top)):
-                                covered_topics.add((cs, cc, ct))
-                                matched_chap = True
-                                break
-                    if matched_chap:
-                        continue
-
-                # 3. Chapter unknown: match by topic across curriculum in matching subject
-                matched_any = False
-                for (cs, cc, ct) in all_curriculum_topics:
-                    if not r_subj or cs == r_subj or subjects_match(cs, r_subj):
-                        if ct == r_top:
-                            covered_topics.add((cs, cc, ct))
-                            matched_any = True
-                            break
-                if matched_any:
-                    continue
-
-                for (cs, cc, ct) in all_curriculum_topics:
-                    if not r_subj or cs == r_subj or subjects_match(cs, r_subj):
-                        if len(r_top) >= 4 and (r_top in ct or ct in r_top):
-                            covered_topics.add((cs, cc, ct))
-                            break
+                cache_key = (r_subj, r_chap, r_top)
+                if cache_key not in coverage_cache:
+                    coverage_cache[cache_key] = _match_curriculum_topic(r_subj, r_chap, r_top)
+                hit = coverage_cache[cache_key]
+                if hit:
+                    covered_topics.add(hit)
 
     syllabus_coverage_pct = (
         round_half_up(len(covered_topics) / len(all_curriculum_topics) * 100, 1)

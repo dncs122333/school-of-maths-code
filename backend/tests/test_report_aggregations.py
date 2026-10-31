@@ -580,10 +580,10 @@ class TestReportsAPI:
         assert "s_removed" not in summary_sids
         assert "s_other_batch" not in summary_sids
 
-    def test_16_weekly_digest_edge_cases_empty_prior_regressed_topics_and_utc_dates(self):
+    def test_16_weekly_digest_edge_cases_empty_prior_not_practised_topics_and_utc_dates(self):
         """Validates:
         1. When prior window is empty, delta_avg is None (not a phantom +avg improvement) and prior_avg is None.
-        2. Topics attempted only in prior window appear with trajectory 'regressed' (not vanished).
+        2. Topics attempted only in prior window appear with trajectory 'not_practised' (not vanished).
         3. Mixed ISO offsets (Z vs +05:30) are compared in true UTC to prevent misbucketing.
         """
         from reports.aggregations import compute_weekly_digest
@@ -603,7 +603,7 @@ class TestReportsAPI:
         assert digest_no_prior["prior_avg"] is None
         assert digest_no_prior["delta_avg"] is None  # NOT 85.0 (which was the phantom improvement bug)
 
-        # 2. Prior-only topics unioned with trajectory 'regressed'
+        # 2. Prior-only topics unioned with trajectory 'not_practised'
         prior_subs = [
             {
                 "student_id": "s1",
@@ -629,10 +629,10 @@ class TestReportsAPI:
         assert digest_movement["delta_avg"] == 20.0  # 90.0 - 70.0
         m_map = {t["topic"]: t for t in digest_movement["topic_movement"]}
 
-        # 'Triangles' must not vanish; it must be 'regressed'
+        # 'Triangles' must not vanish; it must be 'not_practised'
         assert "Triangles" in m_map
         triangles = m_map["Triangles"]
-        assert triangles["trajectory"] == "regressed"
+        assert triangles["trajectory"] == "not_practised"
         assert triangles["current_accuracy"] is None
         assert triangles["prior_accuracy"] == 100.0
         assert triangles["delta"] is None
@@ -829,3 +829,74 @@ def test_19_skipped_questions_excluded_from_answered_count_and_mastery():
         for i in range(3)
     ], include_unattempted=False)
     assert mastery == []
+
+
+def test_20_term_coverage_partial_matches_only_when_unambiguous(monkeypatch):
+    """A short partial tag ('Area') that fits several curriculum topics must not claim any of them
+    (previously the winner depended on set iteration order, which changes with the hash seed).
+    A partial tag that fits exactly one topic still counts."""
+    import reports.aggregations
+    import curriculum
+
+    mock_curriculum = {
+        "mock_cl": {
+            "Maths": {
+                "Areas": ["Area of Triangles", "Area of Parallelograms"],
+                "Surface Areas": ["Surface Area of Cubes"],
+                "Real Numbers": ["Euclidean Algorithm"],
+            }
+        }
+    }
+    monkeypatch.setattr(reports.aggregations, "CURRICULUM", mock_curriculum)
+    monkeypatch.setattr(curriculum, "CURRICULUM", mock_curriculum)
+    batch = {"id": "b", "class_level": "mock_cl", "subject": "Maths", "student_ids": ["s1"]}
+
+    ambiguous = [{"student_id": "s1", "results": [{"subject": "Maths", "topic": "Area", "is_correct": True}]}]
+    rep = reports.aggregations.compute_term_report("b", batch, ambiguous, {"s1": "A"}, subject="Maths")
+    assert rep["covered_topics_count"] == 0
+
+    unique = [{"student_id": "s1", "results": [{"subject": "Maths", "topic": "Euclidean", "is_correct": True}]}]
+    rep = reports.aggregations.compute_term_report("b", batch, unique, {"s1": "A"}, subject="Maths")
+    assert rep["covered_topics_count"] == 1
+
+
+def test_21_multi_topic_question_counts_toward_each_topic():
+    """A question tagged with several topics feeds mastery for every tag, with its weight split evenly."""
+    from lib.mastery import compute_topic_mastery
+
+    attempts = [
+        {"subject": "Maths", "chapter": "Quadratic Equations", "topic": "Nature of Roots",
+         "topics": ["Nature of Roots", "Discriminant"], "is_correct": True, "submission_id": "s1"},
+        {"subject": "Maths", "chapter": "Quadratic Equations", "topic": "Discriminant",
+         "topics": ["Discriminant"], "is_correct": False, "submission_id": "s2"},
+    ]
+    by_topic = {t["topic"]: t for t in compute_topic_mastery(attempts, include_unattempted=False)}
+    assert by_topic["Nature of Roots"]["attempts"] == 1
+    assert by_topic["Nature of Roots"]["score"] == 100
+    assert by_topic["Discriminant"]["attempts"] == 2
+    # Half-weight correct (0.5 * 1.0) vs full-weight wrong (1.0): 0.5 / 1.5 = 33%
+    assert by_topic["Discriminant"]["score"] == 33
+
+
+def test_22_weekly_digest_keys_by_chapter_and_needs_min_questions():
+    """Same-named topics in different chapters stay separate in the weekly digest, and a topic
+    with a single answered question is 'insufficient_data' rather than weak."""
+    from datetime import datetime, timezone
+
+    batch = {"id": "b", "name": "B", "class_level": "9", "student_ids": ["s1"]}
+    now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
+    recent = [{"student_id": "s1", "score": 50, "created_at": "2026-10-30T10:00:00+00:00", "results": [
+        {"subject": "Maths", "chapter": "Polynomials", "topic": "Introduction", "is_correct": False},
+        {"subject": "Maths", "chapter": "Polynomials", "topic": "Introduction", "is_correct": False},
+        {"subject": "Maths", "chapter": "Real Numbers", "topic": "Introduction", "is_correct": False},
+    ]}]
+    digest = compute_weekly_digest("b", batch, recent, [], now=now)
+    by_chapter = {t["chapter"]: t for t in digest["topic_movement"]}
+    assert set(by_chapter) == {"Polynomials", "Real Numbers"}
+    assert by_chapter["Polynomials"]["band"] == "weak"
+    assert by_chapter["Real Numbers"]["band"] == "insufficient_data"
+
+    test_doc = {"id": "t", "title": "T", "duration_minutes": 10, "questions": [{"question": "Q1"}]}
+    subs = [{"student_id": "s1", "score": 0, "results": [{"topic": "Triangles", "is_correct": False}]}]
+    res = compute_test_analytics(test_doc, subs, enrolled_count=1)
+    assert res["topic_breakdown"][0]["band"] == "insufficient_data"
