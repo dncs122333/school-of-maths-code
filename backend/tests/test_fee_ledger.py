@@ -1,6 +1,7 @@
 """Regression tests for fee ledger single source of truth and bug fixes (F1, F2, F3, F4)."""
 import os
 import uuid
+from datetime import datetime
 import pytest
 import requests
 from dotenv import dotenv_values
@@ -8,6 +9,11 @@ from dotenv import dotenv_values
 frontend_env = dotenv_values("frontend/.env") if os.path.exists("frontend/.env") else {}
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or frontend_env.get("REACT_APP_BACKEND_URL", "")).rstrip("/") or "http://localhost:8001"
 API = f"{BASE_URL}/api"
+
+# Fee tests bill the full 12-month year; pin batches to an academic year that starts after today so
+# join-month billing (students joining mid-year owe only from their join month) does not trim schedules.
+_ay_start = datetime.now().year + (1 if datetime.now().month >= 4 else 0)
+FULL_YEAR_AY = f"{_ay_start}-{_ay_start + 1}"
 
 
 def _register_user(name: str, role: str):
@@ -44,6 +50,7 @@ class TestFeeLedger:
             json={
                 "name": "Fee Ledger Test Batch",
                 "class_level": "10",
+                "academic_year": FULL_YEAR_AY,
                 "fee_amount": 60000,
                 "monthly_fee": 5000
             },
@@ -712,7 +719,7 @@ class TestFeeAuditAndArchive:
     @classmethod
     def setup_class(cls):
         cls.teacher = _register_user("Audit Teacher", "teacher")
-        r = requests.post(f"{API}/batches", json={"name": "Audit Batch", "class_level": "10", "fee_amount": 60000},
+        r = requests.post(f"{API}/batches", json={"name": "Audit Batch", "class_level": "10", "academic_year": FULL_YEAR_AY, "fee_amount": 60000},
                           headers=cls.teacher["headers"], timeout=15)
         assert r.status_code == 200, r.text
         cls.batch = r.json()
@@ -766,7 +773,7 @@ class TestFeeAuditAndArchive:
 
     def test_delete_batch_with_fees_needs_force_and_archives(self):
         teacher = _register_user("Archiving Teacher", "teacher")
-        batch = requests.post(f"{API}/batches", json={"name": "To Archive", "class_level": "10", "fee_amount": 12000},
+        batch = requests.post(f"{API}/batches", json={"name": "To Archive", "class_level": "10", "academic_year": FULL_YEAR_AY, "fee_amount": 12000},
                               headers=teacher["headers"], timeout=15).json()
         student = _register_user("Archived Batch Student", "student")
         assert self._join(student, batch["code"]).status_code == 200
@@ -783,3 +790,66 @@ class TestFeeAuditAndArchive:
         assert batch["id"] not in listed
         assert requests.get(f"{API}/batches/{batch['id']}/students", headers=teacher["headers"], timeout=15).status_code == 404
         assert self._join(student, batch["code"]).status_code == 404
+
+
+class TestJoinMonthBilling:
+    """Students who join mid-year owe only from their join month; dues split into overdue vs upcoming."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.teacher = _register_user("Join Month Teacher", "teacher")
+        # Current academic year (server default), 1,000/month
+        r = requests.post(f"{API}/batches", json={"name": "Join Month Batch", "class_level": "10", "fee_amount": 12000},
+                          headers=cls.teacher["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        cls.batch = r.json()
+        now = datetime.now()
+        # Months of the academic year from the current month through March (what a student joining today owes)
+        order = ["April", "May", "June", "July", "August", "September", "October", "November", "December",
+                 "January", "February", "March"]
+        current = now.strftime("%B")
+        cls.expected_months = order[order.index(current):]
+
+    def _student_row(self, sid):
+        r = requests.get(f"{API}/batches/{self.batch['id']}/students", headers=self.teacher["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        return r.json(), next(s for s in r.json()["students"] if s["id"] == sid)
+
+    def test_new_joiner_billed_from_join_month(self):
+        student = _register_user("Mid Year Joiner", "student")
+        r_join = requests.post(f"{API}/batches/join", json={"code": self.batch["code"]}, headers=student["headers"], timeout=15)
+        assert r_join.status_code == 200, r_join.text
+
+        data, row = self._student_row(student["id"])
+        assert [m["month"] for m in row["fee_schedule"]] == self.expected_months
+        assert row["total_fee"] == 1000 * len(self.expected_months)
+        assert row["joined_at"]
+        # Only the current month has come due so far
+        assert row["overdue_fee"] == 1000
+        assert row["upcoming_fee"] == 1000 * (len(self.expected_months) - 1)
+        assert row["overdue_fee"] + row["upcoming_fee"] == row["due_fee"]
+        assert data["summary"]["total_overdue"] + data["summary"]["total_upcoming"] == data["summary"]["total_dues"]
+
+        if self.expected_months[0] != "April":
+            r_pay = requests.post(f"{API}/batches/{self.batch['id']}/students/{student['id']}/fee",
+                                  json={"month": "April", "amount": 1000}, headers=self.teacher["headers"], timeout=15)
+            assert r_pay.status_code == 400, r_pay.text
+
+        r_full = requests.post(f"{API}/batches/{self.batch['id']}/students/{student['id']}/fee",
+                               json={"mark_as_paid": True}, headers=self.teacher["headers"], timeout=15)
+        assert r_full.status_code == 200, r_full.text
+        assert r_full.json()["paid_fee"] == 1000 * len(self.expected_months)
+
+    def test_batch_fee_edit_keeps_join_month_billing(self):
+        student = _register_user("Fee Edit Joiner", "student")
+        requests.post(f"{API}/batches/join", json={"code": self.batch["code"]}, headers=student["headers"], timeout=15)
+        requests.post(f"{API}/batches/{self.batch['id']}/students/{student['id']}/fee",
+                      json={"month": self.expected_months[0], "amount": 1000}, headers=self.teacher["headers"], timeout=15)
+
+        r_upd = requests.put(f"{API}/batches/{self.batch['id']}", json={"fee_amount": 24000},
+                             headers=self.teacher["headers"], timeout=15)
+        assert r_upd.status_code == 200, r_upd.text
+
+        _, row = self._student_row(student["id"])
+        assert row["total_fee"] == 2000 * len(self.expected_months)
+        assert row["paid_fee"] == 1000

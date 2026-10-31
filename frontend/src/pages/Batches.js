@@ -1270,14 +1270,14 @@ export default function Batches() {
 
             <div className="p-4 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B]">
               <div className="flex items-center justify-between text-xs text-[#1E293B]/70">
-                <span className="font-mono uppercase tracking-wider text-[10px] font-bold">Total Dues</span>
+                <span className="font-mono uppercase tracking-wider text-[10px] font-bold">Overdue</span>
                 <Clock className="h-4 w-4 text-[#E04A3C]" />
               </div>
               <div className="font-head text-2xl font-black text-[#E04A3C] mt-1">
-                ₹{(batchStudentsData?.summary?.total_dues ?? 0).toLocaleString()}
+                ₹{(batchStudentsData?.summary?.total_overdue ?? batchStudentsData?.summary?.total_dues ?? 0).toLocaleString()}
               </div>
-              <div className="text-[11px] text-[#E04A3C] font-mono mt-0.5 font-bold">
-                {(batchStudentsData?.summary?.due_count || 0) + (batchStudentsData?.summary?.partial_count || 0)} pending
+              <div className="text-[11px] text-[#1E293B]/60 font-mono mt-0.5 font-bold">
+                + ₹{(batchStudentsData?.summary?.total_upcoming ?? 0).toLocaleString()} upcoming
               </div>
             </div>
 
@@ -1443,10 +1443,15 @@ export default function Batches() {
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-[#1E293B]/60 uppercase block">Dues</span>
-                                <span className={`text-xs sm:text-sm font-black ${st.due_fee > 0 ? "text-[#E04A3C]" : "text-[#2F8A5F]"}`}>
-                                  ₹{Number(st.due_fee || 0).toLocaleString()}
+                                <span className="text-[10px] text-[#1E293B]/60 uppercase block">Overdue</span>
+                                <span className={`text-xs sm:text-sm font-black ${(st.overdue_fee ?? st.due_fee) > 0 ? "text-[#E04A3C]" : "text-[#2F8A5F]"}`}>
+                                  ₹{Number(st.overdue_fee ?? st.due_fee ?? 0).toLocaleString()}
                                 </span>
+                                {Number(st.upcoming_fee || 0) > 0 && (
+                                  <span className="text-[10px] text-[#1E293B]/60 font-mono block">
+                                    +₹{Number(st.upcoming_fee).toLocaleString()} later
+                                  </span>
+                                )}
                               </div>
                             </div>
 

@@ -6,6 +6,7 @@
 """
 import os
 import uuid
+from datetime import datetime
 import pytest
 import requests
 from dotenv import dotenv_values
@@ -13,6 +14,11 @@ from dotenv import dotenv_values
 frontend_env = dotenv_values("frontend/.env") if os.path.exists("frontend/.env") else {}
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or frontend_env.get("REACT_APP_BACKEND_URL", "")).rstrip("/") or "http://localhost:8001"
 API = f"{BASE_URL}/api"
+
+# Fee tests bill the full 12-month year; pin batches to an academic year that starts after today so
+# join-month billing (students joining mid-year owe only from their join month) does not trim schedules.
+_ay_start = datetime.now().year + (1 if datetime.now().month >= 4 else 0)
+FULL_YEAR_AY = f"{_ay_start}-{_ay_start + 1}"
 
 
 def _register(role: str, name: str = None):
@@ -51,7 +57,7 @@ class TestFixesOneByOne:
         # Teacher A creates Batch A
         r = requests.post(
             f"{API}/batches",
-            json={"name": "Batch A", "class_level": "10", "fee_amount": 12000, "monthly_fee": 1000},
+            json={"name": "Batch A", "class_level": "10", "academic_year": FULL_YEAR_AY, "fee_amount": 12000, "monthly_fee": 1000},
             headers=cls.teacher_a["headers"],
             timeout=15
         )
@@ -257,7 +263,7 @@ class TestFixesOneByOne:
         """Batch created with only fee_amount automatically calculates monthly_fee."""
         r = requests.post(
             f"{API}/batches",
-            json={"name": "Yearly Only Batch", "class_level": "11", "fee_amount": 24000},
+            json={"name": "Yearly Only Batch", "class_level": "11", "academic_year": FULL_YEAR_AY, "fee_amount": 24000},
             headers=self.teacher_a["headers"],
             timeout=15
         )
@@ -301,7 +307,7 @@ class TestFixesOneByOne:
         teacher = _register("teacher", "Fee Sync Teacher")
         r_b = requests.post(
             f"{API}/batches",
-            json={"name": "Sync Batch", "class_level": "10", "fee_amount": 12000, "monthly_fee": 1000},
+            json={"name": "Sync Batch", "class_level": "10", "academic_year": FULL_YEAR_AY, "fee_amount": 12000, "monthly_fee": 1000},
             headers=teacher["headers"],
             timeout=15
         )
@@ -463,6 +469,7 @@ class TestFixesOneByOne:
         r_b = requests.post(f"{API}/batches", json={
             "name": "Secret Batch",
             "class_level": "10",
+            "academic_year": FULL_YEAR_AY,
             "fee_amount": 50000,
             "monthly_fee": 4166.67
         }, headers=teacher["headers"], timeout=15)
@@ -495,6 +502,7 @@ class TestFixesOneByOne:
         r_b = requests.post(f"{API}/batches", json={
             "name": "Deletable Batch",
             "class_level": "9",
+            "academic_year": FULL_YEAR_AY,
             "fee_amount": 10000,
             "monthly_fee": 1000
         }, headers=teacher["headers"], timeout=15)
@@ -528,6 +536,7 @@ class TestFixesOneByOne:
         r_b = requests.post(f"{API}/batches", json={
             "name": "Remove Cohort",
             "class_level": "11",
+            "academic_year": FULL_YEAR_AY,
             "fee_amount": 12000,
             "monthly_fee": 1000
         }, headers=teacher["headers"], timeout=15)
@@ -564,7 +573,7 @@ class TestFixesOneByOne:
         assert r1.status_code == 400, f"Expected 400 for empty name, got {r1.status_code}"
 
         # Negative fee_amount
-        r2 = requests.post(f"{API}/batches", json={"name": "Neg Batch", "class_level": "10", "fee_amount": -500}, headers=teacher["headers"], timeout=15)
+        r2 = requests.post(f"{API}/batches", json={"name": "Neg Batch", "class_level": "10", "academic_year": FULL_YEAR_AY, "fee_amount": -500}, headers=teacher["headers"], timeout=15)
         assert r2.status_code == 400, f"Expected 400 for negative fee_amount, got {r2.status_code}"
 
         # Negative monthly_fee
@@ -584,6 +593,7 @@ class TestFixesOneByOne:
         r_ok = requests.post(f"{API}/batches", json={
             "name": "Year Batch",
             "class_level": "10",
+            "academic_year": FULL_YEAR_AY,
             "fee_amount": 12000,
             "monthly_fee": 1000
         }, headers=teacher["headers"], timeout=15)
@@ -599,6 +609,7 @@ class TestFixesOneByOne:
         r_b = requests.post(f"{API}/batches", json={
             "name": "Overpay Batch",
             "class_level": "10",
+            "academic_year": FULL_YEAR_AY,
             "fee_amount": 5000,
             "monthly_fee": 500
         }, headers=teacher["headers"], timeout=15)
@@ -653,6 +664,7 @@ class TestFixesOneByOne:
         r_b = requests.post(f"{API}/batches", json={
             "name": "Paise Cohort",
             "class_level": "12",
+            "academic_year": FULL_YEAR_AY,
             "fee_amount": 10000,
             "monthly_fee": 833.33
         }, headers=teacher["headers"], timeout=15)

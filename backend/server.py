@@ -478,6 +478,56 @@ async def recompute_user_status_flags(student_id: str) -> None:
     )
 
 
+MONTH_NUMBERS = {m: i for i, m in enumerate(
+    ["January", "February", "March", "April", "May", "June", "July", "August",
+     "September", "October", "November", "December"], start=1)}
+
+
+def _month_key(item: dict) -> tuple:
+    try:
+        return (int(item.get("year") or 0), MONTH_NUMBERS.get(item.get("month"), 0))
+    except (TypeError, ValueError):
+        return (0, 0)
+
+
+def _enrolled_at(student: dict, batch_id: str) -> Optional[str]:
+    """Join date per batch; students enrolled before this was recorded have none (= start of academic year)."""
+    return (student.get("batch_enrolled_at") or {}).get(batch_id)
+
+
+def _schedule_from_enrollment(schedule: list, enrolled_at: Optional[str]) -> list:
+    """Drops schedule months before the month the student joined. Returns `schedule` itself (same object)
+    when nothing is trimmed, so callers can tell the student is on the plain batch schedule."""
+    if not enrolled_at or not schedule:
+        return schedule
+    try:
+        dt = datetime.fromisoformat(enrolled_at.replace("Z", "+00:00"))
+        dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        local = dt.astimezone(APP_TIMEZONE)
+    except Exception:
+        return schedule
+    join_key = (local.year, local.month)
+    kept = [it for it in schedule if _month_key(it) >= join_key]
+    # Joined after the schedule ended (stale academic year) or before it began: bill the schedule as-is
+    if not kept or len(kept) == len(schedule):
+        return schedule
+    return kept
+
+
+def _split_due_by_today(monthly_status: list) -> tuple:
+    """(overdue_paise, upcoming_paise): dues for months up to the current month vs later months."""
+    now = datetime.now(APP_TIMEZONE)
+    today_key = (now.year, now.month)
+    overdue = upcoming = 0
+    for m in monthly_status:
+        due = to_paise(m.get("due_amount", 0.0))
+        if _month_key(m) <= today_key:
+            overdue += due
+        else:
+            upcoming += due
+    return overdue, upcoming
+
+
 def _sanitize_batch_for_student(b: dict) -> dict:
     return {
         "id": b.get("id"),
@@ -597,10 +647,16 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
 
     # When batch fees change, update all batch_fees records that don't have a custom override
     if fee_changed:
-        new_fee_amount = update_fields["fee_amount"]
-        new_schedule = update_fields["fee_schedule"]
-        cursor = db.batch_fees.find({"batch_id": batch_id, "is_custom_fee": {"$ne": True}, **NOT_ARCHIVED})
-        async for r in cursor:
+        batch_fee_amount = update_fields["fee_amount"]
+        batch_schedule = update_fields["fee_schedule"]
+        records = [r async for r in db.batch_fees.find({"batch_id": batch_id, "is_custom_fee": {"$ne": True}, **NOT_ARCHIVED})]
+        record_sids = [ObjectId(r["student_id"]) for r in records if ObjectId.is_valid(r.get("student_id", ""))]
+        enrolled_by_sid = {str(u["_id"]): _enrolled_at(u, batch_id)
+                           async for u in db.users.find({"_id": {"$in": record_sids}}, {"batch_enrolled_at": 1})}
+        for r in records:
+            new_schedule = _schedule_from_enrollment(batch_schedule, enrolled_by_sid.get(r["student_id"]))
+            new_fee_amount = batch_fee_amount if new_schedule is batch_schedule else from_paise(
+                sum(to_paise(it.get("amount", 0.0)) for it in new_schedule))
             ledger_entries = _fee_ledger_entries([], [], r.get("total_fee", 0), new_fee_amount, user, "batch_fee_update")
             payments = r.get("payments", [])
             current_paid_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
@@ -716,6 +772,12 @@ async def join_batch(body: JoinInput, request: Request, user: dict = Depends(req
     if batch["id"] in user.get("blocked_batch_ids", []):
         raise HTTPException(status_code=403, detail="You are blocked from joining this batch")
     await db.users.update_one({"_id": ObjectId(user["id"])}, {"$addToSet": {"batch_ids": batch["id"]}})
+    # First join date only: a rejoin keeps the original so restored fee history lines up with the schedule
+    enrolled_field = f"batch_enrolled_at.{batch['id']}"
+    await db.users.update_one(
+        {"_id": ObjectId(user["id"]), enrolled_field: {"$exists": False}},
+        {"$set": {enrolled_field: datetime.now(timezone.utc).isoformat()}}
+    )
     # A returning student keeps the payments recorded before they were removed
     await db.batch_fees.update_one(
         {"batch_id": batch["id"], "student_id": user["id"], "archived_reason": "student_removed"},
@@ -766,16 +828,22 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
     results = []
     total_collected_paise = 0
     total_dues_paise = 0
+    total_overdue_paise = 0
+    total_upcoming_paise = 0
 
     for s in students:
         sid = str(s["_id"])
         fee = fee_records.get(sid)
+        # Mid-year joiners owe only from their join month; the trimmed schedule is their default fee
+        own_schedule = _schedule_from_enrollment(schedule, _enrolled_at(s, batch_id))
+        own_default_fee = batch_default_fee if own_schedule is schedule else from_paise(
+            sum(to_paise(it.get("amount", 0.0)) for it in own_schedule))
         if fee:
             if fee.get("is_custom_fee"):
-                t_fee = float(fee.get("total_fee", batch_default_fee))
+                t_fee = float(fee.get("total_fee", own_default_fee))
                 custom_student_schedule = fee.get("fee_schedule")
             else:
-                t_fee = batch_default_fee
+                t_fee = own_default_fee
                 custom_student_schedule = None
             payments = fee.get("payments", [])
             p_fee_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
@@ -798,7 +866,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
                 status = "paid"
             last_date = payments[-1].get("date") if payments else fee.get("last_payment_date")
         else:
-            t_fee = batch_default_fee
+            t_fee = own_default_fee
             t_fee_paise = to_paise(t_fee)
             p_fee_paise = 0
             d_fee_paise = t_fee_paise
@@ -815,15 +883,18 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
         # Resolve student-specific schedule proportionally or from custom schedule
         if custom_student_schedule and len(custom_student_schedule) > 0:
             student_schedule = custom_student_schedule
-        elif abs(t_fee - batch_default_fee) > 0.01:
-            student_schedule = get_proportional_schedule(schedule, t_fee)
+        elif abs(t_fee - own_default_fee) > 0.01:
+            student_schedule = get_proportional_schedule(own_schedule, t_fee)
         else:
-            student_schedule = schedule
+            student_schedule = own_schedule
 
         # Recompute allocations, paid_months, monthly_status purely from payments + schedule
         unmarked_months = fee.get("unmarked_months", []) if fee else []
         derived = _derive_fee_allocation(payments, student_schedule, unmarked_months=unmarked_months)
         monthly_status = derived["monthly_status"]
+        overdue_paise, upcoming_paise = _split_due_by_today(monthly_status)
+        total_overdue_paise += overdue_paise
+        total_upcoming_paise += upcoming_paise
         collected_months = derived["collected_months"]
         partial_months = derived["partial_months"]
         due_months = derived["due_months"]
@@ -838,10 +909,12 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "email": s.get("email", ""),
             "is_disabled": is_student_disabled,
             "is_blocked": is_student_blocked,
-            "joined_at": s.get("created_at"),
+            "joined_at": _enrolled_at(s, batch_id),
             "total_fee": t_fee,
             "paid_fee": p_fee,
             "due_fee": d_fee,
+            "overdue_fee": from_paise(overdue_paise),
+            "upcoming_fee": from_paise(upcoming_paise),
             "status": status,
             "fee_schedule": student_schedule,
             "payments": payments,
@@ -867,6 +940,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "total_students": len(results),
             "total_collected": from_paise(total_collected_paise),
             "total_dues": from_paise(total_dues_paise),
+            "total_overdue": from_paise(total_overdue_paise),
+            "total_upcoming": from_paise(total_upcoming_paise),
             "paid_count": sum(1 for r in results if r["status"] == "paid"),
             "partial_count": sum(1 for r in results if r["status"] == "partial"),
             "due_count": sum(1 for r in results if r["status"] == "due"),
@@ -992,7 +1067,11 @@ async def record_student_fee(
 
         batch_default_fee = float(batch.get("fee_amount", 0) or 0)
         batch_monthly_fee_val = float(batch.get("monthly_fee", 0) or 0)
-        schedule = batch.get("fee_schedule") or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val, batch.get("academic_year"))
+        batch_schedule = batch.get("fee_schedule") or get_batch_default_schedule(batch_default_fee, batch_monthly_fee_val, batch.get("academic_year"))
+        # Same per-student default as the roster: mid-year joiners owe only from their join month
+        schedule = _schedule_from_enrollment(batch_schedule, _enrolled_at(student, batch_id))
+        if schedule is not batch_schedule:
+            batch_default_fee = from_paise(sum(to_paise(it.get("amount", 0.0)) for it in schedule))
 
         if not record:
             record = {
@@ -1029,6 +1108,12 @@ async def record_student_fee(
             total_fee = batch_default_fee
             student_schedule = schedule
             is_custom_fee = False
+
+        if not body.unmark_month:
+            schedule_months = {it.get("month") for it in student_schedule}
+            off_schedule = [m for m in named_months if m != "All Months" and m not in schedule_months]
+            if off_schedule:
+                raise HTTPException(status_code=400, detail=f"Not in this student's fee schedule (joined later?): {', '.join(off_schedule)}")
 
         payments = list(record.get("payments", []))
         last_date = record.get("last_payment_date")
