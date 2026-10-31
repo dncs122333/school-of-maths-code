@@ -402,13 +402,10 @@ class TestTopicNormalization:
 
         # 4. Term report with batch subject="Mathematics" and attempts with "Maths"
         batch = {"id": "b_math", "class_level": "10", "subject": "Mathematics", "student_ids": ["s1"]}
-        subs = [{
-            "student_id": "s1",
-            "results": [
-                {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False},
-                {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}
-            ]
-        }]
+        subs = [
+            {"student_id": "s1", "results": [{"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}]},
+            {"student_id": "s1", "results": [{"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}]}
+        ]
         rep = compute_term_report("b_math", batch, subs, {"s1": "Aarav"}, subject="Mathematics")
         st_rep = rep["student_summaries"][0]
         assert st_rep["weak_topics_count"] == 1
@@ -433,6 +430,15 @@ class TestTopicNormalization:
         assert is_confirmed_strong({"band": "strong", "attempts": 1}) is False
         assert is_confirmed_strong({"band": "strong", "attempts": 2}) is True
 
+        # Sessions vs attempts predicate checks
+        assert is_confirmed_weak({"band": "weak", "attempts": 2, "sessions": 1}) is False
+        assert is_confirmed_weak({"band": "weak", "attempts": 2, "sessions": 2}) is True
+        assert is_confirmed_weak({"band": "weak", "attempts": 2, "sessions": 1}, use_sessions=False) is True
+        assert is_confirmed_weak("weak", attempts=2, sessions=1) is False
+        assert is_confirmed_weak("weak", attempts=2, sessions=2) is True
+        assert is_confirmed_weak("weak", attempts=2, sessions=1, use_sessions=False) is True
+        assert is_confirmed_weak("weak", attempts=1, min_attempts=1) is True
+
         # 2. compute_topic_mastery marks is_confirmed_weak appropriately
         single_attempt = [
             {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
@@ -442,18 +448,37 @@ class TestTopicNormalization:
         assert len(mastery_single) == 1
         assert mastery_single[0]["band"] == "weak"
         assert mastery_single[0]["attempts"] == 1
+        assert mastery_single[0]["sessions"] == 1
         assert mastery_single[0]["is_confirmed_weak"] is False
 
+        # Single sitting with 2 questions on same topic does NOT trigger confirmed weak (false positive prevented)
+        single_sitting_two_q = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 30, "submission_id": "sub_1", "created_at": "2026-10-31T10:00:00Z"},
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 35, "submission_id": "sub_1", "created_at": "2026-10-31T10:00:00Z"}
+        ]
+        mastery_sitting = compute_topic_mastery(single_sitting_two_q, class_level="10", include_unattempted=False)
+        assert mastery_sitting[0]["attempts"] == 2
+        assert mastery_sitting[0]["sessions"] == 1
+        assert mastery_sitting[0]["is_confirmed_weak"] is False
+
+        # Configurable question-count semantics (use_sessions=False)
+        mastery_q_mode = compute_topic_mastery(single_sitting_two_q, class_level="10", include_unattempted=False, use_sessions=False)
+        assert mastery_q_mode[0]["is_confirmed_weak"] is True
+
+        # Two distinct sittings (separate created_at or submission_ids) DO confirm weakness
         two_attempts = [
             {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
-             "difficulty": "medium", "is_correct": False, "time_s": 30, "created_at": "2026-10-31T10:00:00Z"},
+             "difficulty": "medium", "is_correct": False, "time_s": 30, "submission_id": "sub_1", "created_at": "2026-10-31T10:00:00Z"},
             {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
-             "difficulty": "medium", "is_correct": False, "time_s": 35, "created_at": "2026-10-31T10:05:00Z"}
+             "difficulty": "medium", "is_correct": False, "time_s": 35, "submission_id": "sub_2", "created_at": "2026-10-31T10:05:00Z"}
         ]
         mastery_two = compute_topic_mastery(two_attempts, class_level="10", include_unattempted=False)
         assert len(mastery_two) == 1
         assert mastery_two[0]["band"] == "weak"
         assert mastery_two[0]["attempts"] == 2
+        assert mastery_two[0]["sessions"] == 2
         assert mastery_two[0]["is_confirmed_weak"] is True
 
         # 3. compute_unattempted_summary uses is_confirmed_weak
@@ -466,23 +491,38 @@ class TestTopicNormalization:
         assert summary_two["summary"]["developing_count"] == 0
 
         # 4. compute_term_report matches compute_unattempted_summary
-        batch = {"id": "b_confirm", "class_level": "10", "subject": "Maths", "student_ids": ["s_single", "s_two"]}
+        batch = {"id": "b_confirm", "class_level": "10", "subject": "Maths", "student_ids": ["s_single", "s_single_sitting_two_q", "s_two"]}
         subs = [
             {
                 "student_id": "s_single",
                 "results": [{"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}]
             },
             {
-                "student_id": "s_two",
+                "student_id": "s_single_sitting_two_q",
                 "results": [
                     {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False},
                     {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}
                 ]
+            },
+            {
+                "student_id": "s_two",
+                "results": [{"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}]
+            },
+            {
+                "student_id": "s_two",
+                "results": [{"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}]
             }
         ]
-        rep = compute_term_report("b_confirm", batch, subs, {"s_single": "Single", "s_two": "Two"}, subject="Maths")
+        rep = compute_term_report(
+            "b_confirm", batch, subs,
+            {"s_single": "Single", "s_single_sitting_two_q": "Sitting", "s_two": "Two"},
+            subject="Maths"
+        )
         st_map = {s["student_id"]: s for s in rep["student_summaries"]}
         assert st_map["s_single"]["weak_topics_count"] == 0
+        # Single test sitting with 2 questions does NOT mark as confirmed weak (false positive prevented)
+        assert st_map["s_single_sitting_two_q"]["weak_topics_count"] == 0
+        # Two distinct test sittings DO mark as confirmed weak
         assert st_map["s_two"]["weak_topics_count"] == 1
 
     def test_12_batch_weak_topic_class_avg_weighted_by_raw_attempts(self):

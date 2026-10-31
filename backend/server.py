@@ -3003,9 +3003,11 @@ class DiagnosticInput(BaseModel):
 
 def _flatten_attempts(subs):
     attempts = []
-    for s in subs:
+    for idx, s in enumerate(subs):
+        sess_id = s.get("id") or s.get("submission_id") or s.get("created_at") or f"sub_{idx}"
+        stud_id = s.get("student_id")
         for r in (s.get("results") or []):
-            attempts.append({**r, "created_at": s.get("created_at")})
+            attempts.append({**r, "submission_id": sess_id, "student_id": stud_id, "created_at": s.get("created_at")})
     return attempts
 
 
@@ -3142,6 +3144,7 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
                 "band": m["band"],
                 "is_confirmed_weak": m.get("is_confirmed_weak", False),
                 "attempts": m["attempts"],
+                "sessions": m.get("sessions", m.get("attempts", 0)),
                 "avg_time_s": m.get("avg_time_s", 0.0),
             })
 

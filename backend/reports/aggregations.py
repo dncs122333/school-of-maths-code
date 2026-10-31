@@ -549,14 +549,15 @@ def compute_term_report(
         total_q = 0
         total_corr = 0.0
         student_attempts = []
-        for sub in s_list:
+        for sub_idx, sub in enumerate(s_list):
             results = sub.get("results") or []
             sub_created = sub.get("created_at")
+            sub_sess = sub.get("id") or sub.get("submission_id") or sub_created or f"sub_{sub_idx}"
             if results:
                 q_cnt = len(results)
                 q_corr = sum(1 for r in results if r.get("is_correct"))
                 for r in results:
-                    student_attempts.append({**r, "created_at": sub_created})
+                    student_attempts.append({**r, "created_at": sub_created, "submission_id": sub_sess, "student_id": sid})
             elif sub.get("total") is not None:
                 q_cnt = int(sub.get("total") or 0)
                 q_corr = float(sub.get("correct", 0))

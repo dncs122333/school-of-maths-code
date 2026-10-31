@@ -81,31 +81,49 @@ def band(score: float, attempts: int = 1) -> str:
     return "developing"
 
 
-def is_confirmed_weak(topic_or_band, attempts: int = None) -> bool:
+def is_confirmed_weak(topic_or_band, attempts: int = None, sessions: int = None, min_attempts: int = 2, use_sessions: bool = True) -> bool:
     """Central predicate to identify confirmed weak topics across all reports and dashboards.
-    A topic is confirmed weak iff band == 'weak' and attempts >= 2.
+    A topic is confirmed weak iff band == 'weak' and sessions (or attempts) >= min_attempts (default 2).
     Accepts either:
-      - a topic dictionary with keys 'band' and 'attempts' (e.g., is_confirmed_weak(t))
-      - a band string and attempts count (e.g., is_confirmed_weak("weak", 2))
+      - a topic dictionary with keys 'band' and 'sessions'/'attempts' (e.g., is_confirmed_weak(t))
+      - a band string and attempts/sessions count (e.g., is_confirmed_weak("weak", attempts=2, sessions=1))
     """
     if isinstance(topic_or_band, dict):
         b = topic_or_band.get("band")
         att = topic_or_band.get("attempts", 0)
+        sess = topic_or_band.get("sessions")
+        if sess is None:
+            sess = topic_or_band.get("sessions_count")
+        if isinstance(sess, (set, list, tuple)):
+            sess = len(sess)
+        if sessions is None:
+            sessions = sess
     else:
         b = str(topic_or_band or "")
         att = 0 if attempts is None else attempts
-    return b == "weak" and att >= 2
+
+    metric_val = sessions if (use_sessions and sessions is not None) else att
+    return b == "weak" and metric_val >= min_attempts
 
 
-def is_confirmed_strong(topic_or_band, attempts: int = None) -> bool:
-    """Predicate for confirmed strong topics (band == 'strong' and attempts >= 2)."""
+def is_confirmed_strong(topic_or_band, attempts: int = None, sessions: int = None, min_attempts: int = 2, use_sessions: bool = True) -> bool:
+    """Predicate for confirmed strong topics (band == 'strong' and sessions/attempts >= min_attempts)."""
     if isinstance(topic_or_band, dict):
         b = topic_or_band.get("band")
         att = topic_or_band.get("attempts", 0)
+        sess = topic_or_band.get("sessions")
+        if sess is None:
+            sess = topic_or_band.get("sessions_count")
+        if isinstance(sess, (set, list, tuple)):
+            sess = len(sess)
+        if sessions is None:
+            sessions = sess
     else:
         b = str(topic_or_band or "")
         att = 0 if attempts is None else attempts
-    return b == "strong" and att >= 2
+
+    metric_val = sessions if (use_sessions and sessions is not None) else att
+    return b == "strong" and metric_val >= min_attempts
 
 
 def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
@@ -162,12 +180,13 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     return topics
 
 
-def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None, include_unattempted=True):
+def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None, include_unattempted=True, min_attempts: int = 2, use_sessions: bool = True):
     """Aggregate per-question attempts into per-(subject, chapter, topic) mastery,
     optionally unioned with the official syllabus topic list (marking unattempted topics as 'not_attempted').
 
     `attempts` is an iterable of dicts: {subject, chapter, topic, difficulty,
-    is_correct, time_s, created_at}. Returns a list sorted weakest/untested first.
+    is_correct, time_s, created_at, submission_id}. Returns a list sorted weakest/untested first.
+    Tracks distinct sessions (submission_id / created_at) to prevent single-test false positives.
     """
     try:
         from curriculum import (
@@ -239,13 +258,19 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
         g = groups.setdefault(key, {
             "subject": display_subj, "chapter": display_chap, "topic": display_top,
             "weighted_correct": 0.0, "weighted_total": 0.0,
-            "attempts": 0, "time_total": 0.0, "last_attempt": None,
+            "attempts": 0, "sessions": set(), "time_total": 0.0, "last_attempt": None,
         })
         w = recency_decay(a.get("created_at"), now) * difficulty_weight(a.get("difficulty"))
         g["weighted_total"] += w
         if a.get("is_correct"):
             g["weighted_correct"] += w
         g["attempts"] += 1
+        sess_key = a.get("submission_id") or a.get("session_id") or a.get("created_at")
+        if sess_key:
+            if a.get("student_id"):
+                g["sessions"].add((a.get("student_id"), sess_key))
+            else:
+                g["sessions"].add(sess_key)
         g["time_total"] += float(a.get("time_s") or 0)
         if g["last_attempt"] is None or (a.get("created_at") or "") > (g["last_attempt"] or ""):
             g["last_attempt"] = a.get("created_at")
@@ -255,10 +280,14 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
         score = round_half_up(g["weighted_correct"] / g["weighted_total"] * 100) if g["weighted_total"] else 0
         is_unclass = (g["subject"] or "").lower() == "unknown"
         b = band(score, g["attempts"])
+        sessions_count = len(g["sessions"]) if g["sessions"] else g["attempts"]
         out.append({
             "subject": g["subject"], "chapter": g["chapter"], "topic": g["topic"],
             "score": score, "band": b, "attempts": g["attempts"],
-            "is_confirmed_weak": is_confirmed_weak(b, g["attempts"]),
+            "sessions": sessions_count,
+            "is_confirmed_weak": is_confirmed_weak(
+                b, attempts=g["attempts"], sessions=sessions_count, min_attempts=min_attempts, use_sessions=use_sessions
+            ),
             "avg_time_s": round_half_up(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
             "last_attempt": g["last_attempt"],
             "is_unclassified": is_unclass,
@@ -276,6 +305,7 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                     "score": 0,
                     "band": "not_attempted",
                     "attempts": 0,
+                    "sessions": 0,
                     "is_confirmed_weak": False,
                     "avg_time_s": 0.0,
                     "last_attempt": None,

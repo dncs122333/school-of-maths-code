@@ -349,8 +349,23 @@ class TestReportsAPI:
         # 'Polynomials' has only 1 attempt -> not counted as confirmed weak topic
         assert st_summary["weak_topics_count"] == 0
 
-        # 2. When student attempts 'Polynomials' a second time and fails, it becomes confirmed weak (attempts >= 2)
+        # 2. A single test sitting with 2 questions on 'Polynomials' (both wrong) has sessions == 1,
+        # so it does NOT mark it confirmed weak (false positive prevented)
+        sub_single_sitting_two_poly = {
+            "id": "sub_multi_q",
+            "student_id": "s1",
+            "score": 0,
+            "results": [
+                {"subject": "Maths", "topic": "Polynomials", "is_correct": False},
+                {"subject": "Maths", "topic": "Polynomials", "is_correct": False}
+            ]
+        }
+        rep_single_sitting = compute_term_report("b1", batch_base, [sub_single_sitting_two_poly], student_map, subject="Maths")
+        assert rep_single_sitting["student_summaries"][0]["weak_topics_count"] == 0
+
+        # 3. When student attempts 'Polynomials' in two separate test sittings and fails, it becomes confirmed weak (sessions >= 2)
         sub_poly_2 = {
+            "id": "sub_poly_separate_sitting",
             "student_id": "s1",
             "score": 0,
             "results": [
