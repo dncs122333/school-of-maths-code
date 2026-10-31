@@ -1,3 +1,6 @@
+import re
+from typing import Any, List, Optional, Tuple
+
 """Official CBSE Rationalized NCERT Curriculum Taxonomy for Class 9 and 10 (Maths & Science).
 
 Used for:
@@ -354,21 +357,177 @@ CURRICULUM = {
 }
 
 
+LOWERCASE_WORDS = {
+    "a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "from",
+    "by", "with", "in", "of", "into", "onto", "vs", "via"
+}
+
+
+def normalize_key(text: Any) -> str:
+    """Casefold and collapse/strip whitespace for robust dictionary/aggregation keying."""
+    if text is None:
+        return ""
+    return re.sub(r"\s+", " ", str(text)).strip().casefold()
+
+
+def canonicalize_topic_title(topic: str) -> str:
+    """Normalize capitalization and whitespace for non-curriculum topic strings.
+    E.g. 'Linear equations' -> 'Linear Equations', 'linear equations in two variables' -> 'Linear Equations in Two Variables'.
+    Preserves tags, IDs, or words containing digits or uppercase letters (e.g. Topic 1a2b3c, 3D, pH).
+    """
+    cleaned = re.sub(r"\s+", " ", str(topic or "")).strip()
+    if not cleaned:
+        return ""
+    words = cleaned.split(" ")
+    out = []
+    for i, w in enumerate(words):
+        w_low = w.casefold()
+        if i > 0 and w_low in LOWERCASE_WORDS:
+            out.append(w_low)
+        elif any(c.isdigit() for c in w) or (len(w) > 1 and any(c.isupper() for c in w[1:])):
+            out.append(w)
+        else:
+            out.append(w.capitalize())
+    return " ".join(out)
+
+
+def infer_subject_and_chapter(class_level: Optional[str] = None, chapter: Optional[str] = None, topic: Optional[str] = None) -> Tuple[str, str]:
+    """Given class_level, chapter, or topic, infer the canonical subject and chapter from CURRICULUM.
+    Guarantees diagnostic results do not land in ("", "", topic) groups.
+    """
+    cl = re.sub(r"[^0-9]", "", str(class_level or ""))
+    classes = [cl] if cl in CURRICULUM else ["9", "10"]
+    
+    chap_norm = normalize_key(chapter)
+    top_norm = normalize_key(topic)
+    
+    # 1. Match chapter
+    if chap_norm:
+        for c in classes:
+            for s_name, chaps in CURRICULUM.get(c, {}).items():
+                for c_name in chaps:
+                    if normalize_key(c_name) == chap_norm or normalize_key(c_name.replace("-", " ")) == chap_norm.replace("-", " "):
+                        return s_name, c_name
+
+    # 2. Match topic
+    if top_norm:
+        for c in classes:
+            for s_name, chaps in CURRICULUM.get(c, {}).items():
+                for c_name, topic_list in chaps.items():
+                    for t in topic_list:
+                        t_norm = normalize_key(t)
+                        if t_norm == top_norm or (len(top_norm) >= 4 and (top_norm in t_norm or t_norm in top_norm)):
+                            return s_name, c_name
+
+    return "", ""
+
+
 def get_canonical_topics(class_level: str, subject: str, chapter: str) -> list:
     """Returns canonical topics for a given class, subject, and chapter, if defined."""
-    cl = str(class_level).strip()
+    cl = re.sub(r"[^0-9]", "", str(class_level or ""))
     subj = (subject or "").strip()
     chap = (chapter or "").strip()
     
-    # Try exact match
     cl_dict = CURRICULUM.get(cl, {})
+    chap_norm = normalize_key(chap)
     # Match subject (case-insensitive)
     for s_name, chaps in cl_dict.items():
-        if s_name.lower() == subj.lower() or (s_name.lower() == "maths" and "math" in subj.lower()):
+        if not subj or s_name.lower() == subj.lower() or (s_name.lower() == "maths" and "math" in subj.lower()):
             for c_name, topics in chaps.items():
-                if c_name.lower() == chap.lower() or c_name.lower().replace("-", " ") == chap.lower().replace("-", " "):
+                if normalize_key(c_name) == chap_norm or normalize_key(c_name.replace("-", " ")) == chap_norm.replace("-", " "):
                     return topics
     return []
+
+
+def normalize_taxonomy(class_level: Any, subject: Any, chapter: Any,
+                       topic: Optional[Any] = None,
+                       topics: Optional[List[Any]] = None) -> Tuple[str, str, str, str, List[str]]:
+    """Strictly normalize class, subject, chapter, and topics at ingestion.
+    - Trims and collapses internal whitespace
+    - Normalizes/casefolds against canonical NCERT syllabus
+    - Inherits subject tags for diagnostic questions/results
+    - Standardizes custom topic casing so 'Linear Equations' vs 'Linear equations' do not fork.
+    """
+    cl_raw = str(class_level or "").strip()
+    m = re.search(r"(\d{1,2})", cl_raw)
+    cl = m.group(1) if m else cl_raw
+
+    subj = re.sub(r"\s+", " ", str(subject or "")).strip()
+    chap = re.sub(r"\s+", " ", str(chapter or "")).strip()
+    top = re.sub(r"\s+", " ", str(topic or "")).strip()
+    raw_topics = [re.sub(r"\s+", " ", str(t)).strip() for t in (topics or []) if str(t).strip()]
+    if top and top not in raw_topics:
+        raw_topics.insert(0, top)
+
+    # Subject canonical alias (only exact known names, not test tags)
+    if subj:
+        subj_low = subj.casefold()
+        if subj_low in ("math", "maths", "mathematics"):
+            subj = "Maths"
+        elif subj_low in ("science", "sci"):
+            subj = "Science"
+
+    # If subject or chapter is missing, attempt curriculum inference
+    if not subj or not chap:
+        inferred_subj, inferred_chap = infer_subject_and_chapter(cl, chap, top or (raw_topics[0] if raw_topics else None))
+        if not subj and inferred_subj:
+            subj = inferred_subj
+        if not chap and inferred_chap:
+            chap = inferred_chap
+
+    # Default subject fallback if still missing
+    if not subj:
+        subj = "Maths"
+
+    # Match chapter against curriculum to standardize casing
+    chap_norm = normalize_key(chap)
+    if cl in CURRICULUM and subj in CURRICULUM[cl]:
+        for c_name in CURRICULUM[cl][subj]:
+            if normalize_key(c_name) == chap_norm or normalize_key(c_name.replace("-", " ")) == chap_norm.replace("-", " "):
+                chap = c_name
+                break
+
+    # Canonical topic alignment
+    canonical_pool = get_canonical_topics(cl, subj, chap)
+    aligned_topics = []
+    if canonical_pool:
+        canonical_lookup = {normalize_key(c): c for c in canonical_pool}
+        for t in raw_topics:
+            t_norm = normalize_key(t)
+            if t_norm in canonical_lookup:
+                aligned_topics.append(canonical_lookup[t_norm])
+            else:
+                matched = False
+                for c_norm, c_orig in canonical_lookup.items():
+                    if len(t_norm) >= 4 and (t_norm in c_norm or c_norm in t_norm):
+                        aligned_topics.append(c_orig)
+                        matched = True
+                        break
+                if not matched:
+                    aligned_topics.append(canonicalize_topic_title(t))
+    else:
+        aligned_topics = [canonicalize_topic_title(t) for t in raw_topics]
+
+    if top and canonical_pool:
+        top_norm = normalize_key(top)
+        canonical_lookup = {normalize_key(c): c for c in canonical_pool}
+        if top_norm in canonical_lookup:
+            top = canonical_lookup[top_norm]
+        elif aligned_topics:
+            top = aligned_topics[0]
+        else:
+            top = canonicalize_topic_title(top)
+    elif top:
+        top = canonicalize_topic_title(top)
+    elif aligned_topics:
+        top = aligned_topics[0]
+    else:
+        top = "General"
+
+    if not aligned_topics:
+        aligned_topics = [top]
+
+    return cl, subj, chap, top, aligned_topics
 
 
 def generate_gemini_prompt(class_level: str, subject: str, chapter: str) -> str:

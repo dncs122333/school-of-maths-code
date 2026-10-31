@@ -12,6 +12,7 @@ from typing import Optional
 from config import EMERGENT_KEY, STORAGE_URL, logger, ROOT_DIR
 from db import db
 from models import GenerateNoteInput
+from curriculum import normalize_taxonomy
 
 # Local storage fallback when no cloud key is available
 _LOCAL_STORE = ROOT_DIR / "local_storage"
@@ -461,16 +462,22 @@ async def extract_questions_from_media(
                     except Exception:
                         marks = 1.0
 
+                    cl_norm, subj_norm, chap_norm, _, _ = normalize_taxonomy(
+                        class_level, subject, chapter, final_topic, [final_topic]
+                    )
+                    top_norm = final_topic
+                    tops_norm = [final_topic]
+
                     cleaned.append({
                         "question": q_text,
                         "options": opts,
                         "correct_index": c_idx,
                         "explanation": str(q.get("explanation") or "").strip(),
-                        "topic": final_topic,
-                        "topics": [final_topic],
-                        "class_level": str(class_level),
-                        "subject": str(subject),
-                        "chapter": str(chapter),
+                        "topic": top_norm,
+                        "topics": tops_norm,
+                        "class_level": str(cl_norm),
+                        "subject": str(subj_norm),
+                        "chapter": str(chap_norm),
                         "difficulty": diff,
                         "marks": marks,
                         "question_type": "single_choice"

@@ -341,8 +341,8 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
                         const rawScore = top.score ?? 0;
                         const score = Math.round(Math.max(0, Math.min(100, rawScore)));
                         const gap = 100 - score;
-                        const isWeak = score < 55;
-                        const isDev = score >= 55 && score < 75;
+                        const isWeak = top.band ? top.band === "weak" : score < 55;
+                        const isDev = top.band ? top.band === "developing" : (score >= 55 && score < 75);
                         const bandLabel = isWeak ? "Needs Work" : isDev ? "Developing" : "Mastered";
                         const bandClass = isWeak
                           ? "text-[#E04A3C] border-[#E04A3C] bg-[#FEE2E2]"

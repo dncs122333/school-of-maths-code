@@ -778,8 +778,8 @@ export default function Batches() {
       const topics = s.topics || [];
       const totalScore = topics.reduce((acc, t) => acc + (t.score || 0), 0);
       const overall = topics.length > 0 ? Math.round(totalScore / topics.length) : 0;
-      const weakTopics = topics.filter((t) => t.band === "weak" || (t.score !== undefined && t.score < 55));
-      const strongTopics = topics.filter((t) => t.band === "strong" || (t.score !== undefined && t.score >= 75));
+      const weakTopics = topics.filter((t) => t.band === "weak");
+      const strongTopics = topics.filter((t) => t.band === "strong");
       return {
         ...s,
         overall,

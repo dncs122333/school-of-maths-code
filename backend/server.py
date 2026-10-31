@@ -34,9 +34,10 @@ from auth import (hash_password, verify_password, create_access_token, get_curre
                   require_claim_role, user_from_token)
 from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
-from lib.mastery import compute_topic_mastery
+from lib.mastery import compute_topic_mastery, round_half_up, band
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
-from curriculum import CURRICULUM, get_canonical_topics, generate_gemini_prompt
+from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
+                        normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
 
 app = FastAPI()
 
@@ -1739,16 +1740,23 @@ async def _build_test(test_id: str, body: GenerateTestInput):
                 topics_val = x.get("topics")
                 if not topics_val:
                     topics_val = [x.get("topic")] if x.get("topic") else []
+                _, q_subj, q_chap, q_top, q_tops = normalize_taxonomy(
+                    body.class_level,
+                    x.get("subject") or body.subject or "",
+                    x.get("chapter") or body.chapter or "",
+                    x.get("topic") or body.topic or "",
+                    topics_val
+                )
                 return {
                     "id": x.get("id"),
                     "question": x["question"],
                     "options": x["options"],
                     "correct_index": x["correct_index"],
                     "explanation": x.get("explanation", ""),
-                    "subject": x.get("subject", ""),
-                    "chapter": x.get("chapter", ""),
-                    "topic": x.get("topic", ""),
-                    "topics": topics_val,
+                    "subject": q_subj,
+                    "chapter": q_chap,
+                    "topic": q_top,
+                    "topics": q_tops,
                     "difficulty": x.get("difficulty", "medium"),
                     "question_type": x.get("question_type", "single_choice"),
                     "marks": x.get("marks", 1.0),
@@ -1854,15 +1862,23 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
         topics_val = x.get("topics")
         if not topics_val:
             topics_val = [x.get("topic")] if x.get("topic") else []
+        _, q_subj, q_chap, q_top, q_tops = normalize_taxonomy(
+            class_level,
+            x.get("subject") or subject or "",
+            x.get("chapter") or chapter or "",
+            x.get("topic") or topic or "",
+            topics_val
+        )
         return {
+            "id": x.get("id"),
             "question": x["question"],
             "options": x["options"],
             "correct_index": x["correct_index"],
             "explanation": x.get("explanation", ""),
-            "subject": x.get("subject", ""),
-            "chapter": x.get("chapter", ""),
-            "topic": x.get("topic", ""),
-            "topics": topics_val,
+            "subject": q_subj,
+            "chapter": q_chap,
+            "topic": q_top,
+            "topics": q_tops,
             "difficulty": x.get("difficulty", "medium"),
             "question_type": x.get("question_type", "single_choice"),
             "marks": x.get("marks", 1.0),
@@ -1872,27 +1888,32 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
         }
 
     active_chapters = [c for c in (chapters or ([chapter] if chapter else [])) if c]
+    subj_filter = {"$regex": f"^{re.escape(subject.strip())}$", "$options": "i"} if subject else None
+    top_filter = [{"topic": {"$regex": f"^{re.escape(topic.strip())}$", "$options": "i"}},
+                  {"topics": {"$regex": f"^{re.escape(topic.strip())}$", "$options": "i"}}] if topic else None
+    if len(active_chapters) == 1:
+        chap_filter = {"$regex": f"^{re.escape(active_chapters[0].strip())}$", "$options": "i"}
+    elif len(active_chapters) > 1:
+        chap_filter = {"$in": [re.compile(f"^{re.escape(c.strip())}$", re.I) for c in active_chapters]}
+    else:
+        chap_filter = None
 
     if kind == "dpp":
         # Chapterwise test: return questions for the chapter, sorted topicwise
         q = {"class_level": class_level, "status": "active"}
-        if subject:
-            q["subject"] = subject
-        if len(active_chapters) == 1:
-            q["chapter"] = active_chapters[0]
-        elif len(active_chapters) > 1:
-            q["chapter"] = {"$in": active_chapters}
-        if topic:
-            q["$or"] = [{"topic": topic}, {"topics": topic}]
+        if subj_filter:
+            q["subject"] = subj_filter
+        if chap_filter:
+            q["chapter"] = chap_filter
+        if top_filter:
+            q["$or"] = top_filter
         chapter_questions = await db.question_bank.find(q, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
         if not chapter_questions and topic:
             q_no_topic = {"class_level": class_level, "status": "active"}
-            if subject:
-                q_no_topic["subject"] = subject
-            if len(active_chapters) == 1:
-                q_no_topic["chapter"] = active_chapters[0]
-            elif len(active_chapters) > 1:
-                q_no_topic["chapter"] = {"$in": active_chapters}
+            if subj_filter:
+                q_no_topic["subject"] = subj_filter
+            if chap_filter:
+                q_no_topic["chapter"] = chap_filter
             chapter_questions = await db.question_bank.find(q_no_topic, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
         if chapter_questions:
             if count and count > 0 and len(chapter_questions) > count:
@@ -1902,28 +1923,24 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
             return [_format_q(x) for x in chapter_questions]
 
     q = {"class_level": class_level, "status": "active"}
-    if subject:
-        q["subject"] = subject
-    if len(active_chapters) == 1:
-        q["chapter"] = active_chapters[0]
-    elif len(active_chapters) > 1:
-        q["chapter"] = {"$in": active_chapters}
-    if topic:
-        q["$or"] = [{"topic": topic}, {"topics": topic}]
+    if subj_filter:
+        q["subject"] = subj_filter
+    if chap_filter:
+        q["chapter"] = chap_filter
+    if top_filter:
+        q["$or"] = top_filter
     pool = await db.question_bank.find(q, {"_id": 0}).to_list(1000)
     if not pool and topic:
         q_no_topic = {"class_level": class_level, "status": "active"}
-        if subject:
-            q_no_topic["subject"] = subject
-        if len(active_chapters) == 1:
-            q_no_topic["chapter"] = active_chapters[0]
-        elif len(active_chapters) > 1:
-            q_no_topic["chapter"] = {"$in": active_chapters}
+        if subj_filter:
+            q_no_topic["subject"] = subj_filter
+        if chap_filter:
+            q_no_topic["chapter"] = chap_filter
         pool = await db.question_bank.find(q_no_topic, {"_id": 0}).to_list(1000)
     if not pool and chapter:
         q_subject = {"class_level": class_level, "status": "active"}
-        if subject:
-            q_subject["subject"] = subject
+        if subj_filter:
+            q_subject["subject"] = subj_filter
         pool = await db.question_bank.find(q_subject, {"_id": 0}).to_list(1000)
     if not pool:
         pool = await db.question_bank.find({"class_level": class_level, "status": "active"}, {"_id": 0}).to_list(1000)
@@ -2151,24 +2168,35 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
         is_ok = chosen == correct_display
         if is_ok:
             correct += 1
+        # Resolve and normalize taxonomy tags so results inherit subject/chapter reliably
+        q_cl = q.get("class_level") or test.get("class_level") or ""
+        q_subj = q.get("subject") or test.get("subject") or ""
+        q_chap = q.get("chapter") or test.get("chapter") or ""
+        q_top = q.get("topic") or test.get("topic") or ""
+        q_tops = q.get("topics") or ([q_top] if q_top else [])
+        _, norm_subj, norm_chap, norm_top, norm_tops = normalize_taxonomy(
+            q_cl, q_subj, q_chap, q_top, q_tops
+        )
         review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
                        "correct_index": correct_display, "explanation": q.get("explanation", ""),
                        "is_correct": is_ok, "time_s": times[i],
-                       "topic": q.get("topic", test.get("topic", "")),
-                       "topics": q.get("topics", []),
+                       "subject": norm_subj,
+                       "chapter": norm_chap,
+                       "topic": norm_top,
+                       "topics": norm_tops,
                        "difficulty": q.get("difficulty", "medium"),
                        "marks": q.get("marks", 1.0),
                        "negative_marks": q.get("negative_marks", 0.0),
                        "hint": q.get("hint", "")})
         # Per-question result for the mastery engine.
-        results.append({"q": i, "subject": q.get("subject", test.get("subject", "")),
-                        "chapter": q.get("chapter", test.get("chapter", "")),
-                        "topic": q.get("topic", test.get("topic", "")),
-                        "topics": q.get("topics", []),
+        results.append({"q": i, "subject": norm_subj,
+                        "chapter": norm_chap,
+                        "topic": norm_top,
+                        "topics": norm_tops,
                         "difficulty": q.get("difficulty", "medium"),
                         "is_correct": is_ok, "time_s": times[i]})
 
-    score = round(correct / total * 100) if total else 0
+    score = round_half_up(correct / total * 100) if total else 0
     status = "flagged" if tab_switches >= 3 else "submitted"
 
     # Compute chapter topic breakdown
@@ -2181,7 +2209,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
         if r.get("is_correct"):
             topic_summary_map[t_name]["correct"] += 1
     for t_data in topic_summary_map.values():
-        t_data["accuracy"] = round((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
+        t_data["accuracy"] = round_half_up((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
     topic_summary = list(topic_summary_map.values())
 
     sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
@@ -2276,7 +2304,7 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
             if rq.get("is_correct"):
                 topic_summary_map[t_name]["correct"] += 1
         for t_data in topic_summary_map.values():
-            t_data["accuracy"] = round((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
+            t_data["accuracy"] = round_half_up((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
         topic_summary = list(topic_summary_map.values())
 
     return {
@@ -2621,45 +2649,17 @@ async def _ingest_questions_list(
                              else raw.get("correct_index")))
         correct_index = _normalize_correct_answer(raw_correct, options)
 
-        class_level = _normalize_class(raw.get("Class") or raw.get("class_level") or default_meta.get("class_level") or "")
-        subject = (raw.get("Subject") or raw.get("subject") or default_meta.get("subject") or "").strip()
-        chapter = (raw.get("Chapter") or raw.get("chapter") or default_meta.get("chapter") or "").strip()
-
+        raw_class = raw.get("Class") or raw.get("class_level") or default_meta.get("class_level") or ""
+        raw_subj = raw.get("Subject") or raw.get("subject") or default_meta.get("subject") or ""
+        raw_chap = raw.get("Chapter") or raw.get("chapter") or default_meta.get("chapter") or ""
+        raw_top = raw.get("Topic") or raw.get("topic") or default_meta.get("topic") or ""
         raw_topics = raw.get("topics") or default_meta.get("topics") or []
         if isinstance(raw_topics, str):
             raw_topics = [t.strip() for t in raw_topics.split(",") if t.strip()]
-        topic = (raw.get("Topic") or raw.get("topic") or default_meta.get("topic") or "").strip()
-        topics_list = [str(t).strip() for t in raw_topics if str(t).strip()]
-        if topic and topic not in topics_list:
-            topics_list.insert(0, topic)
 
-        # Canonical topic alignment against NCERT syllabus
-        canonical_pool = get_canonical_topics(class_level, subject, chapter)
-        if canonical_pool:
-            canonical_lookup = {c.lower().strip(): c for c in canonical_pool}
-            aligned_topics = []
-            for t in topics_list:
-                cleaned = str(t).strip()
-                if cleaned.lower() in canonical_lookup:
-                    aligned_topics.append(canonical_lookup[cleaned.lower()])
-                else:
-                    matched = False
-                    for c_low, c_orig in canonical_lookup.items():
-                        if cleaned.lower() in c_low or c_low in cleaned.lower():
-                            aligned_topics.append(c_orig)
-                            matched = True
-                            break
-                    if not matched:
-                        aligned_topics.append(cleaned)
-            topics_list = aligned_topics
-
-        if topic and canonical_pool:
-            if topic.lower().strip() in canonical_lookup:
-                topic = canonical_lookup[topic.lower().strip()]
-            elif topics_list:
-                topic = topics_list[0]
-        elif not topic and topics_list:
-            topic = topics_list[0]
+        class_level, subject, chapter, topic, topics_list = normalize_taxonomy(
+            raw_class, raw_subj, raw_chap, raw_top, raw_topics
+        )
 
         explanation = (raw.get("Explanation") or raw.get("explanation") or "").strip()
         difficulty = _normalize_difficulty(raw.get("Difficulty") or raw.get("difficulty") or "")
@@ -2932,19 +2932,20 @@ async def list_questions(class_level: Optional[str] = None, subject: Optional[st
                          user: dict = Depends(require_role("teacher", "admin"))):
     q = {}
     if class_level:
-        q["class_level"] = class_level
+        q["class_level"] = _normalize_class(class_level)
     if subject:
-        q["subject"] = subject
+        q["subject"] = {"$regex": f"^{re.escape(subject.strip())}$", "$options": "i"}
     if chapters:
         chaps_list = [c.strip() for c in chapters.split(",") if c.strip()]
         if len(chaps_list) == 1:
-            q["chapter"] = chaps_list[0]
+            q["chapter"] = {"$regex": f"^{re.escape(chaps_list[0])}$", "$options": "i"}
         elif len(chaps_list) > 1:
-            q["chapter"] = {"$in": chaps_list}
+            q["chapter"] = {"$in": [re.compile(f"^{re.escape(c)}$", re.I) for c in chaps_list]}
     elif chapter:
-        q["chapter"] = chapter
+        q["chapter"] = {"$regex": f"^{re.escape(chapter.strip())}$", "$options": "i"}
     if topic:
-        q["$or"] = [{"topic": topic}, {"topics": topic}]
+        top_rx = {"$regex": f"^{re.escape(topic.strip())}$", "$options": "i"}
+        q["$or"] = [{"topic": top_rx}, {"topics": top_rx}]
     if difficulty:
         q["difficulty"] = difficulty
     if status:
@@ -3014,6 +3015,7 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
 
     questions = None
     if top or chap or subj:
+        class_level, subj, chap, top, _ = normalize_taxonomy(class_level, subj, chap, top, [])
         if top:
             questions = await _sample_bank_questions(class_level, subj, chap, top, 10)
         if not questions and chap:
@@ -3082,18 +3084,22 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
             per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
 
     batch_class = batch.get("class_level")
-    topic_scores = {}  # (subject, chapter, topic) -> [scores]
+    topic_scores = {}  # norm_key -> {"subject": ..., "chapter": ..., "topic": ..., "scores": []}
     student_topics = {}
     for sid in student_ids:
         mastery = compute_topic_mastery(per_student.get(sid, []), class_level=batch_class)
         student_topics[sid] = {f"{m['subject']}|{m['chapter']}|{m['topic']}": m for m in mastery}
         for m in mastery:
             if m.get("attempts", 0) > 0:
-                topic_scores.setdefault((m["subject"], m["chapter"], m["topic"]), []).append(m["score"])
+                k = (normalize_key(m["subject"]), normalize_key(m["chapter"]), normalize_key(m["topic"]))
+                if k not in topic_scores:
+                    topic_scores[k] = {"subject": m["subject"], "chapter": m["chapter"], "topic": m["topic"], "scores": []}
+                topic_scores[k]["scores"].append(m["score"])
 
-    weak_topics = [{"subject": k[0], "chapter": k[1], "topic": k[2],
-                    "class_avg": round(sum(v) / len(v))}
-                   for k, v in topic_scores.items()]
+    weak_topics = [{"subject": v["subject"], "chapter": v["chapter"], "topic": v["topic"],
+                    "class_avg": round_half_up(sum(v["scores"]) / len(v["scores"])),
+                    "band": band(round_half_up(sum(v["scores"]) / len(v["scores"])), len(v["scores"]))}
+                   for v in topic_scores.values()]
     weak_topics.sort(key=lambda x: x["class_avg"])  # weakest first
 
     return {"students": [{"id": s["id"], "name": s["name"],
@@ -3338,8 +3344,8 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
             "name": data["name"],
             "batch_name": batch.get("name", "Batch"),
             "total_score": total_score,
-            "avg_score": round(avg, 1),
-            "accuracy": round(avg),
+            "avg_score": round_half_up(avg, 1),
+            "accuracy": round_half_up(avg),
             "tests_taken": len(data["scores"]),
             "streak_days": streak,
         })
@@ -3553,6 +3559,8 @@ async def startup():
         logger.error(f"Storage init failed: {e}")
     # Auto-seed question bank if empty
     await seed_default_questions()
+    # Normalize taxonomy on existing bank questions to prevent topic forks
+    await normalize_existing_question_bank()
 
 
 async def seed_default_questions():
@@ -3576,17 +3584,16 @@ async def seed_default_questions():
                        (row.get("Option B") or "").strip(),
                        (row.get("Option C") or "").strip(),
                        (row.get("Option D") or "").strip()]
-            correct_index = _normalize_correct_option(row.get("Correct Option") or "")
-            class_level = _normalize_class(row.get("Class") or "")
-            subject = (row.get("Subject") or "").strip()
-            chapter = (row.get("Chapter") or "").strip()
-            topic = (row.get("Topic") or "").strip()
+            class_level, subject, chapter, topic, topics_list = normalize_taxonomy(
+                row.get("Class"), row.get("Subject"), row.get("Chapter"), row.get("Topic"), []
+            )
             explanation = (row.get("Explanation") or "").strip()
             difficulty = _normalize_difficulty(row.get("Difficulty") or "")
             if not question or any(not o for o in options) or correct_index is None:
                 continue
             doc = {"id": str(uuid.uuid4()), "class_level": class_level, "subject": subject,
-                   "chapter": chapter, "topic": topic, "question": question, "options": options,
+                   "chapter": chapter, "topic": topic, "topics": topics_list,
+                   "question": question, "options": options,
                    "correct_index": correct_index, "explanation": explanation, "difficulty": difficulty,
                    "status": "active", "source": "seed", "source_id": src_id,
                    "dedup_key": _dedup_key(question), "created_by": admin_id, "created_at": now}
@@ -3598,6 +3605,29 @@ async def seed_default_questions():
         logger.info(f"Seeded {inserted} sample questions into question_bank")
     except Exception as e:
         logger.error(f"Failed to seed sample questions: {e}")
+
+
+async def normalize_existing_question_bank():
+    """Ensure all existing questions in question_bank have normalized taxonomy and inherited subject tags."""
+    try:
+        cursor = db.question_bank.find({}, {"_id": 1, "class_level": 1, "subject": 1, "chapter": 1, "topic": 1, "topics": 1})
+        async for doc in cursor:
+            cl, s, c, t, ts = normalize_taxonomy(
+                doc.get("class_level"), doc.get("subject"), doc.get("chapter"), doc.get("topic"), doc.get("topics")
+            )
+            update = {}
+            if s and s != doc.get("subject"):
+                update["subject"] = s
+            if c and c != doc.get("chapter"):
+                update["chapter"] = c
+            if t and t != doc.get("topic"):
+                update["topic"] = t
+            if ts and ts != doc.get("topics"):
+                update["topics"] = ts
+            if update:
+                await db.question_bank.update_one({"_id": doc["_id"]}, {"$set": update})
+    except Exception as e:
+        logger.error(f"Error normalizing existing question bank: {e}")
 
 
 @app.on_event("shutdown")

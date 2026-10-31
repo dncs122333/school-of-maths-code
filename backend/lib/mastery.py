@@ -12,11 +12,34 @@ Formula (SPEC v3.0 §3.4):
 Bands: < 55 weak · 55–75 developing · > 75 strong.
 """
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
+import re
 
 DIFFICULTY_WEIGHT = {"easy": 1.0, "medium": 1.5, "hard": 2.0}
 DEFAULT_WEIGHT = 1.0
 WEAK_BELOW = 55
 STRONG_ABOVE = 75
+
+
+def round_half_up(val, decimals: int = 0):
+    """Rounds half-up instead of Python's banker's (round-half-to-even) rounding.
+
+    Prevents boundary score anomalies where 54.5 rounds down to 54 (weak) while
+    55.5 rounds up to 56, or 74.5 rounds down to 74 while 75.5 rounds up to 76.
+    """
+    if val is None:
+        return 0 if decimals == 0 else 0.0
+    try:
+        d = Decimal(str(val))
+        if decimals == 0:
+            return int(d.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        q = Decimal("10") ** -decimals
+        return float(d.quantize(q, rounding=ROUND_HALF_UP))
+    except Exception:
+        import math
+        factor = 10 ** decimals
+        res = math.floor(float(val) * factor + 0.5) / factor
+        return int(res) if decimals == 0 else res
 
 
 def difficulty_weight(difficulty: str) -> float:
@@ -38,14 +61,22 @@ def recency_decay(created_at, now: datetime = None) -> float:
     return 0.9 ** (days / 7.0)
 
 
-import re
-
 def band(score: float, attempts: int = 1) -> str:
+    """Classifies a score into a mastery band:
+    - 0 attempts: 'not_attempted'
+    - < 55: 'weak'
+    - 55–75: 'developing'
+    - > 75: 'strong'
+
+    Uses round_half_up on floating-point boundary scores so that unrounded 54.5
+    rounds consistently to 55 ('developing') rather than flipping to 54 ('weak').
+    """
     if attempts == 0:
         return "not_attempted"
-    if score < WEAK_BELOW:
+    s = round_half_up(score)
+    if s < WEAK_BELOW:
         return "weak"
-    if score > STRONG_ABOVE:
+    if s > STRONG_ABOVE:
         return "strong"
     return "developing"
 
@@ -54,10 +85,10 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     if syllabus is not None:
         return syllabus
     try:
-        from curriculum import CURRICULUM
+        from curriculum import CURRICULUM, normalize_key
     except ImportError:
         try:
-            from ..curriculum import CURRICULUM
+            from ..curriculum import CURRICULUM, normalize_key
         except ImportError:
             return []
 
@@ -82,7 +113,7 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
                 continue
             for chap_name, topic_list in chaps.items():
                 for t in topic_list:
-                    k = (subj_name.lower().strip(), chap_name.lower().strip(), t.lower().strip())
+                    k = (normalize_key(subj_name), normalize_key(chap_name), normalize_key(t))
                     if k not in seen:
                         seen.add(k)
                         topics.append({
@@ -100,15 +131,53 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     `attempts` is an iterable of dicts: {subject, chapter, topic, difficulty,
     is_correct, time_s, created_at}. Returns a list sorted weakest/untested first.
     """
-    groups = {}
+    try:
+        from curriculum import normalize_key, infer_subject_and_chapter, canonicalize_topic_title
+    except ImportError:
+        try:
+            from ..curriculum import normalize_key, infer_subject_and_chapter, canonicalize_topic_title
+        except ImportError:
+            def normalize_key(s): return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+            def infer_subject_and_chapter(cl, c, t): return "", ""
+            def canonicalize_topic_title(t): return str(t or "").strip().title()
+
     detected_class = class_level
+    s_topics = _extract_syllabus_topics(class_level=detected_class, subject=subject, syllabus=syllabus)
+    s_lookup = {
+        (normalize_key(st["subject"]), normalize_key(st["chapter"]), normalize_key(st["topic"])): st
+        for st in s_topics
+    }
+
+    groups = {}
     for a in attempts:
         subj = (a.get("subject") or "").strip()
         chap = (a.get("chapter") or "").strip()
         top = (a.get("topic") or "").strip() or "General"
-        key = (subj.lower(), chap.lower(), top.lower())
+
+        # If subject or chapter is missing (e.g. diagnostic results), infer from curriculum
+        if not subj or not chap:
+            inferred_subj, inferred_chap = infer_subject_and_chapter(detected_class, chap, top)
+            if not subj and inferred_subj:
+                subj = inferred_subj
+            if not chap and inferred_chap:
+                chap = inferred_chap
+            if not subj:
+                subj = "Maths"
+
+        key = (normalize_key(subj), normalize_key(chap), normalize_key(top))
+
+        # Use canonical display names from syllabus when matched, or normalized title
+        if key in s_lookup:
+            display_subj = s_lookup[key]["subject"]
+            display_chap = s_lookup[key]["chapter"]
+            display_top = s_lookup[key]["topic"]
+        else:
+            display_subj = subj
+            display_chap = chap
+            display_top = canonicalize_topic_title(top)
+
         g = groups.setdefault(key, {
-            "subject": subj, "chapter": chap, "topic": top,
+            "subject": display_subj, "chapter": display_chap, "topic": display_top,
             "weighted_correct": 0.0, "weighted_total": 0.0,
             "attempts": 0, "time_total": 0.0, "last_attempt": None,
         })
@@ -123,26 +192,22 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
 
     out = []
     for g in groups.values():
-        score = round(g["weighted_correct"] / g["weighted_total"] * 100) if g["weighted_total"] else 0
+        score = round_half_up(g["weighted_correct"] / g["weighted_total"] * 100) if g["weighted_total"] else 0
         out.append({
             "subject": g["subject"], "chapter": g["chapter"], "topic": g["topic"],
             "score": score, "band": band(score, g["attempts"]), "attempts": g["attempts"],
-            "avg_time_s": round(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
+            "avg_time_s": round_half_up(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
             "last_attempt": g["last_attempt"],
         })
 
     # Union with syllabus topics (surfacing unattempted as amber 'not_attempted')
-    s_topics = _extract_syllabus_topics(class_level=detected_class, subject=subject, syllabus=syllabus)
     for st in s_topics:
-        s_subj = st["subject"]
-        s_chap = st["chapter"]
-        s_top = st["topic"]
-        s_key = (s_subj.lower().strip(), s_chap.lower().strip(), s_top.lower().strip())
+        s_key = (normalize_key(st["subject"]), normalize_key(st["chapter"]), normalize_key(st["topic"]))
         if s_key not in groups:
             out.append({
-                "subject": s_subj,
-                "chapter": s_chap,
-                "topic": s_top,
+                "subject": st["subject"],
+                "chapter": st["chapter"],
+                "topic": st["topic"],
                 "score": 0,
                 "band": "not_attempted",
                 "attempts": 0,

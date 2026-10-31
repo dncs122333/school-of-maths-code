@@ -27,9 +27,9 @@ export default function StudentRosterRadar({ students = [] }) {
   const processedStudents = useMemo(() => {
     return students.map((s) => {
       const overall = calculateOverallMastery(s.topics);
-      const weakTopics = (s.topics || []).filter((t) => t.band === "weak" || (t.score !== undefined && t.score < 55)).length;
-      const strongTopics = (s.topics || []).filter((t) => t.band === "strong" || (t.score !== undefined && t.score >= 75)).length;
-      const isStruggling = overall < 55 || weakTopics >= 2;
+      const weakTopics = (s.topics || []).filter((t) => t.band === "weak").length;
+      const strongTopics = (s.topics || []).filter((t) => t.band === "strong").length;
+      const isStruggling = weakTopics >= 2 || (weakTopics > 0 && strongTopics === 0);
       return { ...s, overall, weakTopics, strongTopics, isStruggling };
     });
   }, [students]);
@@ -38,9 +38,9 @@ export default function StudentRosterRadar({ students = [] }) {
     return processedStudents.filter((st) => {
       const matchesSearch = (st.name || "").toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
-      if (filterBand === "weak") return st.overall < 55 || st.weakTopics > 0;
-      if (filterBand === "dev") return st.overall >= 55 && st.overall <= 75;
-      if (filterBand === "strong") return st.overall > 75;
+      if (filterBand === "weak") return st.weakTopics > 0;
+      if (filterBand === "dev") return st.weakTopics === 0 && (st.topics || []).some((t) => t.band === "developing");
+      if (filterBand === "strong") return st.weakTopics === 0 && st.strongTopics > 0;
       return true;
     }).sort((a, b) => a.overall - b.overall);
   }, [processedStudents, searchQuery, filterBand]);
@@ -132,11 +132,11 @@ export default function StudentRosterRadar({ students = [] }) {
               <div className="flex items-center gap-3.5 min-w-0">
                 <div
                   className={`h-10 w-10 rounded-2xl flex items-center justify-center font-head font-900 text-sm shrink-0 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] ${
-                    st.overall >= 75
+                    st.weakTopics > 0
+                      ? "bg-[#FF6B5E] text-white"
+                      : st.strongTopics > 0 && st.strongTopics === (st.topics?.length || 0)
                       ? "bg-[#4CAF7D] text-white"
-                      : st.overall >= 55
-                      ? "bg-[#F5C842] text-[#1E293B]"
-                      : "bg-[#FF6B5E] text-white"
+                      : "bg-[#F5C842] text-[#1E293B]"
                   }`}
                 >
                   {st.name?.charAt(0)?.toUpperCase()}
@@ -163,11 +163,11 @@ export default function StudentRosterRadar({ students = [] }) {
                 <div className="text-right font-mono">
                   <span
                     className={`text-sm font-900 block ${
-                      st.overall >= 75
+                      st.weakTopics > 0
+                        ? "text-[#FF6B5E]"
+                        : st.strongTopics > 0 && st.strongTopics === (st.topics?.length || 0)
                         ? "text-[#4CAF7D]"
-                        : st.overall >= 55
-                        ? "text-[#1E293B]"
-                        : "text-[#FF6B5E]"
+                        : "text-[#1E293B]"
                     }`}
                   >
                     {st.overall}%

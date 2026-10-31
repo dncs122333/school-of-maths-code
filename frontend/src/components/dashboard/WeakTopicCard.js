@@ -67,7 +67,17 @@ export default function WeakTopicCard({ topic, onPractice }) {
     : "bg-[#2F8A5F] text-white border-2 border-[#1E293B]";
 
   const scoreColor =
-    (topic.score ?? 0) >= 75 ? "#2F8A5F" : (topic.score ?? 0) >= 55 ? "#F5C842" : "#E04A3C";
+    topic.band === "strong"
+      ? "#2F8A5F"
+      : topic.band === "developing"
+      ? "#F5C842"
+      : topic.band === "weak"
+      ? "#E04A3C"
+      : (topic.score ?? 0) >= 75
+      ? "#2F8A5F"
+      : (topic.score ?? 0) >= 55
+      ? "#F5C842"
+      : "#E04A3C";
 
   return (
     <div className="group relative rounded-3xl bg-white p-5 sm:p-6 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] hover:-translate-y-1 transition-[transform,box-shadow] duration-150 ease-out flex flex-col justify-between">

@@ -129,7 +129,19 @@ export default function Reports() {
                     <div className="text-sm font-800 text-[#1E293B]">{w.topic}</div>
                     <div className="text-xs text-[#1E293B]/70 font-semibold">{w.chapter}</div>
                   </div>
-                  <span className={`font-head font-900 text-lg ${w.class_avg < 55 ? "text-[#FF6B5E]" : w.class_avg <= 75 ? "text-[#B4881B]" : "text-[#4CAF7D]"}`}>{w.class_avg}%</span>
+                  <span className={`font-head font-900 text-lg ${
+                    w.band === "weak"
+                      ? "text-[#FF6B5E]"
+                      : w.band === "developing"
+                      ? "text-[#B4881B]"
+                      : w.band === "strong"
+                      ? "text-[#4CAF7D]"
+                      : w.class_avg < 55
+                      ? "text-[#FF6B5E]"
+                      : w.class_avg <= 75
+                      ? "text-[#B4881B]"
+                      : "text-[#4CAF7D]"
+                  }`}>{w.class_avg}%</span>
                 </div>
               ))}
             </div>

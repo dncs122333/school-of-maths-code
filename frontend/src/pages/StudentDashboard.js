@@ -133,7 +133,7 @@ export default function StudentDashboard() {
   // Top 3 Weak Topics
   const weakTopics = useMemo(() => {
     return masteryTopics
-      .filter((t) => t.band === "weak" || (t.score !== undefined && t.score < 55))
+      .filter((t) => t.band === "weak")
       .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
       .slice(0, 3);
   }, [masteryTopics]);

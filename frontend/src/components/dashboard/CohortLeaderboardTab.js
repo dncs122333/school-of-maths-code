@@ -421,7 +421,7 @@ export default function CohortLeaderboardTab({
           ) : (
             <div className="space-y-3">
               {reportData.weak_topics.slice(0, 5).map((w, idx) => {
-                const isSevere = w.class_avg < 55;
+                const isSevere = w.band ? w.band === "weak" : w.class_avg < 55;
                 return (
                   <div
                     key={`${w.subject}|${w.chapter}|${w.topic}|${idx}`}
