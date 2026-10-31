@@ -290,8 +290,10 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
             g = groups.setdefault(key, {
                 "subject": display_subj, "chapter": display_chap, "topic": display_top,
                 "weighted_correct": 0.0, "weighted_total": 0.0,
-                "attempts": 0, "sessions": set(), "time_total": 0.0, "last_attempt": None,
+                "attempts": 0, "sessions": set(), "students": set(), "time_total": 0.0, "last_attempt": None,
             })
+            if a.get("student_id"):
+                g["students"].add(a.get("student_id"))
             g["weighted_total"] += base_w
             if a.get("is_correct"):
                 g["weighted_correct"] += base_w
@@ -316,6 +318,7 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
             "subject": g["subject"], "chapter": g["chapter"], "topic": g["topic"],
             "score": score, "band": b, "attempts": g["attempts"],
             "sessions": sessions_count,
+            "students": len(g["students"]),
             "is_confirmed_weak": is_confirmed_weak(
                 b, attempts=g["attempts"], sessions=sessions_count, min_attempts=min_attempts, use_sessions=use_sessions
             ),
@@ -340,6 +343,7 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                     "band": "not_attempted",
                     "attempts": 0,
                     "sessions": 0,
+                    "students": 0,
                     "is_confirmed_weak": False,
                     "is_confirmed_strong": False,
                     "avg_time_s": 0.0,
@@ -365,6 +369,27 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
 
     out.sort(key=_sort_key)
     return out
+
+
+BATCH_MIN_STUDENTS = 3
+BATCH_MIN_ATTEMPTS = 5
+
+
+def apply_batch_confirmation(topics, active_students: int, min_students: int = BATCH_MIN_STUDENTS,
+                             min_attempts: int = BATCH_MIN_ATTEMPTS):
+    """Tightens is_confirmed_weak/strong on pooled batch mastery rows (in place, returns topics).
+
+    Per-student confirmation (>= 2 sessions) is too loose once attempts are pooled: two students
+    answering one question each would confirm a class-wide weakness. A batch topic is confirmed only
+    when enough distinct students and answered questions back it. Batches smaller than min_students
+    require every active student instead, so small batches can still surface confirmed topics.
+    """
+    need_students = min(min_students, max(1, active_students))
+    for t in topics:
+        enough = t.get("students", 0) >= need_students and t.get("attempts", 0) >= min_attempts
+        t["is_confirmed_weak"] = bool(t.get("is_confirmed_weak")) and enough
+        t["is_confirmed_strong"] = bool(t.get("is_confirmed_strong")) and enough
+    return topics
 
 
 def compute_unattempted_summary(attempted_topics, class_level=None, syllabus=None):

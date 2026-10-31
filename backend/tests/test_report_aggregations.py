@@ -900,3 +900,54 @@ def test_22_weekly_digest_keys_by_chapter_and_needs_min_questions():
     subs = [{"student_id": "s1", "score": 0, "results": [{"topic": "Triangles", "is_correct": False}]}]
     res = compute_test_analytics(test_doc, subs, enrolled_count=1)
     assert res["topic_breakdown"][0]["band"] == "insufficient_data"
+
+
+def test_23_batch_confirmation_needs_enough_students_and_questions():
+    """Pooled batch mastery: two students answering one question each must not confirm a class-wide
+    weakness. Confirmation needs >= 3 distinct students (or all active students in a smaller batch)
+    and >= 5 answered questions."""
+    from lib.mastery import compute_topic_mastery, apply_batch_confirmation
+
+    def wrong(student, sub):
+        return {"subject": "Maths", "chapter": "Polynomials", "topic": "Zeroes", "is_correct": False,
+                "student_id": student, "submission_id": sub}
+
+    thin = compute_topic_mastery([wrong("s1", "a"), wrong("s2", "b")], include_unattempted=False)
+    assert thin[0]["is_confirmed_weak"] is True  # per-student rule alone would confirm it
+    apply_batch_confirmation(thin, active_students=10)
+    assert thin[0]["is_confirmed_weak"] is False
+    assert thin[0]["students"] == 2
+
+    solid = compute_topic_mastery(
+        [wrong(s, f"{s}_{i}") for s in ("s1", "s2", "s3") for i in range(2)], include_unattempted=False
+    )
+    apply_batch_confirmation(solid, active_students=10)
+    assert solid[0]["students"] == 3 and solid[0]["attempts"] == 6
+    assert solid[0]["is_confirmed_weak"] is True
+
+    # A two-student batch can still confirm, as long as both students and 5+ questions back it
+    small = compute_topic_mastery(
+        [wrong(s, f"{s}_{i}") for s in ("s1", "s2") for i in range(3)], include_unattempted=False
+    )
+    apply_batch_confirmation(small, active_students=2)
+    assert small[0]["is_confirmed_weak"] is True
+
+
+def test_24_student_mastery_infers_chapter_from_batch_class(monkeypatch):
+    """With the batch class passed, an attempt missing subject/chapter is inferred against that class's
+    syllabus. With class_level=None inference searches class 9 before 10, so a topic name shared by both
+    classes lands in the class 9 chapter even for a class 10 batch."""
+    import curriculum
+    from lib.mastery import compute_topic_mastery
+
+    mock_curriculum = {
+        "9": {"Maths": {"Number Systems": ["Introduction"]}},
+        "10": {"Maths": {"Real Numbers": ["Introduction"]}},
+    }
+    monkeypatch.setattr(curriculum, "CURRICULUM", mock_curriculum)
+
+    attempt = [{"topic": "Introduction", "is_correct": True, "submission_id": "x"}]
+    without_class = compute_topic_mastery(attempt, class_level=None, include_unattempted=False)
+    with_class = compute_topic_mastery(attempt, class_level="10", include_unattempted=False)
+    assert without_class[0]["chapter"] == "Number Systems"
+    assert with_class[0]["chapter"] == "Real Numbers"

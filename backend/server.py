@@ -36,7 +36,7 @@ from ai import (init_storage, put_object, get_object, delete_object, gen_concept
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
-                         compute_unattempted_summary, is_answered)
+                         compute_unattempted_summary, is_answered, apply_batch_confirmation)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
@@ -3121,8 +3121,11 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
 
     student_topics = {}
     for sid in student_ids:
-        # Pass class_level=None to evaluate only actual attempts without redundant syllabus union
-        mastery = compute_topic_mastery(per_student.get(sid, []), class_level=None)
+        # Pass the batch class so attempts missing subject/chapter are inferred against the right syllabus
+        # (class_level=None falls back to searching class 9 before 10). Reuse batch_syllabus and skip the
+        # unattempted union so this stays cheap per student.
+        mastery = compute_topic_mastery(per_student.get(sid, []), class_level=batch_class,
+                                        syllabus=batch_syllabus, include_unattempted=False)
         # Drop not_attempted rows: only retain topics the student actually attempted (attempts > 0)
         active_mastery = [m for m in mastery if m.get("attempts", 0) > 0]
         student_topics[sid] = active_mastery
@@ -3131,10 +3134,14 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     all_batch_attempts = [a for atts in per_student.values() for a in atts]
     batch_mastery = compute_topic_mastery(
         all_batch_attempts,
-        class_level=None,
+        class_level=batch_class,
+        syllabus=batch_syllabus,
         subject=batch.get("subject"),
         include_unattempted=False
     )
+    # Pooled attempts need more evidence than one student's: require enough distinct students and questions
+    active_student_count = sum(1 for sid in student_ids if per_student.get(sid))
+    apply_batch_confirmation(batch_mastery, active_student_count)
 
     weak_topics = []
     for m in batch_mastery:
@@ -3149,13 +3156,15 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
                 "is_confirmed_strong": m.get("is_confirmed_strong", False),
                 "attempts": m["attempts"],
                 "sessions": m.get("sessions", m.get("attempts", 0)),
+                "students": m.get("students", 0),
                 "avg_time_s": m.get("avg_time_s", 0.0),
             })
 
     def _sort_key(item):
-        if is_confirmed_weak(item):
+        # Use the batch-level flags directly; is_confirmed_weak(item) would re-derive them from sessions alone
+        if item.get("is_confirmed_weak"):
             order_val = 0
-        elif is_confirmed_strong(item):
+        elif item.get("is_confirmed_strong"):
             order_val = 2
         else:
             order_val = 1
@@ -3197,7 +3206,8 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     # so unclassified topics that are strong/developing are reliably surfaced
     all_batch_topics = compute_topic_mastery(
         all_batch_attempts,
-        class_level=None,
+        class_level=batch_class,
+        syllabus=batch_syllabus,
         include_unattempted=False
     )
     full_topics = all_batch_topics if all_batch_topics else [t for st in student_topics.values() for t in st]
