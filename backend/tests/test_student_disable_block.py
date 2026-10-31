@@ -238,3 +238,58 @@ class TestStudentDisableBlock:
             timeout=15
         )
         assert r_other_teacher.status_code == 403
+
+
+class TestPerBatchAccessEnforcement:
+    """A student enrolled with two teachers keeps login access when one teacher disables/blocks them,
+    so the per-batch restriction must be enforced on that batch's content."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.teacher_a = _register_user("Teacher A", "teacher")
+        cls.teacher_b = _register_user("Teacher B", "teacher")
+        cls.student = _register_user("Two Teacher Student", "student")
+        cls.batch_a = requests.post(f"{API}/batches", json={"name": "Batch A", "class_level": "10"},
+                                    headers=cls.teacher_a["headers"], timeout=15).json()
+        cls.batch_b = requests.post(f"{API}/batches", json={"name": "Batch B", "class_level": "10"},
+                                    headers=cls.teacher_b["headers"], timeout=15).json()
+        for b in (cls.batch_a, cls.batch_b):
+            r = requests.post(f"{API}/batches/join", json={"code": b["code"]}, headers=cls.student["headers"], timeout=15)
+            assert r.status_code == 200, r.text
+        cls.note_a = requests.post(f"{API}/notes", json={
+            "title": "A only", "class_level": "10", "subject": "Maths", "chapter": "Algebra",
+            "batch_id": cls.batch_a["id"], "raw_text": "Batch A content",
+        }, headers=cls.teacher_a["headers"], timeout=15).json()
+        cls.note_b = requests.post(f"{API}/notes", json={
+            "title": "B only", "class_level": "10", "subject": "Maths", "chapter": "Algebra",
+            "batch_id": cls.batch_b["id"], "raw_text": "Batch B content",
+        }, headers=cls.teacher_b["headers"], timeout=15).json()
+
+    def test_disabled_in_one_batch_loses_that_batch_only(self):
+        r = requests.post(f"{API}/batches/{self.batch_a['id']}/students/{self.student['id']}/status",
+                          json={"action": "disable"}, headers=self.teacher_a["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+
+        assert requests.get(f"{API}/notes/{self.note_a['id']}", headers=self.student["headers"], timeout=15).status_code == 403
+        assert requests.get(f"{API}/notes/{self.note_b['id']}", headers=self.student["headers"], timeout=15).status_code == 200
+        listed = {n["id"] for n in requests.get(f"{API}/notes", headers=self.student["headers"], timeout=15).json()}
+        assert self.note_a["id"] not in listed
+        assert self.note_b["id"] in listed
+
+        requests.post(f"{API}/batches/{self.batch_a['id']}/students/{self.student['id']}/status",
+                      json={"action": "enable"}, headers=self.teacher_a["headers"], timeout=15)
+        assert requests.get(f"{API}/notes/{self.note_a['id']}", headers=self.student["headers"], timeout=15).status_code == 200
+
+    def test_deleting_batch_lifts_account_lockout(self):
+        teacher = _register_user("Solo Teacher", "teacher")
+        student = _register_user("Solo Student", "student")
+        batch = requests.post(f"{API}/batches", json={"name": "Solo", "class_level": "10"},
+                              headers=teacher["headers"], timeout=15).json()
+        requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=student["headers"], timeout=15)
+        requests.post(f"{API}/batches/{batch['id']}/students/{student['id']}/status",
+                      json={"action": "block"}, headers=teacher["headers"], timeout=15)
+        login = lambda: requests.post(f"{API}/auth/login", json={"email": student["email"], "password": student["password"]}, timeout=15)
+        assert login().status_code == 403
+
+        assert requests.delete(f"{API}/batches/{batch['id']}", headers=teacher["headers"], timeout=15).status_code == 200
+        assert login().status_code == 200

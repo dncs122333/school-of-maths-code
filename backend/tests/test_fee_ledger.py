@@ -609,3 +609,100 @@ class TestFeeLedger:
 
 
 
+
+    def test_unmark_unpaid_month_is_rejected_and_keeps_payments(self):
+        """Unmarking a month with nothing allocated used to deduct its scheduled amount from other payments."""
+        student = self._create_student_in_batch("Unmark Unpaid Student")
+        batch_id = self.batch["id"]
+        sid = student["id"]
+
+        r1 = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"month": "April", "amount": 5000},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r1.status_code == 200, r1.text
+
+        r2 = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"unmark_month": "June"},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r2.status_code == 400, r2.text
+
+        r_list = requests.get(f"{API}/batches/{batch_id}/students", headers=self.teacher["headers"], timeout=15)
+        s_data = next(s for s in r_list.json()["students"] if s["id"] == sid)
+        assert s_data["paid_fee"] == 5000
+        assert "April" in s_data["paid_months"]
+
+    def test_repeated_unmark_does_not_remove_other_months(self):
+        student = self._create_student_in_batch("Double Unmark Student")
+        batch_id = self.batch["id"]
+        sid = student["id"]
+
+        requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"months_paid": ["April", "May"]},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        r1 = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"unmark_month": "April"},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r1.status_code == 200, r1.text
+        r2 = requests.post(
+            f"{API}/batches/{batch_id}/students/{sid}/fee",
+            json={"unmark_month": "April"},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r2.status_code == 400, r2.text
+
+        r_list = requests.get(f"{API}/batches/{batch_id}/students", headers=self.teacher["headers"], timeout=15)
+        s_data = next(s for s in r_list.json()["students"] if s["id"] == sid)
+        assert s_data["paid_fee"] == 5000
+        assert s_data["paid_months"] == ["May"]
+
+    def test_unknown_month_in_payment_is_rejected(self):
+        student = self._create_student_in_batch("Typo Month Student")
+        r = requests.post(
+            f"{API}/batches/{self.batch['id']}/students/{student['id']}/fee",
+            json={"month": "Aprill", "amount": 5000},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r.status_code == 400, r.text
+
+    def test_schedule_with_duplicate_or_unknown_month_is_rejected(self):
+        dup = [{"month": "April", "amount": 5000}] * 2 + [{"month": m, "amount": 5000} for m in
+                                                            ["June", "July", "August", "September", "October",
+                                                             "November", "December", "January", "February", "March"]]
+        r_dup = requests.post(f"{API}/batches", json={"name": "Dup Month Batch", "class_level": "10", "fee_schedule": dup},
+                              headers=self.teacher["headers"], timeout=15)
+        assert r_dup.status_code == 400, r_dup.text
+
+        r_bad = requests.post(f"{API}/batches", json={"name": "Bad Month Batch", "class_level": "10",
+                                                     "fee_schedule": [{"month": "Admission", "amount": 1000}]},
+                              headers=self.teacher["headers"], timeout=15)
+        assert r_bad.status_code == 400, r_bad.text
+
+    def test_custom_student_schedule_is_stored_normalized(self):
+        student = self._create_student_in_batch("Custom Schedule Student")
+        sched = [{"month": m, "amount": 1000.005} for m in
+                 ["April", "May", "June", "July", "August", "September",
+                  "October", "November", "December", "January", "February", "March"]]
+        r = requests.post(
+            f"{API}/batches/{self.batch['id']}/students/{student['id']}/fee",
+            json={"fee_schedule": sched},
+            headers=self.teacher["headers"],
+            timeout=15
+        )
+        assert r.status_code == 200, r.text
+        stored = r.json()["fee_schedule"]
+        assert all(item["amount"] == 1000.01 for item in stored)
+        assert all(item.get("year") for item in stored)

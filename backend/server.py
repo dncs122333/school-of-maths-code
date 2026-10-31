@@ -199,12 +199,19 @@ def validate_fee_schedule(schedule: list, academic_year: str = None) -> list:
         start_year = datetime.now(timezone.utc).year
 
     validated = []
+    seen_months = set()
     for idx, item in enumerate(schedule):
         if not isinstance(item, dict):
             raise HTTPException(status_code=400, detail=f"fee_schedule item {idx} must be an object")
         month = item.get("month")
         if not month or not isinstance(month, str) or not month.strip():
             raise HTTPException(status_code=400, detail=f"fee_schedule item {idx} is missing a valid 'month' key")
+        # Allocation is keyed by month name, so unknown or repeated months would silently mis-allocate payments
+        if month.strip() not in DEFAULT_ACADEMIC_MONTHS:
+            raise HTTPException(status_code=400, detail=f"fee_schedule item {idx} has unknown month '{month}'")
+        if month.strip() in seen_months:
+            raise HTTPException(status_code=400, detail=f"fee_schedule has duplicate month '{month.strip()}'")
+        seen_months.add(month.strip())
         amt = item.get("amount")
         try:
             amt_val = float(amt) if amt is not None else 0.0
@@ -409,6 +416,32 @@ async def _check_join_rate_limit(user_id: str, client_ip: str, max_attempts: int
         return True
 
 
+def active_batch_ids(user: dict) -> list:
+    """Batches a student may access content from: enrolled minus those they are disabled or blocked in."""
+    inactive = set(user.get("disabled_batch_ids") or []) | set(user.get("blocked_batch_ids") or [])
+    return [bid for bid in (user.get("batch_ids") or []) if bid not in inactive]
+
+
+async def recompute_user_status_flags(student_id: str) -> None:
+    """Account-level lockout applies only when every remaining batch belongs to teachers who disabled/blocked
+    the student; a student still enrolled with another teacher keeps login access."""
+    student = await db.users.find_one({"_id": ObjectId(student_id)})
+    if not student:
+        return
+    batch_ids = student.get("batch_ids") or []
+    disabled = set(student.get("disabled_batch_ids") or [])
+    blocked = set(student.get("blocked_batch_ids") or [])
+    teacher_ids = {b.get("teacher_id") async for b in db.batches.find({"id": {"$in": batch_ids}}, {"_id": 0, "teacher_id": 1})}
+    has_multiple_teachers = len(teacher_ids) > 1
+    await db.users.update_one(
+        {"_id": ObjectId(student_id)},
+        {"$set": {
+            "is_disabled": bool(disabled) and not has_multiple_teachers,
+            "is_blocked": bool(blocked) and not has_multiple_teachers,
+        }}
+    )
+
+
 def _sanitize_batch_for_student(b: dict) -> dict:
     return {
         "id": b.get("id"),
@@ -570,7 +603,8 @@ async def delete_batch(batch_id: str, user: dict = Depends(require_role("teacher
     # Delete batch document
     await db.batches.delete_one({"id": batch_id})
 
-    # Remove batch_id from all enrolled students
+    # Remove batch_id from all enrolled students, then re-derive their lockout flags
+    affected_ids = [str(u["_id"]) async for u in db.users.find({"batch_ids": batch_id}, {"_id": 1})]
     await db.users.update_many(
         {"batch_ids": batch_id},
         {"$pull": {
@@ -579,6 +613,8 @@ async def delete_batch(batch_id: str, user: dict = Depends(require_role("teacher
             "blocked_batch_ids": batch_id
         }}
     )
+    for sid in affected_ids:
+        await recompute_user_status_flags(sid)
 
     # Delete fee records for this batch
     await db.batch_fees.delete_many({"batch_id": batch_id})
@@ -733,8 +769,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
         due_months = derived["due_months"]
         paid_months_list = derived["paid_months"]
 
-        is_student_disabled = (batch_id in s.get("disabled_batch_ids", [])) or bool(s.get("is_disabled", False))
-        is_student_blocked = (batch_id in s.get("blocked_batch_ids", [])) or bool(s.get("is_blocked", False))
+        is_student_disabled = batch_id in s.get("disabled_batch_ids", [])
+        is_student_blocked = batch_id in s.get("blocked_batch_ids", [])
 
         results.append({
             "id": sid,
@@ -850,9 +886,18 @@ async def record_student_fee(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid payment_date format. Expected ISO 8601 format.")
 
-    # Validate fee_schedule if provided
+    # Validate fee_schedule if provided; the normalized copy (rounded amounts, years filled in) is what gets stored
+    validated_schedule = None
     if body.fee_schedule is not None:
-        validate_fee_schedule(body.fee_schedule, batch.get("academic_year"))
+        validated_schedule = validate_fee_schedule(body.fee_schedule, batch.get("academic_year"))
+
+    named_months = [m.strip() for m in (body.month or "").split(",") if m.strip()]
+    named_months += [m.strip() for m in (body.months_paid or []) if m and m.strip()]
+    if body.unmark_month:
+        named_months.append(body.unmark_month.strip())
+    unknown_months = [m for m in named_months if m != "All Months" and m not in DEFAULT_ACADEMIC_MONTHS]
+    if unknown_months:
+        raise HTTPException(status_code=400, detail=f"Unknown month(s): {', '.join(unknown_months)}")
 
     idem_key = (
         body.idempotency_key
@@ -905,8 +950,8 @@ async def record_student_fee(
             }
 
         # Resolve student schedule (custom or batch default) and total_fee
-        if body.fee_schedule and len(body.fee_schedule) > 0:
-            student_schedule = body.fee_schedule
+        if validated_schedule:
+            student_schedule = validated_schedule
             total_fee = float(body.total_fee) if body.total_fee is not None else from_paise(sum(to_paise(it.get("amount", 0.0) or 0.0) for it in student_schedule))
             is_custom_fee = True
         elif body.total_fee is not None:
@@ -948,11 +993,17 @@ async def record_student_fee(
 
         if body.unmark_month:
             month_to_remove = body.unmark_month.strip()
+            # Only reverse what was actually allocated to this month; unmarking a due month must not remove money
+            current_alloc = _derive_fee_allocation(payments, student_schedule, unmarked_months=unmarked_months)
+            month_status = next((m for m in current_alloc["monthly_status"] if m["month"] == month_to_remove), None)
+            if not month_status:
+                raise HTTPException(status_code=400, detail=f"{month_to_remove} is not in this student's fee schedule")
+            allocated_paise = to_paise(month_status["paid_amount"])
+            if allocated_paise <= 0:
+                raise HTTPException(status_code=400, detail=f"{month_to_remove} has no payment to unmark")
             if month_to_remove not in unmarked_months:
                 unmarked_months.append(month_to_remove)
-            month_item = next((it for it in student_schedule if it["month"] == month_to_remove), None)
-            sched_amt = float(month_item.get("amount", 0.0)) if month_item else round(total_fee / 12.0, 2)
-            rem_deduct_paise = to_paise(sched_amt)
+            rem_deduct_paise = allocated_paise
             new_payments = []
 
             has_covering_payment = any(
@@ -1250,8 +1301,9 @@ async def update_student_status(
 
     disabled_batch_ids = set(student.get("disabled_batch_ids", []))
     blocked_batch_ids = set(student.get("blocked_batch_ids", []))
-    curr_disabled_in_batch = (batch_id in disabled_batch_ids) or bool(student.get("is_disabled", False))
-    curr_blocked_in_batch = (batch_id in blocked_batch_ids) or bool(student.get("is_blocked", False))
+    # Per-batch lists are the source of truth; the account-level flags are derived from them
+    curr_disabled_in_batch = batch_id in disabled_batch_ids
+    curr_blocked_in_batch = batch_id in blocked_batch_ids
 
     action_raw = body.action
     action = (action_raw or "").lower().strip()
@@ -1318,28 +1370,12 @@ async def update_student_status(
             )
             updated_batches.append({"batch_id": ob["id"], "new_code": ob_code})
 
-    # Check whether the student is enrolled in batches belonging to OTHER teachers
-    student_batches = await db.batches.find(
-        {"id": {"$in": student_batch_ids}},
-        {"_id": 0, "id": 1, "teacher_id": 1}
-    ).to_list(100)
-    has_other_teacher_batches = any(b.get("teacher_id") != batch.get("teacher_id") for b in student_batches)
-
-    # Set user-level is_disabled / is_blocked ONLY if student has no other teachers' batches.
-    # If student has other teachers, do not lock them out globally!
-    user_updates = {
+    await db.users.update_one({"_id": ObjectId(student_id)}, {"$set": {
         "disabled_batch_ids": list(disabled_batch_ids),
         "blocked_batch_ids": list(blocked_batch_ids),
         "updated_at": now_iso
-    }
-    if not has_other_teacher_batches:
-        user_updates["is_disabled"] = bool(disabled_batch_ids)
-        user_updates["is_blocked"] = bool(blocked_batch_ids)
-    else:
-        user_updates["is_disabled"] = False
-        user_updates["is_blocked"] = False
-
-    await db.users.update_one({"_id": ObjectId(student_id)}, {"$set": user_updates})
+    }})
+    await recompute_user_status_flags(student_id)
 
     return {
         "success": True,
@@ -1392,20 +1428,7 @@ async def remove_student_from_batch(
     # Clean up fee records for this student and batch
     await db.batch_fees.delete_many({"batch_id": batch_id, "student_id": student_id})
 
-    # Update user level is_disabled / is_blocked if no remaining disabled/blocked batches
-    refreshed_student = await db.users.find_one({"_id": ObjectId(student_id)})
-    if refreshed_student:
-        rem_disabled = refreshed_student.get("disabled_batch_ids", [])
-        rem_blocked = refreshed_student.get("blocked_batch_ids", [])
-        await db.users.update_one(
-            {"_id": ObjectId(student_id)},
-            {
-                "$set": {
-                    "is_disabled": bool(rem_disabled),
-                    "is_blocked": bool(rem_blocked)
-                }
-            }
-        )
+    await recompute_user_status_flags(student_id)
 
     return {
         "success": True,
@@ -1470,7 +1493,7 @@ async def list_notes(class_level: Optional[str] = None, subject: Optional[str] =
             else:
                 q["batch_id"] = batch_id
     elif user["role"] == "student":
-        student_batches = user.get("batch_ids", [])
+        student_batches = active_batch_ids(user)
         # Student can only access notes scoped to their enrolled batches OR general notes
         q["$or"] = [
             {"batch_id": {"$in": student_batches}},
@@ -1506,7 +1529,7 @@ async def get_note(note_id: str, user: dict = Depends(get_current_user)):
 
     if user["role"] == "student":
         note_batch = note.get("batch_id")
-        if note_batch and note_batch not in user.get("batch_ids", []):
+        if note_batch and note_batch not in active_batch_ids(user):
             raise HTTPException(
                 status_code=403,
                 detail="Access denied. This note is restricted to another batch."
@@ -1636,7 +1659,7 @@ async def list_resources(user: dict = Depends(get_current_user)):
     if user["role"] == "teacher":
         q["teacher_id"] = user["id"]
     elif user["role"] == "student":
-        q["batch_id"] = {"$in": user.get("batch_ids", [])}
+        q["batch_id"] = {"$in": active_batch_ids(user)}
     items = await db.resources.find(q, {"_id": 0, "storage_path": 0}).sort("created_at", -1).to_list(500)
     return items
 
@@ -1705,7 +1728,7 @@ async def download_resource(res_id: str, authorization: str = Header(None), auth
     if not res:
         raise HTTPException(status_code=404, detail="Not found")
     allowed = (user["role"] == "admin" or res["teacher_id"] == user["id"]
-               or (user["role"] == "student" and res["batch_id"] in user.get("batch_ids", [])))
+               or (user["role"] == "student" and res["batch_id"] in active_batch_ids(user)))
     if not allowed:
         raise HTTPException(status_code=403, detail="No access to this file")
     content, ct = get_object(res["storage_path"])
@@ -2026,7 +2049,7 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         if kind == "diagnostic":
             q["student_id"] = user["id"]
         elif kind == "dpp":
-            user_batches = user.get("batch_ids", [])
+            user_batches = active_batch_ids(user)
             q["$or"] = [
                 {"student_id": user["id"]},
                 {"batch_id": None, "student_id": None},
@@ -2036,7 +2059,7 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
                 {"batch_id": {"$in": user_batches}}
             ]
         else:
-            q["batch_id"] = {"$in": user.get("batch_ids", [])}
+            q["batch_id"] = {"$in": active_batch_ids(user)}
     tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
     subs_by_test = {}
@@ -2111,6 +2134,16 @@ async def list_live_tests(user: dict = Depends(get_current_user)):
     return result
 
 
+def _ensure_student_can_access_test(test: dict, user: dict) -> None:
+    if test.get("student_id"):
+        if test["student_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Not yours")
+        return
+    bid = test.get("batch_id")
+    if bid and bid != "all" and bid not in active_batch_ids(user):
+        raise HTTPException(status_code=403, detail="You do not have access to this batch's tests")
+
+
 @api_router.get("/tests/{test_id}")
 async def get_test(test_id: str, user: dict = Depends(get_current_user)):
     test = await db.tests.find_one({"id": test_id}, {"_id": 0})
@@ -2124,17 +2157,18 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
         now = datetime.now(timezone.utc)
         if test.get("valid_from") and test.get("valid_until"):
             try:
-                vf = datetime.fromisoformat(test["valid_from"])
-                vu = datetime.fromisoformat(test["valid_until"])
-                if not (vf <= now <= vu):
-                    raise HTTPException(status_code=403, detail="This test is not active right now")
+                vf = datetime.fromisoformat(test["valid_from"].replace("Z", "+00:00"))
+                vu = datetime.fromisoformat(test["valid_until"].replace("Z", "+00:00"))
+                vf = vf if vf.tzinfo else vf.replace(tzinfo=timezone.utc)
+                vu = vu if vu.tzinfo else vu.replace(tzinfo=timezone.utc)
             except Exception:
-                pass
+                vf = vu = None
+            if vf and vu and not (vf <= now <= vu):
+                raise HTTPException(status_code=403, detail="This test is not active right now")
         if test["kind"] == "test":
             if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
                 raise HTTPException(status_code=403, detail="Already submitted")
-        if test["kind"] == "diagnostic" and test.get("student_id") != user["id"]:
-            raise HTTPException(status_code=403, detail="Not yours")
+        _ensure_student_can_access_test(test, user)
         return _strip_answers(test, user["id"])
     return test
 
@@ -2146,6 +2180,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
         raise HTTPException(status_code=404, detail="Not found")
     if test.get("is_active", True) is False:
         raise HTTPException(status_code=403, detail="This test is currently inactive or closed by your teacher.")
+    _ensure_student_can_access_test(test, user)
     if test["kind"] == "test" and await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
         raise HTTPException(status_code=403, detail="Already submitted")
     questions = test["questions"]
@@ -3081,8 +3116,8 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
 
     students_raw = await db.users.find({"role": "student", "batch_ids": batch_id}).to_list(500)
     students = [{"id": str(s["_id"]), "name": s["name"],
-                 "is_disabled": (batch_id in s.get("disabled_batch_ids", [])) or bool(s.get("is_disabled", False)),
-                 "is_blocked": (batch_id in s.get("blocked_batch_ids", [])) or bool(s.get("is_blocked", False))} for s in students_raw]
+                 "is_disabled": batch_id in s.get("disabled_batch_ids", []),
+                 "is_blocked": batch_id in s.get("blocked_batch_ids", [])} for s in students_raw]
     student_ids = [s["id"] for s in students]
 
     test_q = {"$or": [{"batch_id": batch_id}, {"student_id": {"$in": student_ids}}]} if student_ids else {"batch_id": batch_id}
@@ -3368,7 +3403,7 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Batch not found")
 
     if user_role == "student":
-        if batch_id not in user.get("batch_ids", []):
+        if batch_id not in active_batch_ids(user):
             raise HTTPException(status_code=403, detail="Not authorized to access this batch")
     elif user_role == "teacher":
         if batch.get("teacher_id") != user["id"]:

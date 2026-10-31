@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
@@ -53,6 +53,20 @@ const ACADEMIC_MONTHS = [
 
 const makeDefaultSchedule = (monthly = 0) =>
   ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(monthly || 0) }));
+
+// Splits an annual fee into 12 whole-rupee months with the remainder on March, so the schedule always sums to the fee
+const makeEvenSchedule = (annual) => {
+  const total = Math.max(0, Math.round(Number(annual) || 0));
+  const base = Math.floor(total / 12);
+  return ACADEMIC_MONTHS.map((m, idx) => ({ month: m, amount: String(idx === 11 ? total - base * 11 : base) }));
+};
+
+const scheduleSum = (schedule) => (schedule || []).reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
+
+const sameAmount = (a, b) => Math.round((Number(a) || 0) * 100) === Math.round((Number(b) || 0) * 100);
+
+const newIdempotencyKey = () =>
+  (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function Batches() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -132,6 +146,22 @@ export default function Batches() {
     saving: false,
   });
   const [statusBusyId, setStatusBusyId] = useState(null);
+  // Synchronous per-student guard: React state updates land after a re-render, so a fast double-click
+  // would otherwise send two fee writes before any button disables
+  const feeInFlight = useRef(new Set());
+
+  const postFee = async (studentId, payload) => {
+    if (feeInFlight.current.has(studentId)) return null;
+    feeInFlight.current.add(studentId);
+    try {
+      return await api.post(`/batches/${selectedBatchId}/students/${studentId}/fee`, {
+        ...payload,
+        idempotency_key: newIdempotencyKey(),
+      });
+    } finally {
+      feeInFlight.current.delete(studentId);
+    }
+  };
 
   // Load all batches
   const loadBatches = async () => {
@@ -216,6 +246,10 @@ export default function Batches() {
       toast.error("Please enter a batch name.");
       return;
     }
+    if (!sameAmount(scheduleSum(editModal.fee_schedule), editModal.fee_amount)) {
+      toast.error("Monthly amounts must add up to the annual fee.");
+      return;
+    }
     setEditModal((prev) => ({ ...prev, saving: true }));
     try {
       const payload = {
@@ -240,21 +274,12 @@ export default function Batches() {
   };
 
   const handleDistributeSchedule = (isEdit = false) => {
-    if (isEdit) {
-      const mAmt = editModal.monthly_fee || (editModal.fee_amount ? Math.round(Number(editModal.fee_amount) / 12) : 0);
-      setEditModal((prev) => ({
-        ...prev,
-        _scheduleCustomized: false,
-        fee_schedule: ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(mAmt) })),
-      }));
-    } else {
-      const mAmt = form.monthly_fee || (form.fee_amount ? Math.round(Number(form.fee_amount) / 12) : 0);
-      setForm((prev) => ({
-        ...prev,
-        _scheduleCustomized: false,
-        fee_schedule: ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(mAmt) })),
-      }));
-    }
+    const setter = isEdit ? setEditModal : setForm;
+    setter((prev) => ({
+      ...prev,
+      _scheduleCustomized: false,
+      fee_schedule: makeEvenSchedule(Number(prev.fee_amount) || (Number(prev.monthly_fee) || 0) * 12),
+    }));
   };
 
   const handleUpdateMonthAmount = (monthName, val, isEdit = false) => {
@@ -312,10 +337,10 @@ export default function Batches() {
     const sPaid = student.paid_fee !== undefined && student.paid_fee !== null ? Number(student.paid_fee) : 0;
     const sDue = student.due_fee !== undefined && student.due_fee !== null ? Number(student.due_fee) : Math.max(0, sTotal - sPaid);
 
-    const baseSched = (student.fee_schedule && student.fee_schedule.length > 0)
-      ? student.fee_schedule
-      : (batchStudentsData?.fee_schedule || makeDefaultSchedule(Math.round(sTotal / 12) || 0));
-    const initialSched = calculateProportionalSchedule(baseSched, sTotal);
+    // Start from the stored schedule verbatim so an untouched modal doesn't register as a schedule change
+    const initialSched = (student.fee_schedule && student.fee_schedule.length > 0)
+      ? student.fee_schedule.map((s) => ({ month: s.month, amount: String(s.amount) }))
+      : calculateProportionalSchedule(batchStudentsData?.fee_schedule || makeEvenSchedule(sTotal), sTotal);
 
     setFeeModal({
       open: true,
@@ -421,23 +446,46 @@ export default function Batches() {
 
   const handleSaveFee = async (markAsPaid = false) => {
     if (!feeModal.student || !selectedBatchId) return;
+    const student = feeModal.student;
+    const totalNum = Number(feeModal.total_fee) || 0;
+    const paidNum = Number(feeModal.paid_fee) || 0;
+    const origSchedule = student.fee_schedule || [];
+    const scheduleChanged = (feeModal.fee_schedule || []).some((s) => {
+      const orig = origSchedule.find((o) => o.month === s.month);
+      return !orig || !sameAmount(orig.amount, s.amount);
+    });
+    const totalChanged = !sameAmount(totalNum, student.total_fee);
+    const paidChanged = !markAsPaid && !sameAmount(paidNum, student.paid_fee);
+
+    if (scheduleChanged && !sameAmount(scheduleSum(feeModal.fee_schedule), totalNum)) {
+      toast.error("Monthly amounts must add up to the total fee.");
+      return;
+    }
+    // Only send what the teacher actually changed: sending fee_schedule/total_fee makes the student's fee custom
+    // (detached from batch pricing), and sending paid_fee rewrites the payment ledger
+    const payload = {};
+    if (totalChanged || scheduleChanged) payload.total_fee = totalNum;
+    if (scheduleChanged) {
+      payload.fee_schedule = feeModal.fee_schedule.map((s) => ({ month: s.month, amount: Number(s.amount) || 0 }));
+    }
+    if (markAsPaid) payload.mark_as_paid = true;
+    if (paidChanged) {
+      if (paidNum < Number(student.paid_fee || 0)) {
+        const removed = Number(student.paid_fee || 0) - paidNum;
+        if (!window.confirm(`This removes ₹${removed.toLocaleString()} of recorded payments for ${student.name}. Continue?`)) return;
+      }
+      payload.paid_fee = paidNum;
+    }
+    if (Object.keys(payload).length === 0) {
+      toast.info("No changes to save.");
+      setFeeModal((prev) => ({ ...prev, open: false }));
+      return;
+    }
+
     setFeeModal((prev) => ({ ...prev, saving: true }));
     try {
-      const totalNum = feeModal.total_fee !== "" && feeModal.total_fee !== undefined ? Number(feeModal.total_fee) : undefined;
-      const paidNum = markAsPaid ? totalNum : (feeModal.paid_fee !== "" && feeModal.paid_fee !== undefined ? Number(feeModal.paid_fee) : undefined);
-      const dueNum = markAsPaid ? 0 : (feeModal.due_fee !== "" && feeModal.due_fee !== undefined ? Number(feeModal.due_fee) : undefined);
-
-      const payload = {
-        total_fee: totalNum,
-        paid_fee: paidNum,
-        due_fee: dueNum,
-        mark_as_paid: markAsPaid,
-        fee_schedule: feeModal.fee_schedule ? feeModal.fee_schedule.map((s) => ({
-          month: s.month,
-          amount: Number(s.amount) || 0,
-        })) : undefined,
-      };
-      await api.post(`/batches/${selectedBatchId}/students/${feeModal.student.id}/fee`, payload);
+      const res = await postFee(student.id, payload);
+      if (!res) return;
       toast.success(
         markAsPaid
           ? `Marked ${feeModal.student.name} as paid in full!`
@@ -493,13 +541,14 @@ export default function Batches() {
     }
     setPartialModal((prev) => ({ ...prev, saving: true }));
     try {
-      await api.post(`/batches/${selectedBatchId}/students/${partialModal.student.id}/fee`, {
+      const res = await postFee(partialModal.student.id, {
         month: partialModal.month,
         amount: amt,
         is_partial: true,
         notes: partialModal.notes.trim(),
         payment_date: partialModal.payment_date ? new Date(partialModal.payment_date).toISOString() : undefined,
       });
+      if (!res) return;
       toast.success(`Recorded partial payment of ₹${amt.toLocaleString()} for ${partialModal.month}!`);
       setPartialModal({
         open: false,
@@ -523,8 +572,11 @@ export default function Batches() {
 
   const handleQuickMarkPaid = async (student) => {
     if (!selectedBatchId) return;
+    const due = Number(student.due_fee || 0);
+    if (!window.confirm(`Record ₹${due.toLocaleString()} as received from ${student.name} and mark the full year paid?`)) return;
     try {
-      await api.post(`/batches/${selectedBatchId}/students/${student.id}/fee`, { mark_as_paid: true });
+      const res = await postFee(student.id, { mark_as_paid: true });
+      if (!res) return;
       toast.success(`Marked ${student.name} as paid in full!`);
       await loadBatchStudents(selectedBatchId);
     } catch (err) {
@@ -558,9 +610,8 @@ export default function Batches() {
     if (monthsToPay.length === 0) return;
 
     try {
-      await api.post(`/batches/${selectedBatchId}/students/${student.id}/fee`, {
-        months_paid: monthsToPay,
-      });
+      const res = await postFee(student.id, { months_paid: monthsToPay });
+      if (!res) return;
       toast.success(`Marked ${monthsToPay.join(", ")} as paid for ${student.name}!`);
       handleClearMonthSelection(student.id);
       await loadBatchStudents(selectedBatchId);
@@ -573,9 +624,8 @@ export default function Batches() {
     if (!selectedBatchId || !unmarkModal.student || !unmarkModal.month) return;
     setUnmarkModal((prev) => ({ ...prev, saving: true }));
     try {
-      await api.post(`/batches/${selectedBatchId}/students/${unmarkModal.student.id}/fee`, {
-        unmark_month: unmarkModal.month,
-      });
+      const res = await postFee(unmarkModal.student.id, { unmark_month: unmarkModal.month });
+      if (!res) return;
       toast.success(`Unmarked ${unmarkModal.month} as paid for ${unmarkModal.student.name}`);
       setUnmarkModal({ open: false, student: null, month: "", amount: 0, collection_date: "", notes: "", saving: false });
       await loadBatchStudents(selectedBatchId);
@@ -589,6 +639,10 @@ export default function Batches() {
   const handleCreateBatch = async () => {
     if (!form.name.trim()) {
       toast.error("Please enter a batch name.");
+      return;
+    }
+    if (!sameAmount(scheduleSum(form.fee_schedule), form.fee_amount)) {
+      toast.error("Monthly amounts must add up to the annual fee.");
       return;
     }
     try {
@@ -824,9 +878,9 @@ export default function Batches() {
   const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] font-semibold focus:ring-2 focus:ring-[#F5C842]";
 
   const renderBatchFeeFields = (data, setter, isEdit = false) => {
-    const scheduleSum = (data.fee_schedule || []).reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
+    const scheduleTotal = scheduleSum(data.fee_schedule);
     const totalAnnual = Number(data.fee_amount) || 0;
-    const matches = scheduleSum === totalAnnual;
+    const matches = sameAmount(scheduleTotal, totalAnnual);
 
     return (
       <div className="space-y-4 pt-1">
@@ -845,21 +899,15 @@ export default function Batches() {
                 value={data.fee_amount}
                 onChange={(e) => {
                   const val = e.target.value;
-                  const autoMonthly = val ? Math.round(Number(val) / 12) : 0;
-                  const mVal = val ? String(autoMonthly) : "";
-                  setter((prev) => {
-                    // Only auto-update monthly_fee if user hasn't set it themselves
-                    const newMonthly = prev.monthly_fee ? Number(prev.monthly_fee) : autoMonthly;
-                    return {
-                      ...prev,
-                      fee_amount: val,
-                      monthly_fee: prev.monthly_fee || mVal,
-                      // Auto-redistribute schedule using current monthly_fee or derived monthly
-                      fee_schedule: !prev._scheduleCustomized
-                        ? ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(newMonthly || autoMonthly) }))
-                        : prev.fee_schedule,
-                    };
-                  });
+                  // Recompute from the full value on every keystroke; the old "keep monthly if already set" logic
+                  // froze it at round(firstDigit / 12)
+                  const evenSched = makeEvenSchedule(val);
+                  setter((prev) => ({
+                    ...prev,
+                    fee_amount: val,
+                    monthly_fee: val ? evenSched[0].amount : "",
+                    fee_schedule: !prev._scheduleCustomized ? evenSched : prev.fee_schedule,
+                  }));
                 }}
                 placeholder="e.g. 60000"
               />
@@ -884,6 +932,7 @@ export default function Batches() {
                   setter((prev) => ({
                     ...prev,
                     monthly_fee: val,
+                    fee_amount: val ? String(newAmt * 12) : "",
                     // Auto-redistribute schedule to the new monthly amount (unless user customized per-month)
                     fee_schedule: !prev._scheduleCustomized
                       ? ACADEMIC_MONTHS.map((m) => ({ month: m, amount: String(newAmt) }))
@@ -946,9 +995,9 @@ export default function Batches() {
               </div>
 
               <div className="flex items-center justify-between text-xs font-mono pt-1 text-[#1E293B]/70">
-                <span>Schedule Sum: <strong className="text-[#1E293B]">₹{scheduleSum.toLocaleString()}</strong></span>
+                <span>Schedule Sum: <strong className="text-[#1E293B]">₹{scheduleTotal.toLocaleString()}</strong></span>
                 <span className={matches ? "text-[#2F8A5F] font-bold" : "text-[#B45309] font-bold"}>
-                  {matches ? "✓ Matches Annual Total" : `Difference: ₹${Math.abs(scheduleSum - totalAnnual).toLocaleString()}`}
+                  {matches ? "✓ Matches Annual Total" : `Difference: ₹${Math.abs(scheduleTotal - totalAnnual).toLocaleString()}`}
                 </span>
               </div>
             </div>
