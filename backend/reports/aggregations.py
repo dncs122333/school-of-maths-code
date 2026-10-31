@@ -4,10 +4,10 @@ import statistics
 from typing import Dict, List, Optional, Any
 
 try:
-    from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong
+    from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered
     from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 except ImportError:
-    from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong
+    from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered
     from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 
 
@@ -91,6 +91,10 @@ def compute_test_analytics(
             median_all_q_times.append(statistics.median(q_times_map[i]))
     benchmark_median_time = statistics.median(median_all_q_times) if median_all_q_times else expected_per_q_s
 
+    def _answered_q(s, i):
+        res_list = s.get("results") or []
+        return i < len(res_list) and is_answered(res_list[i], s.get("answers"), i)
+
     question_analysis = []
     for i, q in enumerate(test_questions):
         correct_total = 0
@@ -99,21 +103,16 @@ def compute_test_analytics(
             if i < len(res_list) and res_list[i].get("is_correct"):
                 correct_total += 1
 
-        answered = sum(1 for s in submissions if i < len(s.get("results") or []))
+        # Skipped questions are stored as results too, so count only those the student actually answered
+        answered = sum(1 for s in submissions if _answered_q(s, i))
         accuracy = round_half_up(correct_total / answered * 100, 1) if answered else 0.0
 
         # Discrimination Index D = P(Top) - P(Bottom)
         d_val = None
         d_rating = "N/A"
         if can_discriminate:
-            top_answered = sum(
-                1 for s in top_cohort
-                if i < len(s.get("results") or [])
-            )
-            bottom_answered = sum(
-                1 for s in bottom_cohort
-                if i < len(s.get("results") or [])
-            )
+            top_answered = sum(1 for s in top_cohort if _answered_q(s, i))
+            bottom_answered = sum(1 for s in bottom_cohort if _answered_q(s, i))
             top_correct = sum(
                 1 for s in top_cohort
                 if i < len(s.get("results") or []) and s["results"][i].get("is_correct")
@@ -165,7 +164,9 @@ def compute_test_analytics(
     # Topic-level weakness breakdown
     topic_map: Dict[Any, Dict[str, Any]] = {}
     for s in submissions:
-        for r in (s.get("results") or []):
+        for i, r in enumerate(s.get("results") or []):
+            if not is_answered(r, s.get("answers"), i):
+                continue
             subj = r.get("subject") or test.get("subject") or "Unknown"
             chap = r.get("chapter") or test.get("chapter") or "General"
             top = r.get("topic") or test.get("topic") or "General"
@@ -338,7 +339,9 @@ def compute_weekly_digest(
     def _t_accuracies(subs):
         t_data = {}
         for s in subs:
-            for r in (s.get("results") or []):
+            for i, r in enumerate(s.get("results") or []):
+                if not is_answered(r, s.get("answers"), i):
+                    continue
                 top = r.get("topic") or "General"
                 k = normalize_key(top)
                 if k not in t_data:
@@ -576,8 +579,9 @@ def compute_term_report(
             if results:
                 q_cnt = len(results)
                 q_corr = sum(1 for r in results if r.get("is_correct"))
-                for r in results:
-                    student_attempts.append({**r, "created_at": sub_created, "submission_id": sub_sess, "student_id": sid})
+                for r_idx, r in enumerate(results):
+                    student_attempts.append({**r, "created_at": sub_created, "submission_id": sub_sess, "student_id": sid,
+                                             "answered": is_answered(r, sub.get("answers"), r_idx)})
             elif sub.get("total") is not None:
                 q_cnt = int(sub.get("total") or 0)
                 q_corr = float(sub.get("correct", 0))

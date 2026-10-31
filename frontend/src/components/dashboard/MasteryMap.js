@@ -47,11 +47,11 @@ export default function MasteryMap({ topics = [], summary = null, notAttemptedBy
     return (t.subject || "").toLowerCase() === filterSubject.toLowerCase();
   });
 
-  // Focus Today: prioritize weakest calibrated topic or first unattempted topic
+  // Focus Today: prioritize weakest confirmed topic, then first unattempted topic
   const focusTopic =
-    topics.find((t) => t.band === "weak") ||
+    topics.find((t) => t.is_confirmed_weak) ||
     topics.find((t) => t.band === "not_attempted") ||
-    topics.find((t) => t.band === "developing") ||
+    topics.find((t) => t.band === "weak" || t.band === "developing") ||
     topics[0];
 
   return (

@@ -138,10 +138,10 @@ export default function StudentDashboard() {
     fetchData();
   }, [user]);
 
-  // Top 3 Weak Topics
+  // Top 3 confirmed weak topics (weak across >= 2 sessions; a single wrong answer is not enough)
   const weakTopics = useMemo(() => {
     return masteryTopics
-      .filter((t) => t.band === "weak")
+      .filter((t) => t.is_confirmed_weak)
       .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
       .slice(0, 3);
   }, [masteryTopics]);

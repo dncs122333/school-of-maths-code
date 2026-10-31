@@ -42,6 +42,21 @@ def round_half_up(val, decimals: int = 0):
         return int(res) if decimals == 0 else res
 
 
+def is_answered(result: dict, answers=None, index: int = None) -> bool:
+    """True if the student chose an option for this question (skips are stored as -1).
+
+    New results carry an explicit `answered` flag; legacy results fall back to the
+    parent submission's `answers` list, then to True when nothing is known.
+    """
+    if "answered" in result:
+        return bool(result["answered"])
+    idx = result.get("q", index)
+    if answers is not None and idx is not None and 0 <= idx < len(answers):
+        chosen = answers[idx]
+        return chosen is not None and chosen >= 0
+    return True
+
+
 def difficulty_weight(difficulty: str) -> float:
     return DIFFICULTY_WEIGHT.get((difficulty or "").lower(), DEFAULT_WEIGHT)
 
@@ -186,8 +201,9 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     optionally unioned with the official syllabus topic list (marking unattempted topics as 'not_attempted').
 
     `attempts` is an iterable of dicts: {subject, chapter, topic, difficulty,
-    is_correct, time_s, created_at, submission_id}. Returns a list sorted weakest/untested first.
+    is_correct, time_s, created_at, submission_id, answered}. Returns a list sorted weakest/untested first.
     Tracks distinct sessions (submission_id / created_at) to prevent single-test false positives.
+    Skipped questions (answered is False) are excluded so running out of time is not scored as wrong.
     """
     try:
         from curriculum import (
@@ -225,6 +241,8 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
 
     groups = {}
     for a in attempts:
+        if a.get("answered") is False:
+            continue
         subj = (a.get("subject") or "").strip()
         chap = (a.get("chapter") or "").strip()
         top = (a.get("topic") or "").strip() or "General"

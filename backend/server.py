@@ -36,7 +36,7 @@ from ai import (init_storage, put_object, get_object, delete_object, gen_concept
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
-                         compute_unattempted_summary)
+                         compute_unattempted_summary, is_answered)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
@@ -2198,7 +2198,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
                         "topic": norm_top,
                         "topics": norm_tops,
                         "difficulty": q.get("difficulty", "medium"),
-                        "is_correct": is_ok, "time_s": times[i]})
+                        "is_correct": is_ok, "answered": chosen >= 0, "time_s": times[i]})
 
     score = round_half_up(correct / total * 100) if total else 0
     status = "flagged" if tab_switches >= 3 else "submitted"
@@ -3006,8 +3006,10 @@ def _flatten_attempts(subs):
     for idx, s in enumerate(subs):
         sess_id = s.get("id") or s.get("submission_id") or s.get("created_at") or f"sub_{idx}"
         stud_id = s.get("student_id")
-        for r in (s.get("results") or []):
-            attempts.append({**r, "submission_id": sess_id, "student_id": stud_id, "created_at": s.get("created_at")})
+        answers = s.get("answers")
+        for i, r in enumerate(s.get("results") or []):
+            attempts.append({**r, "submission_id": sess_id, "student_id": stud_id, "created_at": s.get("created_at"),
+                             "answered": is_answered(r, answers, i)})
     return attempts
 
 
@@ -3053,7 +3055,8 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
 
 @api_router.get("/mastery/me")
 async def my_mastery(full: bool = False, format: str = None, user: dict = Depends(require_role("student"))):
-    subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).to_list(2000)
+    # Newest first so the 2000 cap drops the oldest (least-weighted) attempts, not the most recent
+    subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     class_levels = []
     if user.get("class_level"):
         class_levels.append(user["class_level"])
@@ -3184,7 +3187,7 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     needs_attention = [
         {**w, "reason": "weak"}
         for w in weak_topics
-        if w.get("band") == "weak" or w.get("is_confirmed_weak")
+        if w.get("is_confirmed_weak")
     ] + [
         {**nt, "reason": "untested"}
         for nt in not_attempted_topics

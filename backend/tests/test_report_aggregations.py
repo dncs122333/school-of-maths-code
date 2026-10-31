@@ -784,3 +784,48 @@ class TestReportsAPI:
 
 
 
+
+
+def test_19_skipped_questions_excluded_from_answered_count_and_mastery():
+    """Skips are stored as full results (answers == -1, is_correct False). They must not count as
+    answered in question accuracy, and must not drag topic mastery down as if answered wrong."""
+    from lib.mastery import compute_topic_mastery
+
+    test_doc = {
+        "id": "test_skips",
+        "title": "Skip Test",
+        "duration_minutes": 10,
+        "questions": [{"question": "Q1", "topic": "Algebra"}, {"question": "Q2", "topic": "Geometry"}],
+    }
+    subs = [
+        # New-style results carry an explicit `answered` flag
+        {"id": "sub_1", "student_id": "s1", "score": 50, "answers": [1, -1], "results": [
+            {"q": 0, "topic": "Algebra", "is_correct": True, "answered": True},
+            {"q": 1, "topic": "Geometry", "is_correct": False, "answered": False},
+        ]},
+        # Legacy results without the flag fall back to the submission's answers list
+        {"id": "sub_2", "student_id": "s2", "score": 50, "answers": [0, 2], "results": [
+            {"q": 0, "topic": "Algebra", "is_correct": False},
+            {"q": 1, "topic": "Geometry", "is_correct": True},
+        ]},
+        {"id": "sub_3", "student_id": "s3", "score": 0, "answers": [-1, -1], "results": [
+            {"q": 0, "topic": "Algebra", "is_correct": False},
+            {"q": 1, "topic": "Geometry", "is_correct": False},
+        ]},
+    ]
+    res = compute_test_analytics(test_doc, subs, enrolled_count=3)
+    q = res["question_analysis"]
+    assert q[0]["answered_count"] == 2 and q[0]["accuracy"] == 50.0
+    assert q[1]["answered_count"] == 1 and q[1]["accuracy"] == 100.0
+
+    breakdown = {t["topic"]: t for t in res["topic_breakdown"]}
+    assert breakdown["Geometry"]["total_attempts"] == 1
+    assert breakdown["Geometry"]["accuracy"] == 100
+
+    # A topic the student only ever skipped has no attempts, so it cannot be flagged weak
+    mastery = compute_topic_mastery([
+        {"subject": "Maths", "chapter": "Lines", "topic": "Geometry", "is_correct": False,
+         "answered": False, "submission_id": f"sub_{i}"}
+        for i in range(3)
+    ], include_unattempted=False)
+    assert mastery == []
