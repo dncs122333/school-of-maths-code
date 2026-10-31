@@ -668,6 +668,26 @@ class TestReportsAPI:
         assert digest_utc["delta_avg"] == 20.0
         assert digest_utc["submissions_count"] == 1  # exactly 1 in recent window
 
+        # 4. Duplicate/identical submission dicts with unparseable created_at
+        # With list membership scan (s in recent_submissions), identical prior sub would falsely match recent!
+        identical_recent = {
+            "student_id": "s1", "score": 75,
+            "created_at": "unparseable_iso",
+            "results": [{"topic": "Number Systems", "is_correct": True}]
+        }
+        identical_prior = {
+            "student_id": "s1", "score": 75,
+            "created_at": "unparseable_iso",
+            "results": [{"topic": "Number Systems", "is_correct": True}]
+        }
+        digest_identical = compute_weekly_digest(
+            "b_weekly", batch, [identical_recent], [identical_prior], now=fixed_now
+        )
+        assert digest_identical["submissions_count"] == 1
+        assert digest_identical["recent_avg"] == 75.0
+        assert digest_identical["prior_avg"] == 75.0
+        assert digest_identical["delta_avg"] == 0.0
+
     def test_17_normalize_class_level_and_curriculum_validation(self):
         """Tests that normalize_class_level extracts digits for 'Class 9', 9 (int), 'Class 10', 10 (int),
         allowing compute_term_report to look up curriculum correctly and failing loudly for invalid classes."""

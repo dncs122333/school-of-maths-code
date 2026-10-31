@@ -287,11 +287,12 @@ def compute_weekly_digest(
     prior_cutoff = now - timedelta(days=14)
 
     # Re-bucket using UTC datetimes if created_at is present, eliminating raw string offset misbucketing
-    combined = list(recent_submissions) + list(prior_submissions)
-    if any(s.get("created_at") for s in combined):
+    # Tag provenance before merging to ensure O(n) re-bucketing and prevent duplicate dict misbucketing
+    tagged_combined = [(s, "recent") for s in recent_submissions] + [(s, "prior") for s in prior_submissions]
+    if any(s.get("created_at") for s, _ in tagged_combined):
         rec_subs = []
         pri_subs = []
-        for s in combined:
+        for s, orig_tag in tagged_combined:
             dt = parse_utc_datetime(s.get("created_at"))
             if dt is not None:
                 if dt >= recent_cutoff:
@@ -299,7 +300,7 @@ def compute_weekly_digest(
                 elif dt >= prior_cutoff:
                     pri_subs.append(s)
             else:
-                if s in recent_submissions:
+                if orig_tag == "recent":
                     rec_subs.append(s)
                 else:
                     pri_subs.append(s)
