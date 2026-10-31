@@ -306,6 +306,21 @@ export default function Reports() {
                 </div>
               )}
 
+              {/* Data Retrieval Cap Warning Banner */}
+              {testReport.is_capped && (
+                <div data-testid="report-cap-warning" className="rounded-2xl bg-[#FFF9E8] border-2 border-[#D97706] p-4 flex items-start gap-3 shadow-[2px_2px_0_#D97706]">
+                  <AlertTriangle className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-head font-bold text-sm text-[#92400E]">
+                      Data Limit Reached
+                    </div>
+                    <p className="text-xs text-[#B45309] font-medium mt-0.5">
+                      {testReport.cap_warning}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* KPI Cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
@@ -329,8 +344,16 @@ export default function Reports() {
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Completion Rate</span>
                   <div className="flex items-baseline gap-1.5">
-                    <span className="font-head text-3xl font-900 text-[#1E293B]">{testReport.completion_rate}%</span>
-                    <span className="text-xs font-mono text-[#64748B]">({testReport.submitted_count}/{testReport.enrolled_count})</span>
+                    <span className="font-head text-3xl font-900 text-[#1E293B]">
+                      {testReport.completion_rate !== null && testReport.completion_rate !== undefined
+                        ? `${testReport.completion_rate}%`
+                        : "N/A"}
+                    </span>
+                    <span className="text-xs font-mono text-[#64748B]">
+                      {testReport.enrolled_count !== null && testReport.enrolled_count !== undefined
+                        ? `(${testReport.submitted_count}/${testReport.enrolled_count})`
+                        : `(${testReport.submitted_count} submitted)`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -509,15 +532,19 @@ export default function Reports() {
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Current Week Avg</span>
                   <div className="flex items-baseline gap-2">
                     <span className="font-head text-3xl font-900 text-[#1E293B]">{weeklyDigest.recent_avg}%</span>
-                    <span className={`text-xs font-bold ${weeklyDigest.delta_avg >= 0 ? "text-[#2F8A5F]" : "text-[#E04A3C]"}`}>
-                      {weeklyDigest.delta_avg >= 0 ? `+${weeklyDigest.delta_avg}%` : `${weeklyDigest.delta_avg}%`}
-                    </span>
+                    {weeklyDigest.delta_avg !== null && weeklyDigest.delta_avg !== undefined && (
+                      <span className={`text-xs font-bold ${weeklyDigest.delta_avg >= 0 ? "text-[#2F8A5F]" : "text-[#E04A3C]"}`}>
+                        {weeklyDigest.delta_avg >= 0 ? `+${weeklyDigest.delta_avg}%` : `${weeklyDigest.delta_avg}%`}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Prior Week Avg</span>
-                  <span className="font-head text-3xl font-900 text-[#1E293B]">{weeklyDigest.prior_avg}%</span>
+                  <span className="font-head text-3xl font-900 text-[#1E293B]">
+                    {weeklyDigest.prior_avg !== null && weeklyDigest.prior_avg !== undefined ? `${weeklyDigest.prior_avg}%` : "—"}
+                  </span>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
@@ -552,12 +579,18 @@ export default function Reports() {
                     {weeklyDigest.topic_movement.map((t, idx) => (
                       <tr key={idx} className="border-b border-[#1E293B]/10 hover:bg-[#FFF9E8]/40">
                         <td className="py-3 px-3 font-bold text-[#1E293B]">{t.topic}</td>
-                        <td className="py-3 px-2 font-mono font-bold text-[#1E293B]">{t.current_accuracy}%</td>
+                        <td className="py-3 px-2 font-mono font-bold text-[#1E293B]">
+                          {t.current_accuracy !== null && t.current_accuracy !== undefined ? `${t.current_accuracy}%` : "—"}
+                        </td>
                         <td className="py-3 px-2 font-mono text-[#64748B]">{t.prior_accuracy !== null ? `${t.prior_accuracy}%` : "—"}</td>
                         <td className="py-3 px-2 font-mono font-bold">
-                          <span className={t.delta > 0 ? "text-[#2F8A5F]" : t.delta < 0 ? "text-[#E04A3C]" : "text-[#64748B]"}>
-                            {t.delta > 0 ? `+${t.delta}%` : `${t.delta}%`}
-                          </span>
+                          {t.delta !== null && t.delta !== undefined ? (
+                            <span className={t.delta > 0 ? "text-[#2F8A5F]" : t.delta < 0 ? "text-[#E04A3C]" : "text-[#64748B]"}>
+                              {t.delta > 0 ? `+${t.delta}%` : `${t.delta}%`}
+                            </span>
+                          ) : (
+                            <span className="text-[#64748B]">—</span>
+                          )}
                         </td>
                         <td className="py-3 px-3">
                           {t.trajectory === "improving" ? (
@@ -568,12 +601,16 @@ export default function Reports() {
                             <span className="inline-flex items-center gap-1 text-[#E04A3C] font-bold">
                               <TrendingDown className="h-3.5 w-3.5" /> Lagging
                             </span>
+                          ) : t.trajectory === "regressed" ? (
+                            <span className="inline-flex items-center gap-1 text-[#E04A3C] font-bold">
+                              <TrendingDown className="h-3.5 w-3.5" /> Regressed
+                            </span>
                           ) : (
                             <span className="text-[#64748B] font-bold">● Steady</span>
                           )}
                         </td>
                         <td className="py-3 px-2">
-                          <Badge className={BAND[t.band]?.badge}>{t.band}</Badge>
+                          <Badge className={BAND[t.band]?.badge}>{BAND[t.band]?.label || t.band}</Badge>
                         </td>
                       </tr>
                     ))}
@@ -691,24 +728,38 @@ export default function Reports() {
                   <TrendingDown className="h-5 w-5 text-[#FF6B5E]" /> Weakest concepts (class average)
                 </h2>
                 <div className="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {matrixData.weak_topics.map((w) => (
-                    <div key={key(w)} className="flex items-center justify-between rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] px-4 py-3">
-                      <div>
-                        <div className="text-sm font-800 text-[#1E293B]">{w.topic}</div>
-                        <div className="text-xs text-[#1E293B]/70 font-semibold">{w.chapter}</div>
-                      </div>
-                      <span className={`font-head font-900 text-lg ${
-                        w.band === "weak"
-                          ? "text-[#FF6B5E]"
-                          : w.band === "developing"
-                          ? "text-[#B4881B]"
-                          : w.band === "strong"
-                          ? "text-[#4CAF7D]"
-                          : "text-[#1E293B]"
-                      }`}>{w.class_avg}%</span>
+                  {matrixData.weak_topics.length === 0 ? (
+                    <div className="col-span-full py-4 text-center text-xs font-bold text-[#64748B]">
+                      No topic weakness identified in attempted tests yet.
                     </div>
-                  ))}
+                  ) : (
+                    matrixData.weak_topics.map((w) => (
+                      <div key={key(w)} className="flex items-center justify-between rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] px-4 py-3">
+                        <div>
+                          <div className="text-sm font-800 text-[#1E293B]">{w.topic}</div>
+                          <div className="text-xs text-[#1E293B]/70 font-semibold">{w.chapter}</div>
+                        </div>
+                        <span className={`font-head font-900 text-lg ${
+                          (w.is_confirmed_weak ?? (w.band === "weak" && (w.attempts || 0) >= 2))
+                            ? "text-[#FF6B5E]"
+                            : w.band === "developing" || w.band === "weak"
+                            ? "text-[#B4881B]"
+                            : w.band === "strong"
+                            ? "text-[#4CAF7D]"
+                            : "text-[#1E293B]"
+                        }`}>{w.class_avg}%</span>
+                      </div>
+                    ))
+                  )}
                 </div>
+                {matrixData.not_attempted_topics?.length > 0 && (
+                  <div className="mt-4 pt-3 border-t-2 border-[#1E293B]/10 flex items-center justify-between text-xs font-mono">
+                    <span className="text-[#64748B] font-bold">Untested Syllabus Topics</span>
+                    <span className="px-2 py-0.5 rounded-md bg-[#FFF9E8] border border-[#1E293B] font-bold text-[#1E293B]">
+                      {matrixData.not_attempted_topics.length} untested
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 overflow-x-auto shadow-[4px_4px_0_#1E293B]">

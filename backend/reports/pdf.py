@@ -4,8 +4,16 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any
+from xml.sax.saxutils import escape
 
 logger = logging.getLogger("reports.pdf")
+
+
+def _escape(val: Any) -> str:
+    """Escapes XML entities (&, <, >) to prevent corrupting ReportLab Paragraph markup."""
+    if val is None:
+        return ""
+    return escape(str(val))
 
 
 def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -> bytes:
@@ -83,17 +91,17 @@ def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -
 
     # Header
     story.append(Paragraph("SCHOOL OF MATHS", title_style))
-    story.append(Paragraph(f"Official Batch Assessment Report · Generated on {generated_date}", sub_style))
+    story.append(Paragraph(f"Official Batch Assessment Report · Generated on {_escape(generated_date)}", sub_style))
 
     # Meta Table
     meta_data = [
         [
-            Paragraph(f"<b>Test:</b> {report.get('title')}", meta_style),
-            Paragraph(f"<b>Class:</b> {report.get('class_level')} · {report.get('subject')}", meta_style),
+            Paragraph(f"<b>Test:</b> {_escape(report.get('title'))}", meta_style),
+            Paragraph(f"<b>Class:</b> {_escape(report.get('class_level'))} · {_escape(report.get('subject'))}", meta_style),
         ],
         [
-            Paragraph(f"<b>Chapter:</b> {report.get('chapter') or 'General'}", meta_style),
-            Paragraph(f"<b>Duration:</b> {report.get('duration_minutes')} mins", meta_style),
+            Paragraph(f"<b>Chapter:</b> {_escape(report.get('chapter') or 'General')}", meta_style),
+            Paragraph(f"<b>Duration:</b> {_escape(report.get('duration_minutes'))} mins", meta_style),
         ]
     ]
     meta_table = Table(meta_data, colWidths=[270, 270])
@@ -116,8 +124,11 @@ def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -
         [
             f"{summary.get('avg_score', 0)}% ({summary.get('score_band', '')})",
             f"{summary.get('median_score', 0)}%",
-            f"{summary.get('topper_score', 0)}%",
-            f"{report.get('completion_rate', 0)}% ({report.get('submitted_count')}/{report.get('enrolled_count')})"
+            (
+                f"{report.get('completion_rate')}% ({report.get('submitted_count')}/{report.get('enrolled_count')})"
+                if (report.get('completion_rate') is not None and report.get('enrolled_count') is not None)
+                else f"N/A ({report.get('submitted_count', 0)} submitted)"
+            )
         ]
     ]
     kpi_table = Table(kpi_data, colWidths=[135, 135, 135, 135])
@@ -169,11 +180,11 @@ def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -
             d_val = str(q.get("discrimination_index")) if q.get("discrimination_index") is not None else "—"
             q_table_data.append([
                 Paragraph(f"Q{q.get('index')}", cell_bold),
-                Paragraph(str(q.get("topic")), cell_style),
-                Paragraph(str(q.get("difficulty")), cell_style),
+                Paragraph(_escape(q.get("topic")), cell_style),
+                Paragraph(_escape(q.get("difficulty")), cell_style),
                 Paragraph(f"{q.get('accuracy')}%", cell_bold),
-                Paragraph(d_val, cell_style),
-                Paragraph(str(q.get("discrimination_rating")), cell_style),
+                Paragraph(_escape(d_val), cell_style),
+                Paragraph(_escape(q.get("discrimination_rating")), cell_style),
                 Paragraph(f"{q.get('avg_time_s')}s", cell_style)
             ])
         q_table = Table(q_table_data, colWidths=[25, 175, 45, 55, 95, 85, 60])

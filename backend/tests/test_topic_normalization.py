@@ -306,9 +306,25 @@ class TestTopicNormalization:
                 assert t.get("attempts", 0) > 0, f"Found unattempted topic row in student {s['name']}: {t}"
                 assert t.get("band") != "not_attempted", f"Found not_attempted band in student {s['name']}: {t}"
 
-        # Batch-level weak_topics retains batch-level syllabus union
+        # Batch-level weak_topics contains only attempted topics (no unattempted bloat)
         assert "weak_topics" in data
         assert isinstance(data["weak_topics"], list)
+        for w in data["weak_topics"]:
+            assert w.get("attempts", 0) > 0, f"Found unattempted topic in weak_topics: {w}"
+            assert w.get("band") != "not_attempted"
+
+        # Separate not_attempted_topics list for untested syllabus coverage
+        assert "not_attempted_topics" in data
+        assert isinstance(data["not_attempted_topics"], list)
+        for nt in data["not_attempted_topics"]:
+            assert nt.get("attempts") == 0
+            assert nt.get("band") == "not_attempted"
+
+        # needs_attention combines weak and untested with explicit reason tag
+        assert "needs_attention" in data
+        assert isinstance(data["needs_attention"], list)
+        for na in data["needs_attention"]:
+            assert na["reason"] in ("weak", "untested")
 
     def test_09_student_mastery_me_payload_bloat_prevention(self):
         """GET /mastery/me returns only attempted topics + summary counts by default,
@@ -345,7 +361,202 @@ class TestTopicNormalization:
         assert res_full.status_code == 200
         data_full = res_full.json()
         assert data_full["is_full"] is True
+
         assert len(data_full["topics"]) > len(data_default["topics"])
+
+    def test_10_subject_filter_shared_matching_semantics(self):
+        """_extract_syllabus_topics and compute_topic_mastery share the same matching semantics,
+        preventing attempt drops when batch subject is 'Mathematics' and attempt is 'Maths' (or vice-versa)."""
+        from curriculum import subjects_match, normalize_subject
+        from lib.mastery import _extract_syllabus_topics, compute_topic_mastery
+        from reports.aggregations import compute_term_report
+
+        # 1. Test shared subjects_match helper
+        assert subjects_match("Mathematics", "Maths") is True
+        assert subjects_match("Maths", "Mathematics") is True
+        assert subjects_match("math", "Maths") is True
+        assert subjects_match("Science", "Sci") is True
+        assert subjects_match("Science", "Maths") is False
+        assert normalize_subject("mathematics") == "Maths"
+        assert normalize_subject("sci") == "Science"
+
+        # 2. _extract_syllabus_topics matches both 'Mathematics' and 'Maths'
+        maths_topics = _extract_syllabus_topics(class_level="10", subject="Maths")
+        mathematics_topics = _extract_syllabus_topics(class_level="10", subject="Mathematics")
+        assert len(maths_topics) > 0
+        assert len(maths_topics) == len(mathematics_topics)
+
+        # 3. compute_topic_mastery does NOT drop attempts when attempt is 'Maths' and requested subject is 'Mathematics'
+        attempts = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 45, "created_at": "2026-10-31T10:00:00Z"},
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 40, "created_at": "2026-10-31T11:00:00Z"}
+        ]
+        mastery_with_mathematics = compute_topic_mastery(
+            attempts, class_level="10", subject="Mathematics", include_unattempted=False
+        )
+        assert len(mastery_with_mathematics) == 1
+        assert mastery_with_mathematics[0]["attempts"] == 2
+        assert mastery_with_mathematics[0]["band"] == "weak"
+
+        # 4. Term report with batch subject="Mathematics" and attempts with "Maths"
+        batch = {"id": "b_math", "class_level": "10", "subject": "Mathematics", "student_ids": ["s1"]}
+        subs = [{
+            "student_id": "s1",
+            "results": [
+                {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False},
+                {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}
+            ]
+        }]
+        rep = compute_term_report("b_math", batch, subs, {"s1": "Aarav"}, subject="Mathematics")
+        st_rep = rep["student_summaries"][0]
+        assert st_rep["weak_topics_count"] == 1
+        assert rep["covered_topics_count"] > 0
+
+    def test_11_centralized_confirmed_weak_predicate(self):
+        """Validates that is_confirmed_weak(t) requires band == 'weak' AND attempts >= 2,
+        ensuring compute_term_report, teacher_mastery, and compute_unattempted_summary
+        yield identical numbers for students with 1-attempt vs >=2-attempt topics."""
+        from lib.mastery import is_confirmed_weak, is_confirmed_strong, compute_topic_mastery, compute_unattempted_summary
+        from reports.aggregations import compute_term_report
+
+        # 1. Pure predicate unit assertions
+        assert is_confirmed_weak({"band": "weak", "attempts": 1}) is False
+        assert is_confirmed_weak({"band": "weak", "attempts": 2}) is True
+        assert is_confirmed_weak({"band": "weak", "attempts": 5}) is True
+        assert is_confirmed_weak({"band": "developing", "attempts": 4}) is False
+        assert is_confirmed_weak({"band": "strong", "attempts": 3}) is False
+        assert is_confirmed_weak("weak", attempts=1) is False
+        assert is_confirmed_weak("weak", attempts=2) is True
+        assert is_confirmed_weak("weak", attempts=0) is False
+        assert is_confirmed_strong({"band": "strong", "attempts": 1}) is False
+        assert is_confirmed_strong({"band": "strong", "attempts": 2}) is True
+
+        # 2. compute_topic_mastery marks is_confirmed_weak appropriately
+        single_attempt = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 30, "created_at": "2026-10-31T10:00:00Z"}
+        ]
+        mastery_single = compute_topic_mastery(single_attempt, class_level="10", include_unattempted=False)
+        assert len(mastery_single) == 1
+        assert mastery_single[0]["band"] == "weak"
+        assert mastery_single[0]["attempts"] == 1
+        assert mastery_single[0]["is_confirmed_weak"] is False
+
+        two_attempts = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 30, "created_at": "2026-10-31T10:00:00Z"},
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 35, "created_at": "2026-10-31T10:05:00Z"}
+        ]
+        mastery_two = compute_topic_mastery(two_attempts, class_level="10", include_unattempted=False)
+        assert len(mastery_two) == 1
+        assert mastery_two[0]["band"] == "weak"
+        assert mastery_two[0]["attempts"] == 2
+        assert mastery_two[0]["is_confirmed_weak"] is True
+
+        # 3. compute_unattempted_summary uses is_confirmed_weak
+        summary_single = compute_unattempted_summary(mastery_single, class_level="10")
+        assert summary_single["summary"]["weak_count"] == 0
+        assert summary_single["summary"]["developing_count"] == 1
+
+        summary_two = compute_unattempted_summary(mastery_two, class_level="10")
+        assert summary_two["summary"]["weak_count"] == 1
+        assert summary_two["summary"]["developing_count"] == 0
+
+        # 4. compute_term_report matches compute_unattempted_summary
+        batch = {"id": "b_confirm", "class_level": "10", "subject": "Maths", "student_ids": ["s_single", "s_two"]}
+        subs = [
+            {
+                "student_id": "s_single",
+                "results": [{"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}]
+            },
+            {
+                "student_id": "s_two",
+                "results": [
+                    {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False},
+                    {"subject": "Maths", "topic": "Fundamental Theorem of Arithmetic", "is_correct": False}
+                ]
+            }
+        ]
+        rep = compute_term_report("b_confirm", batch, subs, {"s_single": "Single", "s_two": "Two"}, subject="Maths")
+        st_map = {s["student_id"]: s for s in rep["student_summaries"]}
+        assert st_map["s_single"]["weak_topics_count"] == 0
+        assert st_map["s_two"]["weak_topics_count"] == 1
+
+    def test_12_batch_weak_topic_class_avg_weighted_by_raw_attempts(self):
+        """Validates that pooling raw attempts across students and running compute_topic_mastery
+        prevents a student with 1 attempt from distorting a student with 30 attempts."""
+        from lib.mastery import compute_topic_mastery
+
+        # Student A: 1 attempt, incorrect (score = 0)
+        s_a_attempts = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": False, "time_s": 25, "created_at": "2026-10-31T10:00:00Z"}
+        ]
+        # Student B: 30 attempts, 29 correct (score ~97%)
+        s_b_attempts = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": (i < 29), "time_s": 20, "created_at": "2026-10-31T10:05:00Z"}
+            for i in range(30)
+        ]
+
+        # Prior unweighted average of rounded student scores gave: (0 + 97) / 2 = 48% (weak band)
+        # Pooled batch mastery:
+        pooled = s_a_attempts + s_b_attempts
+        batch_mastery = compute_topic_mastery(pooled, class_level=None, subject="Maths", include_unattempted=False)
+        assert len(batch_mastery) == 1
+        bm = batch_mastery[0]
+
+        # 29 correct out of 31 total attempts = 93.5% -> rounds to 94%
+        assert bm["attempts"] == 31
+        assert bm["score"] >= 90
+        assert bm["band"] == "strong"
+        assert bm["is_confirmed_weak"] is False
+
+    def test_13_ingestion_quality_surfaces_strong_and_developing_unclassified_topics(self):
+        """Validates that ingestion-quality scanning checks the full topic set across all batch attempts
+        so that unclassified topics that are strong (>=75%) or developing (55-75%) reliably surface."""
+        from lib.mastery import compute_topic_mastery, get_ingestion_quality_summary
+
+        # Unclassified topic with strong performance (100% accuracy)
+        attempts_strong = [
+            {"subject": "Unknown", "topic": "NonStandard Topic Alpha", "is_correct": True, "attempts": 1},
+            {"subject": "Unknown", "topic": "NonStandard Topic Alpha", "is_correct": True, "attempts": 1}
+        ]
+        # Unclassified topic with developing performance (60% accuracy)
+        attempts_developing = [
+            {"subject": "Unknown", "topic": "NonStandard Topic Beta", "is_correct": True, "attempts": 1},
+            {"subject": "Unknown", "topic": "NonStandard Topic Beta", "is_correct": False, "attempts": 1}
+        ]
+        # Standard maths topic
+        attempts_maths = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic", "is_correct": True}
+        ]
+
+        # 1. Prior behavior: passing weak_topics filtered by subject='Maths' dropped all Unknown topics
+        old_weak_topics = compute_topic_mastery(attempts_strong + attempts_developing + attempts_maths,
+                                                class_level=None, subject="Maths", include_unattempted=False)
+        old_iq = get_ingestion_quality_summary(old_weak_topics)
+        assert old_iq["has_unknown"] is False
+        assert old_iq["unknown_topics_count"] == 0
+
+        # 2. Fixed behavior: passing full_topics (unfiltered batch mastery) captures strong & developing unclassified topics
+        full_topics = compute_topic_mastery(attempts_strong + attempts_developing + attempts_maths,
+                                            class_level=None, include_unattempted=False)
+        iq = get_ingestion_quality_summary(full_topics)
+        assert iq["has_unknown"] is True
+        assert iq["unknown_topics_count"] == 2
+        assert iq["unknown_attempts_count"] == 4
+        assert iq["status"] == "warning"
+        topic_names = {t["topic"] for t in iq["topics"]}
+        assert "NonStandard Topic Alpha" in topic_names
+        assert "NonStandard Topic Beta" in topic_names
+
+
+
+
 
 
 

@@ -78,10 +78,11 @@ export default function Mastery() {
   const activeTopicList = showFullRadar ? (fullTopics || attemptedTopics || []) : (attemptedTopics || []);
   const displayedTopics = activeTopicList.filter((t) => {
     if (filterBand === "all") return true;
+    if (filterBand === "weak") return t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2);
     return t.band === filterBand;
   });
 
-  const weak = summary?.weak_count ?? (activeTopicList.filter((t) => t.band === "weak").length);
+  const weak = summary?.weak_count ?? (activeTopicList.filter((t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2)).length);
   const strong = summary?.strong_count ?? (activeTopicList.filter((t) => t.band === "strong").length);
   const untested = summary?.not_attempted_count ?? (activeTopicList.filter((t) => t.band === "not_attempted").length);
   const totalSyllabus = summary?.total_topics ?? activeTopicList.length;
@@ -132,7 +133,7 @@ export default function Mastery() {
         <div className="flex items-center gap-2 overflow-x-auto py-1">
           {[
             { id: "all", label: `All (${activeTopicList.length})` },
-            { id: "weak", label: `Weak (${activeTopicList.filter((t) => t.band === "weak").length})` },
+            { id: "weak", label: `Weak (${summary?.weak_count ?? activeTopicList.filter((t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2)).length})` },
             { id: "developing", label: `Developing (${activeTopicList.filter((t) => t.band === "developing").length})` },
             { id: "strong", label: `Strong (${activeTopicList.filter((t) => t.band === "strong").length})` },
             ...(showFullRadar ? [{ id: "not_attempted", label: `Untested (${activeTopicList.filter((t) => t.band === "not_attempted").length})` }] : []),

@@ -4,11 +4,11 @@ import statistics
 from typing import Dict, List, Optional, Any
 
 try:
-    from lib.mastery import round_half_up, band, compute_topic_mastery
-    from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title
+    from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong
+    from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject
 except ImportError:
-    from ..lib.mastery import round_half_up, band, compute_topic_mastery
-    from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title
+    from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong
+    from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject
 
 
 def compute_test_analytics(
@@ -25,14 +25,14 @@ def compute_test_analytics(
     - Anomaly detection (tab switches, rushing)
     """
     total_enrolled = enrolled_count
-    if total_enrolled is None:
-        if batch and "student_ids" in batch:
-            total_enrolled = len(batch["student_ids"])
-        else:
-            total_enrolled = len(submissions)
+    if total_enrolled is None and batch and batch.get("student_ids"):
+        total_enrolled = len(batch["student_ids"])
 
     submitted_count = len(submissions)
-    completion_rate = round_half_up((submitted_count / total_enrolled * 100), 1) if total_enrolled else 0.0
+    if total_enrolled is not None and total_enrolled > 0:
+        completion_rate = round_half_up((submitted_count / total_enrolled * 100), 1)
+    else:
+        completion_rate = None
 
     scores = [s.get("score", 0) for s in submissions]
     avg_score = round_half_up(sum(scores) / len(scores), 1) if scores else 0.0
@@ -255,6 +255,19 @@ def compute_test_analytics(
     }
 
 
+def parse_utc_datetime(dt_val: Any) -> Optional[datetime]:
+    """Parses any ISO-8601 string (with Z, +05:30, +00:00, or naive) into a timezone-aware UTC datetime."""
+    if not dt_val:
+        return None
+    if isinstance(dt_val, datetime):
+        return dt_val.astimezone(timezone.utc) if dt_val.tzinfo else dt_val.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(dt_val).strip())
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
 def compute_weekly_digest(
     batch_id: str,
     batch: Dict[str, Any],
@@ -262,8 +275,37 @@ def compute_weekly_digest(
     prior_submissions: List[Dict[str, Any]],
     now: Optional[datetime] = None
 ) -> Dict[str, Any]:
-    """Computes a 7-day rolling batch digest comparing the past 7 days against prior 7 days."""
+    """Computes a 7-day rolling batch digest comparing the past 7 days against prior 7 days.
+    Dates are strictly compared in UTC to prevent mixed ISO offset misbucketing.
+    """
     now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now = now.astimezone(timezone.utc)
+
+    recent_cutoff = now - timedelta(days=7)
+    prior_cutoff = now - timedelta(days=14)
+
+    # Re-bucket using UTC datetimes if created_at is present, eliminating raw string offset misbucketing
+    combined = list(recent_submissions) + list(prior_submissions)
+    if any(s.get("created_at") for s in combined):
+        rec_subs = []
+        pri_subs = []
+        for s in combined:
+            dt = parse_utc_datetime(s.get("created_at"))
+            if dt is not None:
+                if dt >= recent_cutoff:
+                    rec_subs.append(s)
+                elif dt >= prior_cutoff:
+                    pri_subs.append(s)
+            else:
+                if s in recent_submissions:
+                    rec_subs.append(s)
+                else:
+                    pri_subs.append(s)
+        recent_submissions = rec_subs
+        prior_submissions = pri_subs
+
     student_ids = batch.get("student_ids") or []
     enrolled_count = len(student_ids)
 
@@ -271,8 +313,9 @@ def compute_weekly_digest(
     prior_scores = [s.get("score", 0) for s in prior_submissions]
 
     recent_avg = round_half_up(sum(recent_scores) / len(recent_scores), 1) if recent_scores else 0.0
-    prior_avg = round_half_up(sum(prior_scores) / len(prior_scores), 1) if prior_scores else 0.0
-    delta_avg = round_half_up(recent_avg - prior_avg, 1)
+    prior_avg = round_half_up(sum(prior_scores) / len(prior_scores), 1) if prior_scores else None
+    # Report delta_avg: None when prior is empty to prevent phantom improvement
+    delta_avg = round_half_up(recent_avg - prior_avg, 1) if prior_scores else None
 
     active_students = len({s.get("student_id") for s in recent_submissions if s.get("student_id")})
     active_rate = round_half_up(active_students / enrolled_count * 100, 1) if enrolled_count else 0.0
@@ -302,6 +345,7 @@ def compute_weekly_digest(
     pri_t = _t_accuracies(prior_submissions)
 
     topic_movement = []
+    # 1. Topics attempted in recent window
     for k, v in rec_t.items():
         prev_acc = pri_t.get(k, {}).get("acc")
         cur_acc = v["acc"]
@@ -309,7 +353,7 @@ def compute_weekly_digest(
             diff = cur_acc - prev_acc
             trajectory = "improving" if diff >= 5 else "slipping" if diff <= -5 else "steady"
         else:
-            diff = 0
+            diff = None
             trajectory = "new"
 
         topic_movement.append({
@@ -321,8 +365,23 @@ def compute_weekly_digest(
             "band": band(cur_acc, attempts=v["total"])
         })
 
-    # Sort topics with slipping first, then lowest accuracy
-    topic_movement.sort(key=lambda t: (0 if t["trajectory"] == "slipping" else 1, t["current_accuracy"]))
+    # 2. Union prior-only topics with trajectory 'regressed' so neglected/abandoned topics are visible
+    for k, v in pri_t.items():
+        if k not in rec_t:
+            topic_movement.append({
+                "topic": v["topic"],
+                "current_accuracy": None,
+                "prior_accuracy": v["acc"],
+                "delta": None,
+                "trajectory": "regressed",
+                "band": "not_attempted"
+            })
+
+    # Sort topics with regressed and slipping first, then lowest accuracy
+    topic_movement.sort(key=lambda t: (
+        0 if t["trajectory"] in ("regressed", "slipping") else 1,
+        t["current_accuracy"] if t["current_accuracy"] is not None else (t["prior_accuracy"] or 0)
+    ))
 
     return {
         "batch_id": batch_id,
@@ -354,6 +413,7 @@ def compute_term_report(
     cl = str(batch.get("class_level", "9"))
 
     # Syllabus coverage: union all subjects in CURRICULUM[cl], or filter to target subject
+    # Key on (subject, chapter, topic) tuple so identical topic names across different chapters/subjects do not collide
     target_subject = (subject or batch.get("subject") or "").strip()
     class_curriculum = CURRICULUM.get(cl, {})
 
@@ -361,45 +421,124 @@ def compute_term_report(
     if target_subject and target_subject.lower() not in ("all", "both"):
         matched = False
         for s_name, chaps in class_curriculum.items():
-            if target_subject.lower() in s_name.lower() or s_name.lower() in target_subject.lower():
+            if subjects_match(s_name, target_subject):
                 matched = True
-                for topics in chaps.values():
+                norm_s = normalize_key(normalize_subject(s_name))
+                for c_name, topics in chaps.items():
+                    norm_c = normalize_key(c_name)
                     for t in topics:
-                        all_curriculum_topics.add(normalize_key(t))
+                        all_curriculum_topics.add((norm_s, norm_c, normalize_key(t)))
         if not matched:
-            for chaps in class_curriculum.values():
-                for topics in chaps.values():
+            for s_name, chaps in class_curriculum.items():
+                norm_s = normalize_key(normalize_subject(s_name))
+                for c_name, topics in chaps.items():
+                    norm_c = normalize_key(c_name)
                     for t in topics:
-                        all_curriculum_topics.add(normalize_key(t))
+                        all_curriculum_topics.add((norm_s, norm_c, normalize_key(t)))
     else:
-        for chaps in class_curriculum.values():
-            for topics in chaps.values():
+        for s_name, chaps in class_curriculum.items():
+            norm_s = normalize_key(normalize_subject(s_name))
+            for c_name, topics in chaps.items():
+                norm_c = normalize_key(c_name)
                 for t in topics:
-                    all_curriculum_topics.add(normalize_key(t))
+                    all_curriculum_topics.add((norm_s, norm_c, normalize_key(t)))
 
-    tested_topics = set()
+    covered_topics = set()
     for s in all_submissions:
-        for r in (s.get("results") or []):
-            top = r.get("topic")
-            if top:
-                tested_topics.add(normalize_key(top))
+        sub_subj = s.get("subject") or batch.get("subject") or target_subject or ""
+        sub_chap = s.get("chapter") or ""
+        results = s.get("results") or []
+        if not results and s.get("topic"):
+            results = [{"topic": s.get("topic"), "chapter": sub_chap, "subject": sub_subj}]
 
-    covered_topics = tested_topics & all_curriculum_topics
+        for r in results:
+            subj_raw = r.get("subject") or sub_subj
+            chap_raw = r.get("chapter") or sub_chap
+
+            r_subj = normalize_key(normalize_subject(subj_raw)) if subj_raw else ""
+            r_chap = normalize_key(chap_raw) if chap_raw else ""
+
+            candidate_tops = []
+            if r.get("topics") and isinstance(r.get("topics"), list):
+                candidate_tops.extend(r.get("topics"))
+            if r.get("topic") and r.get("topic") not in candidate_tops:
+                candidate_tops.append(r.get("topic"))
+
+            for top_raw in candidate_tops:
+                r_top = normalize_key(top_raw)
+                if not r_top:
+                    continue
+
+                # 1. Exact 3-tuple match: (subject, chapter, topic)
+                if r_subj and r_chap and (r_subj, r_chap, r_top) in all_curriculum_topics:
+                    covered_topics.add((r_subj, r_chap, r_top))
+                    continue
+
+                # 2. Known chapter: match strictly within chapter to prevent cross-chapter topic collisions
+                matched_chap = False
+                if r_chap:
+                    # Exact chapter + exact topic
+                    for (cs, cc, ct) in all_curriculum_topics:
+                        if (not r_subj or cs == r_subj or subjects_match(cs, r_subj)) and cc == r_chap:
+                            if ct == r_top:
+                                covered_topics.add((cs, cc, ct))
+                                matched_chap = True
+                                break
+                    if matched_chap:
+                        continue
+
+                    # Exact chapter + substring topic match
+                    for (cs, cc, ct) in all_curriculum_topics:
+                        if (not r_subj or cs == r_subj or subjects_match(cs, r_subj)) and cc == r_chap:
+                            if len(r_top) >= 4 and (r_top in ct or ct in r_top):
+                                covered_topics.add((cs, cc, ct))
+                                matched_chap = True
+                                break
+                    if matched_chap:
+                        continue
+
+                    # Fuzzy chapter name match (e.g. "Chapter 1: Real Numbers" vs "Real Numbers")
+                    for (cs, cc, ct) in all_curriculum_topics:
+                        if (not r_subj or cs == r_subj or subjects_match(cs, r_subj)) and (
+                            len(r_chap) >= 4 and (r_chap in cc or cc in r_chap)
+                        ):
+                            if ct == r_top or (len(r_top) >= 4 and (r_top in ct or ct in r_top)):
+                                covered_topics.add((cs, cc, ct))
+                                matched_chap = True
+                                break
+                    if matched_chap:
+                        continue
+
+                # 3. Chapter unknown: match by topic across curriculum in matching subject
+                matched_any = False
+                for (cs, cc, ct) in all_curriculum_topics:
+                    if not r_subj or cs == r_subj or subjects_match(cs, r_subj):
+                        if ct == r_top:
+                            covered_topics.add((cs, cc, ct))
+                            matched_any = True
+                            break
+                if matched_any:
+                    continue
+
+                for (cs, cc, ct) in all_curriculum_topics:
+                    if not r_subj or cs == r_subj or subjects_match(cs, r_subj):
+                        if len(r_top) >= 4 and (r_top in ct or ct in r_top):
+                            covered_topics.add((cs, cc, ct))
+                            break
+
     syllabus_coverage_pct = (
         round_half_up(len(covered_topics) / len(all_curriculum_topics) * 100, 1)
         if all_curriculum_topics else 0.0
     )
 
-    # Student summary ranking
+    # Student summary ranking: strictly only include currently enrolled students (drop sids not in enrolled_ids)
+    enrolled_set = set(enrolled_ids)
     per_student_subs: Dict[str, List[Dict[str, Any]]] = {sid: [] for sid in enrolled_ids}
     for s in all_submissions:
         sid = s.get("student_id")
-        if not sid:
+        if not sid or sid not in enrolled_set:
             continue
-        if sid in per_student_subs:
-            per_student_subs[sid].append(s)
-        else:
-            per_student_subs[sid] = [s]
+        per_student_subs[sid].append(s)
 
     student_summaries = []
     for sid, s_list in per_student_subs.items():
@@ -438,8 +577,8 @@ def compute_term_report(
         )
 
         # Weak topics require at least 2 attempts to confirm weakness (prevents 1-question distortion)
-        weak_count = sum(1 for t in active_mastery if t.get("band") == "weak" and t.get("attempts", 0) >= 2)
-        strong_count = sum(1 for t in active_mastery if t.get("band") == "strong" and t.get("attempts", 0) >= 2)
+        weak_count = sum(1 for t in active_mastery if is_confirmed_weak(t))
+        strong_count = sum(1 for t in active_mastery if is_confirmed_strong(t))
 
         student_summaries.append({
             "student_id": sid,

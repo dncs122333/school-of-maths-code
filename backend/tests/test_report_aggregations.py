@@ -363,4 +363,298 @@ class TestReportsAPI:
         assert st_summary2["avg_score"] == 96.2
         assert st_summary2["weak_topics_count"] == 1
 
+    def test_12_completion_rate_none_when_no_roster_and_paging_caps(self):
+        """When no roster exists (batch is None/empty), completion_rate is None (N/A)
+        instead of defaulting to a fake 100%. Paging cap hits return warning."""
+        from reports.aggregations import compute_test_analytics
+        import asyncio
+
+        test_doc = {"id": "t_unassigned", "title": "Diagnostic Test", "questions": [{"question": "Q1"}]}
+        subs = [{"student_id": "s1", "score": 80, "results": [{"is_correct": True}]}]
+
+        # 1. No batch and no enrolled_count -> completion_rate is None
+        res_no_roster = compute_test_analytics(test_doc, subs, batch=None, enrolled_count=None)
+        assert res_no_roster["enrolled_count"] is None
+        assert res_no_roster["completion_rate"] is None
+
+        # 2. Batch with empty student_ids -> completion_rate is None
+        res_empty_batch = compute_test_analytics(test_doc, subs, batch={"student_ids": []}, enrolled_count=None)
+        assert res_empty_batch["enrolled_count"] is None
+        assert res_empty_batch["completion_rate"] is None
+
+        # 3. Known roster with 2 students -> completion_rate is 50.0%
+        res_known_roster = compute_test_analytics(test_doc, subs, batch={"student_ids": ["s1", "s2"]}, enrolled_count=2)
+        assert res_known_roster["enrolled_count"] == 2
+        assert res_known_roster["completion_rate"] == 50.0
+
+        # 4. Test fetch_cursor_paged paging and cap warning
+        from reports.router import fetch_cursor_paged
+
+        class MockCursor:
+            def __init__(self, count):
+                self.count = count
+            def __aiter__(self):
+                self.i = 0
+                return self
+            async def __anext__(self):
+                if self.i < self.count:
+                    self.i += 1
+                    return {"id": self.i}
+                raise StopAsyncIteration
+
+        loop = asyncio.get_event_loop()
+        # Cap not reached
+        items, warn = loop.run_until_complete(fetch_cursor_paged(MockCursor(5), limit=10, context="subs"))
+        assert len(items) == 5
+        assert warn is None
+
+        # Cap reached -> returns warning
+        items_capped, warn_capped = loop.run_until_complete(fetch_cursor_paged(MockCursor(15), limit=10, context="subs"))
+        assert len(items_capped) == 10
+        assert warn_capped is not None
+        assert "10" in warn_capped
+
+    def test_13_pdf_generation_escapes_xml_special_characters(self):
+        """ReportLab Paragraph parses XML markup; unescaped &, <, > in test titles or topic names
+        would crash with XMLSyntaxError or corrupt the PDF. Validates that _escape properly handles them."""
+        from reports.pdf import render_test_report_pdf
+
+        malicious_report = {
+            "title": "Maths & Science: Class 10 <Term 1> Test \"Trigonometry & More\"",
+            "class_level": "10",
+            "subject": "Maths & Science",
+            "chapter": "Chapter 1: Real Numbers <Advanced>",
+            "duration_minutes": 45,
+            "completion_rate": 85.5,
+            "submitted_count": 18,
+            "enrolled_count": 21,
+            "summary": {
+                "avg_score": 72.4,
+                "score_band": "developing",
+                "median_score": 75.0,
+                "topper_score": 100,
+                "lowest_score": 30
+            },
+            "score_distribution": {"0-39": 2, "40-54": 3, "55-74": 5, "75-89": 5, "90-100": 3},
+            "question_analysis": [
+                {
+                    "index": 1,
+                    "topic": "Sets & Relations <Subset>",
+                    "difficulty": "medium & hard",
+                    "accuracy": 65.0,
+                    "discrimination_index": 0.45,
+                    "discrimination_rating": "Good (D >= 0.3)",
+                    "avg_time_s": 42.1
+                }
+            ]
+        }
+
+        pdf_bytes = render_test_report_pdf(malicious_report)
+        assert isinstance(pdf_bytes, bytes)
+        assert len(pdf_bytes) > 1000
+        assert pdf_bytes.startswith(b"%PDF-")
+
+    def test_14_syllabus_coverage_keyed_by_subject_chapter_topic(self, monkeypatch):
+        """Identical topic names across different chapters/subjects do not collide in all_curriculum_topics,
+        and testing one chapter's topic does not falsely mark another chapter's identically named topic as covered."""
+        import reports.aggregations
+        import curriculum
+
+        mock_curriculum = {
+            "mock_cl": {
+                "Maths": {
+                    "Real Numbers": ["Introduction", "Euclidean Algorithm"],
+                    "Polynomials": ["Introduction", "Zeroes of Polynomials"]
+                },
+                "Science": {
+                    "Chemical Reactions": ["Introduction", "Balancing Equations"]
+                }
+            }
+        }
+        monkeypatch.setattr(reports.aggregations, "CURRICULUM", mock_curriculum)
+        monkeypatch.setattr(curriculum, "CURRICULUM", mock_curriculum)
+        compute_term_report = reports.aggregations.compute_term_report
+
+        batch_maths = {"id": "b_mock", "class_level": "mock_cl", "subject": "Maths", "student_ids": ["s1"]}
+        student_map = {"s1": "Aarav"}
+
+        # 1. Total curriculum topics for Maths must be 4 (not 3 due to 'Introduction' collision)
+        rep_init = compute_term_report("b_mock", batch_maths, [], student_map, subject="Maths")
+        assert rep_init["total_curriculum_topics"] == 4
+        assert rep_init["covered_topics_count"] == 0
+        assert rep_init["syllabus_coverage_pct"] == 0.0
+
+        # 2. Student tests 'Introduction' in 'Real Numbers'
+        sub_real_num = {
+            "student_id": "s1",
+            "results": [
+                {"subject": "Maths", "chapter": "Real Numbers", "topic": "Introduction", "is_correct": True}
+            ]
+        }
+        rep_step1 = compute_term_report("b_mock", batch_maths, [sub_real_num], student_map, subject="Maths")
+        # Exactly 1 of 4 topics is covered (25.0%), NOT 1 of 3 (33.3%) and NOT both Introductions
+        assert rep_step1["total_curriculum_topics"] == 4
+        assert rep_step1["covered_topics_count"] == 1
+        assert rep_step1["syllabus_coverage_pct"] == 25.0
+
+        # 3. Student tests 'Introduction' in 'Polynomials' as well
+        sub_poly = {
+            "student_id": "s1",
+            "results": [
+                {"subject": "Maths", "chapter": "Polynomials", "topic": "Introduction", "is_correct": True}
+            ]
+        }
+        rep_step2 = compute_term_report("b_mock", batch_maths, [sub_real_num, sub_poly], student_map, subject="Maths")
+        # Exactly 2 of 4 topics covered (50.0%)
+        assert rep_step2["total_curriculum_topics"] == 4
+        assert rep_step2["covered_topics_count"] == 2
+        assert rep_step2["syllabus_coverage_pct"] == 50.0
+
+        # 4. Under union of all subjects, Science also has an 'Introduction' (total 6 topics across 3 chapters)
+        rep_all = compute_term_report("b_mock", {"id": "b_mock", "class_level": "mock_cl", "student_ids": ["s1"]},
+                                      [sub_real_num, sub_poly], student_map)
+        assert rep_all["total_curriculum_topics"] == 6
+        assert rep_all["covered_topics_count"] == 2
+        assert rep_all["syllabus_coverage_pct"] == 33.3  # 2/6 * 100 = 33.333%
+
+    def test_15_removed_students_dropped_from_term_rank_matrix(self):
+        """Students removed from the batch (or non-enrolled sids) with historical submissions
+        must be dropped from per_student_subs and not appear in student_summaries (term rank matrix)."""
+        from reports.aggregations import compute_term_report
+
+        # Batch currently only has 's_active'; 's_removed' was previously enrolled and has submissions
+        batch = {
+            "id": "b_active_only",
+            "class_level": "9",
+            "subject": "Maths",
+            "student_ids": ["s_active"]
+        }
+        submissions = [
+            {
+                "student_id": "s_active",
+                "score": 90,
+                "results": [{"subject": "Maths", "topic": "Number Systems", "is_correct": True}]
+            },
+            {
+                "student_id": "s_removed",
+                "score": 50,
+                "results": [{"subject": "Maths", "topic": "Number Systems", "is_correct": False}]
+            },
+            {
+                "student_id": "s_other_batch",
+                "score": 70,
+                "results": [{"subject": "Maths", "topic": "Number Systems", "is_correct": True}]
+            }
+        ]
+        student_map = {
+            "s_active": "Enrolled Student",
+            "s_removed": "Removed Student",
+            "s_other_batch": "Other Student"
+        }
+
+        rep = compute_term_report("b_active_only", batch, submissions, student_map, subject="Maths")
+        summaries = rep["student_summaries"]
+
+        # Only the currently enrolled student is present
+        assert len(summaries) == 1
+        assert summaries[0]["student_id"] == "s_active"
+        assert summaries[0]["name"] == "Enrolled Student"
+        assert summaries[0]["rank"] == 1
+        # Neither removed nor foreign students appear in the rank matrix
+        summary_sids = {s["student_id"] for s in summaries}
+        assert "s_removed" not in summary_sids
+        assert "s_other_batch" not in summary_sids
+
+    def test_16_weekly_digest_edge_cases_empty_prior_regressed_topics_and_utc_dates(self):
+        """Validates:
+        1. When prior window is empty, delta_avg is None (not a phantom +avg improvement) and prior_avg is None.
+        2. Topics attempted only in prior window appear with trajectory 'regressed' (not vanished).
+        3. Mixed ISO offsets (Z vs +05:30) are compared in true UTC to prevent misbucketing.
+        """
+        from reports.aggregations import compute_weekly_digest
+        from datetime import datetime, timezone
+
+        batch = {"id": "b_weekly", "name": "Class 9 Weekly", "class_level": "9", "student_ids": ["s1", "s2"]}
+        fixed_now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
+        # 7 days ago: 2026-10-24 12:00:00 UTC
+        # 14 days ago: 2026-10-17 12:00:00 UTC
+
+        # 1. Empty prior window: delta_avg must be None, prior_avg must be None
+        recent_only_subs = [
+            {"student_id": "s1", "score": 85, "results": [{"topic": "Polynomials", "is_correct": True}]}
+        ]
+        digest_no_prior = compute_weekly_digest("b_weekly", batch, recent_only_subs, [], now=fixed_now)
+        assert digest_no_prior["recent_avg"] == 85.0
+        assert digest_no_prior["prior_avg"] is None
+        assert digest_no_prior["delta_avg"] is None  # NOT 85.0 (which was the phantom improvement bug)
+
+        # 2. Prior-only topics unioned with trajectory 'regressed'
+        prior_subs = [
+            {
+                "student_id": "s1",
+                "score": 70,
+                "results": [
+                    {"topic": "Real Numbers", "is_correct": True},
+                    {"topic": "Triangles", "is_correct": True}
+                ]
+            }
+        ]
+        recent_subs = [
+            {
+                "student_id": "s1",
+                "score": 90,
+                "results": [
+                    {"topic": "Real Numbers", "is_correct": True},
+                    {"topic": "Coordinate Geometry", "is_correct": True}
+                ]
+            }
+        ]
+        # 'Triangles' was only in prior; 'Real Numbers' in both; 'Coordinate Geometry' only in recent
+        digest_movement = compute_weekly_digest("b_weekly", batch, recent_subs, prior_subs, now=fixed_now)
+        assert digest_movement["delta_avg"] == 20.0  # 90.0 - 70.0
+        m_map = {t["topic"]: t for t in digest_movement["topic_movement"]}
+
+        # 'Triangles' must not vanish; it must be 'regressed'
+        assert "Triangles" in m_map
+        triangles = m_map["Triangles"]
+        assert triangles["trajectory"] == "regressed"
+        assert triangles["current_accuracy"] is None
+        assert triangles["prior_accuracy"] == 100.0
+        assert triangles["delta"] is None
+        assert triangles["band"] == "not_attempted"
+
+        # 'Real Numbers' was in both (improving from 100 to 100 -> steady)
+        assert "Real Numbers" in m_map
+        assert m_map["Real Numbers"]["trajectory"] == "steady"
+
+        # 'Coordinate Geometry' was new in recent
+        assert "Coordinate Geometry" in m_map
+        assert m_map["Coordinate Geometry"]["trajectory"] == "new"
+
+        # 3. Mixed ISO offsets bucketing in UTC
+        # Cutoff is 2026-10-24 12:00:00 UTC
+        # Sub A: 2026-10-24T16:00:00+05:30 -> 10:30 UTC (PRIOR window!)
+        # Sub B: 2026-10-24T18:00:00+05:30 -> 12:30 UTC (RECENT window!)
+        # With raw string comparison, "16:00:00+05:30" >= "12:00:00+00:00" would falsely put Sub A in recent
+        sub_prior_ist = {
+            "student_id": "s1", "score": 60,
+            "created_at": "2026-10-24T16:00:00+05:30",
+            "results": [{"topic": "Number Systems", "is_correct": True}]
+        }
+        sub_recent_ist = {
+            "student_id": "s1", "score": 80,
+            "created_at": "2026-10-24T18:00:00+05:30",
+            "results": [{"topic": "Number Systems", "is_correct": True}]
+        }
+        # Pass both in recent list to test UTC re-bucketing
+        digest_utc = compute_weekly_digest("b_weekly", batch, [sub_prior_ist, sub_recent_ist], [], now=fixed_now)
+        assert digest_utc["recent_avg"] == 80.0
+        assert digest_utc["prior_avg"] == 60.0
+        assert digest_utc["delta_avg"] == 20.0
+        assert digest_utc["submissions_count"] == 1  # exactly 1 in recent window
+
+
+
+
+
 

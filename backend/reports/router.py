@@ -1,4 +1,4 @@
-"""FastAPI endpoints for reports engine (Per-test batch, weekly digest, term overview)."""
+import logging
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -9,15 +9,29 @@ from bson import ObjectId
 try:
     from db import db
     from auth import require_role, get_current_user
-    from reports.aggregations import compute_test_analytics, compute_weekly_digest, compute_term_report
+    from reports.aggregations import compute_test_analytics, compute_weekly_digest, compute_term_report, parse_utc_datetime
     from reports.pdf import render_test_report_pdf
 except ImportError:
     from ..db import db
     from ..auth import require_role, get_current_user
-    from .aggregations import compute_test_analytics, compute_weekly_digest, compute_term_report
+    from .aggregations import compute_test_analytics, compute_weekly_digest, compute_term_report, parse_utc_datetime
     from .pdf import render_test_report_pdf
 
+logger = logging.getLogger("reports")
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+async def fetch_cursor_paged(cursor, limit: int = 5000, context: str = "items") -> tuple:
+    """Pages through a cursor up to limit, warning if the retrieval cap is reached."""
+    items = []
+    warning = None
+    async for doc in cursor:
+        items.append(doc)
+        if len(items) >= limit:
+            warning = f"Data retrieval limit reached ({limit} {context}). Results may be truncated."
+            logger.warning(warning)
+            break
+    return items, warning
 
 
 async def _verify_teacher_batch_access(user: dict, batch_id: Optional[str]) -> dict:
@@ -34,7 +48,11 @@ async def _verify_teacher_batch_access(user: dict, batch_id: Optional[str]) -> d
 
     # Populate student_ids if missing or empty from batch doc (students are stored in db.users with batch_ids)
     if "student_ids" not in batch or not batch["student_ids"]:
-        students_raw = await db.users.find({"role": "student", "batch_ids": batch_id}, {"_id": 1, "id": 1}).to_list(1000)
+        students_raw, _ = await fetch_cursor_paged(
+            db.users.find({"role": "student", "batch_ids": batch_id}, {"_id": 1, "id": 1}),
+            limit=5000,
+            context="students"
+        )
         sids = []
         for s in students_raw:
             sid = str(s.get("id") or s["_id"])
@@ -71,7 +89,11 @@ async def _verify_teacher_test_access(user: dict, test: dict) -> dict:
     if batch:
         if "student_ids" not in batch or not batch["student_ids"]:
             bid = batch.get("id")
-            students_raw = await db.users.find({"role": "student", "batch_ids": bid}, {"_id": 1, "id": 1}).to_list(1000)
+            students_raw, _ = await fetch_cursor_paged(
+                db.users.find({"role": "student", "batch_ids": bid}, {"_id": 1, "id": 1}),
+                limit=5000,
+                context="students"
+            )
             batch["student_ids"] = [str(s.get("id") or s["_id"]) for s in students_raw]
 
     if user.get("role") == "admin":
@@ -110,12 +132,19 @@ async def get_test_report(test_id: str, user: dict = Depends(require_role("teach
         raise HTTPException(status_code=404, detail="Test not found")
 
     batch = await _verify_teacher_test_access(user, test)
-    submissions = await db.submissions.find({"test_id": test_id}, {"_id": 0}).to_list(1000)
+    submissions, cap_warn = await fetch_cursor_paged(
+        db.submissions.find({"test_id": test_id}, {"_id": 0}),
+        limit=5000,
+        context="submissions"
+    )
 
-    # Fetch active student count for completion calculation
-    enrolled_count = len(batch["student_ids"]) if (batch and "student_ids" in batch) else len(submissions)
+    # Active student roster count: None when no resolvable batch roster exists (prevents fake 100% completion)
+    enrolled_count = len(batch["student_ids"]) if (batch and batch.get("student_ids")) else None
 
     analytics = compute_test_analytics(test, submissions, batch=batch, enrolled_count=enrolled_count)
+    if cap_warn:
+        analytics["cap_warning"] = cap_warn
+        analytics["is_capped"] = True
     return analytics
 
 
@@ -127,10 +156,17 @@ async def download_test_report_pdf(test_id: str, user: dict = Depends(require_ro
         raise HTTPException(status_code=404, detail="Test not found")
 
     batch = await _verify_teacher_test_access(user, test)
-    submissions = await db.submissions.find({"test_id": test_id}, {"_id": 0}).to_list(1000)
+    submissions, cap_warn = await fetch_cursor_paged(
+        db.submissions.find({"test_id": test_id}, {"_id": 0}),
+        limit=5000,
+        context="submissions"
+    )
 
-    enrolled_count = len(batch["student_ids"]) if (batch and "student_ids" in batch) else len(submissions)
+    enrolled_count = len(batch["student_ids"]) if (batch and batch.get("student_ids")) else None
     analytics = compute_test_analytics(test, submissions, batch=batch, enrolled_count=enrolled_count)
+    if cap_warn:
+        analytics["cap_warning"] = cap_warn
+        analytics["is_capped"] = True
 
     pdf_bytes = render_test_report_pdf(analytics)
 
@@ -149,25 +185,43 @@ async def download_test_report_pdf(test_id: str, user: dict = Depends(require_ro
 
 @router.get("/batch/{batch_id}/weekly")
 async def get_batch_weekly_digest(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    """Computes 7-day rolling mastery movement and completion trends for a batch."""
+    """Computes 7-day rolling mastery movement and completion trends for a batch.
+    Dates are strictly compared in UTC to eliminate mixed-offset string comparison misbucketing.
+    """
     batch = await _verify_teacher_batch_access(user, batch_id)
     student_ids = batch.get("student_ids") or []
 
     now = datetime.now(timezone.utc)
-    recent_start = (now - timedelta(days=7)).isoformat()
-    prior_start = (now - timedelta(days=14)).isoformat()
+    recent_start_dt = now - timedelta(days=7)
+    prior_start_dt = now - timedelta(days=14)
 
     sub_query = await _get_batch_submissions_query(batch_id, student_ids)
 
-    recent_query = dict(sub_query)
-    recent_query["created_at"] = {"$gte": recent_start}
-    recent_subs = await db.submissions.find(recent_query, {"_id": 0}).to_list(2000)
+    # Use a buffered cutoff query (16 days) to ensure all timezone offsets (+14:00/-12:00) are fetched
+    query = dict(sub_query)
+    query["created_at"] = {"$gte": (now - timedelta(days=16)).isoformat()}
 
-    prior_query = dict(sub_query)
-    prior_query["created_at"] = {"$gte": prior_start, "$lt": recent_start}
-    prior_subs = await db.submissions.find(prior_query, {"_id": 0}).to_list(2000)
+    window_subs, cap_warn = await fetch_cursor_paged(
+        db.submissions.find(query, {"_id": 0}),
+        limit=5000,
+        context="weekly digest submissions"
+    )
 
-    return compute_weekly_digest(batch_id, batch, recent_subs, prior_subs, now=now)
+    recent_subs = []
+    prior_subs = []
+    for s in window_subs:
+        dt = parse_utc_datetime(s.get("created_at"))
+        if dt is not None:
+            if dt >= recent_start_dt:
+                recent_subs.append(s)
+            elif dt >= prior_start_dt:
+                prior_subs.append(s)
+
+    digest = compute_weekly_digest(batch_id, batch, recent_subs, prior_subs, now=now)
+    if cap_warn:
+        digest["cap_warning"] = cap_warn
+        digest["is_capped"] = True
+    return digest
 
 
 @router.get("/batch/{batch_id}/term")
@@ -194,6 +248,14 @@ async def get_batch_term_report(
             student_map[str(u["_id"])] = name
 
     sub_query = await _get_batch_submissions_query(batch_id, student_ids)
-    all_submissions = await db.submissions.find(sub_query, {"_id": 0}).to_list(5000)
+    all_submissions, cap_warn = await fetch_cursor_paged(
+        db.submissions.find(sub_query, {"_id": 0}),
+        limit=10000,
+        context="term submissions"
+    )
 
-    return compute_term_report(batch_id, batch, all_submissions, student_map, subject=subject)
+    report = compute_term_report(batch_id, batch, all_submissions, student_map, subject=subject)
+    if cap_warn:
+        report["cap_warning"] = cap_warn
+        report["is_capped"] = True
+    return report

@@ -34,7 +34,7 @@ from auth import (hash_password, verify_password, create_access_token, get_curre
                   require_claim_role, user_from_token)
 from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
-from lib.mastery import (compute_topic_mastery, round_half_up, band,
+from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          get_ingestion_quality_summary, _extract_syllabus_topics,
                          compute_unattempted_summary)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
@@ -3114,7 +3114,6 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     # Compute syllabus union ONCE at the batch level (avoiding O(students * topics) explosion)
     batch_syllabus = _extract_syllabus_topics(class_level=batch_class, subject=batch.get("subject"))
 
-    topic_scores = {}  # norm_key -> {"subject": ..., "chapter": ..., "topic": ..., "scores": []}
     student_topics = {}
     for sid in student_ids:
         # Pass class_level=None to evaluate only actual attempts without redundant syllabus union
@@ -3122,45 +3121,80 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
         # Drop not_attempted rows: only retain topics the student actually attempted (attempts > 0)
         active_mastery = [m for m in mastery if m.get("attempts", 0) > 0]
         student_topics[sid] = active_mastery
-        for m in active_mastery:
-            k = (normalize_key(m["subject"]), normalize_key(m["chapter"]), normalize_key(m["topic"]))
-            if k not in topic_scores:
-                topic_scores[k] = {"subject": m["subject"], "chapter": m["chapter"], "topic": m["topic"], "scores": []}
-            topic_scores[k]["scores"].append(m["score"])
 
-    # Batch-level weak topics from attempted topics
-    weak_topics = [{"subject": v["subject"], "chapter": v["chapter"], "topic": v["topic"],
-                    "class_avg": round_half_up(sum(v["scores"]) / len(v["scores"])),
-                    "band": band(round_half_up(sum(v["scores"]) / len(v["scores"])), len(v["scores"])),
-                    "attempts": len(v["scores"])}
-                   for v in topic_scores.values()]
+    # Batch-level weak topics: pool all raw student attempts and run compute_topic_mastery on the batch aggregate
+    all_batch_attempts = [a for atts in per_student.values() for a in atts]
+    batch_mastery = compute_topic_mastery(
+        all_batch_attempts,
+        class_level=None,
+        subject=batch.get("subject"),
+        include_unattempted=False
+    )
 
-    # Union with batch syllabus ONCE at the batch level for untested curriculum coverage
+    weak_topics = []
+    for m in batch_mastery:
+        if m.get("attempts", 0) > 0:
+            weak_topics.append({
+                "subject": m["subject"],
+                "chapter": m["chapter"],
+                "topic": m["topic"],
+                "class_avg": m["score"],
+                "band": m["band"],
+                "is_confirmed_weak": m.get("is_confirmed_weak", False),
+                "attempts": m["attempts"],
+                "avg_time_s": m.get("avg_time_s", 0.0),
+            })
+
+    def _sort_key(item):
+        if is_confirmed_weak(item):
+            order_val = 0
+        elif item.get("band") == "strong":
+            order_val = 2
+        else:
+            order_val = 1
+        return (order_val, item["class_avg"], item["subject"], item["chapter"], item["topic"])
+
+    weak_topics.sort(key=_sort_key)
+
+    # Separate unattempted syllabus topics into not_attempted_topics to avoid bloating weak_topics
     seen_batch_keys = {
         (normalize_key(w["subject"]), normalize_key(w["chapter"]), normalize_key(w["topic"]))
         for w in weak_topics
     }
+    not_attempted_topics = []
     for st in batch_syllabus:
         s_key = (normalize_key(st["subject"]), normalize_key(st["chapter"]), normalize_key(st["topic"]))
         if s_key not in seen_batch_keys:
             seen_batch_keys.add(s_key)
-            weak_topics.append({
+            not_attempted_topics.append({
                 "subject": st["subject"],
                 "chapter": st["chapter"],
                 "topic": st["topic"],
                 "class_avg": 0,
                 "band": "not_attempted",
+                "is_confirmed_weak": False,
                 "attempts": 0
             })
 
-    def _sort_key(item):
-        b = item["band"]
-        order = {"weak": 0, "not_attempted": 1, "developing": 2, "strong": 3}
-        return (order.get(b, 1), item["class_avg"], item["subject"], item["chapter"], item["topic"])
+    # Combined needs_attention list with a clear reason field ("weak" | "untested")
+    needs_attention = [
+        {**w, "reason": "weak"}
+        for w in weak_topics
+        if w.get("band") == "weak" or w.get("is_confirmed_weak")
+    ] + [
+        {**nt, "reason": "untested"}
+        for nt in not_attempted_topics
+    ]
 
-    weak_topics.sort(key=_sort_key)
-
-    ingestion_quality = get_ingestion_quality_summary(weak_topics)
+    # Ingestion quality signal: scan full topic set across all batch attempts (without subject filtering)
+    # so unclassified topics that are strong/developing are reliably surfaced
+    all_batch_topics = compute_topic_mastery(
+        all_batch_attempts,
+        class_level=None,
+        include_unattempted=False
+    )
+    full_topics = all_batch_topics if all_batch_topics else [t for st in student_topics.values() for t in st]
+    ingestion_quality = get_ingestion_quality_summary(full_topics)
 
     return {"students": [{"id": s["id"], "name": s["name"],
                           "is_disabled": s.get("is_disabled", False),
@@ -3168,6 +3202,8 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
                           "topics": student_topics.get(s["id"], [])}
                          for s in students],
             "weak_topics": weak_topics,
+            "not_attempted_topics": not_attempted_topics,
+            "needs_attention": needs_attention,
             "ingestion_quality": ingestion_quality}
 
 

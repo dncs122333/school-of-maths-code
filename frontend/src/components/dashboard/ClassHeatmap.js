@@ -52,13 +52,16 @@ export default function ClassHeatmap({
     return map;
   }, [students]);
 
+const isConfirmedWeak = (t) =>
+  Boolean(t && (t.is_confirmed_weak !== undefined ? t.is_confirmed_weak : (t.band === "weak" && (t.attempts || 0) >= 2)));
+
   // Filtered students by search and struggling flag
   const filteredStudents = useMemo(() => {
     return students.filter((st) => {
       const matchesName = (st.name || "").toLowerCase().includes(studentSearch.toLowerCase());
       if (!matchesName) return false;
       if (!filterStrugglingOnly) return true;
-      const weakTopics = (st.topics || []).filter((t) => t.band === "weak");
+      const weakTopics = (st.topics || []).filter(isConfirmedWeak);
       return weakTopics.length > 0;
     });
   }, [students, studentSearch, filterStrugglingOnly]);
@@ -70,9 +73,9 @@ export default function ClassHeatmap({
     let strong = 0;
     students.forEach((s) => {
       (s.topics || []).forEach((t) => {
-        if (t.band === "weak") weak += 1;
-        else if (t.band === "developing") dev += 1;
+        if (isConfirmedWeak(t)) weak += 1;
         else if (t.band === "strong") strong += 1;
+        else dev += 1;
       });
     });
     return { weak, dev, strong };
@@ -85,11 +88,11 @@ export default function ClassHeatmap({
     if (topicData.band === "strong") {
       return "bg-[#4CAF7D] border-2 border-[#1E293B] text-white hover:scale-105 shadow-[1px_1px_0_#1E293B]";
     }
-    if (topicData.band === "developing") {
-      return "bg-[#F5C842] border-2 border-[#1E293B] text-[#1E293B] hover:scale-105 shadow-[1px_1px_0_#1E293B]";
-    }
-    if (topicData.band === "weak") {
+    if (isConfirmedWeak(topicData)) {
       return "bg-[#FF6B5E] border-2 border-[#1E293B] text-white hover:scale-105 shadow-[1px_1px_0_#1E293B]";
+    }
+    if (topicData.band === "developing" || topicData.band === "weak") {
+      return "bg-[#F5C842] border-2 border-[#1E293B] text-[#1E293B] hover:scale-105 shadow-[1px_1px_0_#1E293B]";
     }
     return "bg-[#FFF9E8] border border-[#1E293B]/20 text-[#64748B]";
   };
@@ -334,10 +337,10 @@ export default function ClassHeatmap({
                       className={`font-head text-3xl font-900 ${
                         selectedCell.data.band === "strong"
                           ? "text-[#4CAF7D]"
-                          : selectedCell.data.band === "developing"
-                          ? "text-[#F5C842]"
-                          : selectedCell.data.band === "weak"
+                          : isConfirmedWeak(selectedCell.data)
                           ? "text-[#FF6B5E]"
+                          : selectedCell.data.band === "developing" || selectedCell.data.band === "weak"
+                          ? "text-[#F5C842]"
                           : "text-[#64748B]"
                       }`}
                     >

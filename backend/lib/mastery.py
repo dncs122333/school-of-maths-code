@@ -81,15 +81,53 @@ def band(score: float, attempts: int = 1) -> str:
     return "developing"
 
 
+def is_confirmed_weak(topic_or_band, attempts: int = None) -> bool:
+    """Central predicate to identify confirmed weak topics across all reports and dashboards.
+    A topic is confirmed weak iff band == 'weak' and attempts >= 2.
+    Accepts either:
+      - a topic dictionary with keys 'band' and 'attempts' (e.g., is_confirmed_weak(t))
+      - a band string and attempts count (e.g., is_confirmed_weak("weak", 2))
+    """
+    if isinstance(topic_or_band, dict):
+        b = topic_or_band.get("band")
+        att = topic_or_band.get("attempts", 0)
+    else:
+        b = str(topic_or_band or "")
+        att = 0 if attempts is None else attempts
+    return b == "weak" and att >= 2
+
+
+def is_confirmed_strong(topic_or_band, attempts: int = None) -> bool:
+    """Predicate for confirmed strong topics (band == 'strong' and attempts >= 2)."""
+    if isinstance(topic_or_band, dict):
+        b = topic_or_band.get("band")
+        att = topic_or_band.get("attempts", 0)
+    else:
+        b = str(topic_or_band or "")
+        att = 0 if attempts is None else attempts
+    return b == "strong" and att >= 2
+
+
 def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     if syllabus is not None:
         return syllabus
     try:
-        from curriculum import CURRICULUM, normalize_key
+        from curriculum import CURRICULUM, normalize_key, normalize_subject, subjects_match
     except ImportError:
         try:
-            from ..curriculum import CURRICULUM, normalize_key
+            from ..curriculum import CURRICULUM, normalize_key, normalize_subject, subjects_match
         except ImportError:
+            def normalize_subject(s):
+                low = re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+                if low in ("math", "maths", "mathematics"): return "Maths"
+                if low in ("science", "sci"): return "Science"
+                return low.title()
+            def subjects_match(s1, s2):
+                if not s1 or not s2: return False
+                n1, n2 = normalize_subject(s1), normalize_subject(s2)
+                if n1 and n2 and n1.casefold() == n2.casefold(): return True
+                l1, l2 = str(s1).strip().casefold(), str(s2).strip().casefold()
+                return l1 == l2 or l1 in l2 or l2 in l1
             return []
 
     classes = []
@@ -109,7 +147,7 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     seen = set()
     for c in classes:
         for subj_name, chaps in CURRICULUM.get(c, {}).items():
-            if subject and subject.lower() not in subj_name.lower():
+            if subject and not subjects_match(subj_name, subject):
                 continue
             for chap_name, topic_list in chaps.items():
                 for t in topic_list:
@@ -132,14 +170,31 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     is_correct, time_s, created_at}. Returns a list sorted weakest/untested first.
     """
     try:
-        from curriculum import normalize_key, infer_subject_and_chapter, canonicalize_topic_title
+        from curriculum import (
+            normalize_key, infer_subject_and_chapter, canonicalize_topic_title,
+            normalize_subject, subjects_match
+        )
     except ImportError:
         try:
-            from ..curriculum import normalize_key, infer_subject_and_chapter, canonicalize_topic_title
+            from ..curriculum import (
+                normalize_key, infer_subject_and_chapter, canonicalize_topic_title,
+                normalize_subject, subjects_match
+            )
         except ImportError:
             def normalize_key(s): return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
             def infer_subject_and_chapter(cl, c, t): return "", ""
             def canonicalize_topic_title(t): return str(t or "").strip().title()
+            def normalize_subject(s):
+                low = re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+                if low in ("math", "maths", "mathematics"): return "Maths"
+                if low in ("science", "sci"): return "Science"
+                return low.title()
+            def subjects_match(s1, s2):
+                if not s1 or not s2: return False
+                n1, n2 = normalize_subject(s1), normalize_subject(s2)
+                if n1 and n2 and n1.casefold() == n2.casefold(): return True
+                l1, l2 = str(s1).strip().casefold(), str(s2).strip().casefold()
+                return l1 == l2 or l1 in l2 or l2 in l1
 
     detected_class = class_level
     s_topics = _extract_syllabus_topics(class_level=detected_class, subject=subject, syllabus=syllabus)
@@ -165,7 +220,7 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                 subj = "Unknown"
 
         # If a specific subject is requested, do not pollute with other or unknown subjects
-        if subject and normalize_key(subj) != normalize_key(subject):
+        if subject and not subjects_match(subj, subject):
             continue
 
         key = (normalize_key(subj), normalize_key(chap), normalize_key(top))
@@ -176,9 +231,10 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
             display_chap = s_lookup[key]["chapter"]
             display_top = s_lookup[key]["topic"]
         else:
-            display_subj = subj or "Unknown"
+            display_subj = normalize_subject(subj) if subj else "Unknown"
             display_chap = chap or "General"
             display_top = canonicalize_topic_title(top)
+
 
         g = groups.setdefault(key, {
             "subject": display_subj, "chapter": display_chap, "topic": display_top,
@@ -198,9 +254,11 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     for g in groups.values():
         score = round_half_up(g["weighted_correct"] / g["weighted_total"] * 100) if g["weighted_total"] else 0
         is_unclass = (g["subject"] or "").lower() == "unknown"
+        b = band(score, g["attempts"])
         out.append({
             "subject": g["subject"], "chapter": g["chapter"], "topic": g["topic"],
-            "score": score, "band": band(score, g["attempts"]), "attempts": g["attempts"],
+            "score": score, "band": b, "attempts": g["attempts"],
+            "is_confirmed_weak": is_confirmed_weak(b, g["attempts"]),
             "avg_time_s": round_half_up(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
             "last_attempt": g["last_attempt"],
             "is_unclassified": is_unclass,
@@ -218,20 +276,27 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                     "score": 0,
                     "band": "not_attempted",
                     "attempts": 0,
+                    "is_confirmed_weak": False,
                     "avg_time_s": 0.0,
                     "last_attempt": None,
                     "is_unclassified": False,
                 })
 
     # Sort order:
-    # 0. confirmed weak (score < 55) -> lowest score first
+    # 0. confirmed weak (score < 55 and attempts >= 2) -> lowest score first
     # 1. not_attempted -> alphabetical by chapter, topic
-    # 2. developing (55 <= score <= 75) -> lowest score first
+    # 2. developing / unconfirmed weak -> lowest score first
     # 3. strong (score > 75) -> lowest score first
     def _sort_key(item):
-        b = item["band"]
-        order = {"weak": 0, "not_attempted": 1, "developing": 2, "strong": 3}
-        return (order.get(b, 1), item["score"], item["subject"], item["chapter"], item["topic"])
+        if is_confirmed_weak(item):
+            order_val = 0
+        elif item.get("band") == "not_attempted":
+            order_val = 1
+        elif item.get("band") == "strong":
+            order_val = 3
+        else:
+            order_val = 2
+        return (order_val, item["score"], item["subject"], item["chapter"], item["topic"])
 
     out.sort(key=_sort_key)
     return out
@@ -275,9 +340,9 @@ def compute_unattempted_summary(attempted_topics, class_level=None, syllabus=Non
 
     total_unattempted = sum(not_attempted_by_chapter.values())
     attempted_count = len(attempted_topics)
-    weak_count = sum(1 for t in attempted_topics if t.get("band") == "weak")
-    developing_count = sum(1 for t in attempted_topics if t.get("band") == "developing")
+    weak_count = sum(1 for t in attempted_topics if is_confirmed_weak(t))
     strong_count = sum(1 for t in attempted_topics if t.get("band") == "strong")
+    developing_count = attempted_count - weak_count - strong_count
 
     return {
         "not_attempted_by_chapter": not_attempted_by_chapter,

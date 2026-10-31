@@ -422,6 +422,40 @@ def infer_subject_and_chapter(class_level: Optional[str] = None, chapter: Option
     return "", ""
 
 
+def normalize_subject(subj: Any) -> str:
+    """Canonicalizes subject string to approved CBSE curriculum name:
+    - 'math', 'maths', 'mathematics' -> 'Maths'
+    - 'science', 'sci' -> 'Science'
+    """
+    s = re.sub(r"\s+", " ", str(subj or "")).strip().casefold()
+    if not s:
+        return ""
+    if s in ("math", "maths", "mathematics"):
+        return "Maths"
+    if s in ("science", "sci"):
+        return "Science"
+    return s.title()
+
+
+def subjects_match(subj1: Any, subj2: Any) -> bool:
+    """Returns True if two subject representations match:
+    1. Direct canonical match via alias table ('Maths' == 'Mathematics' == 'Math')
+    2. Exact normalized equality (case-folded)
+    3. Bidirectional substring containment ('Maths' in 'Mathematics' or vice-versa)
+    """
+    if not subj1 or not subj2:
+        return False
+    n1 = normalize_subject(subj1)
+    n2 = normalize_subject(subj2)
+    if n1 and n2 and n1.casefold() == n2.casefold():
+        return True
+    s1 = re.sub(r"\s+", " ", str(subj1 or "")).strip().casefold()
+    s2 = re.sub(r"\s+", " ", str(subj2 or "")).strip().casefold()
+    if not s1 or not s2:
+        return False
+    return s1 == s2 or s1 in s2 or s2 in s1
+
+
 def get_canonical_topics(class_level: str, subject: str, chapter: str) -> list:
     """Returns canonical topics for a given class, subject, and chapter, if defined."""
     cl = re.sub(r"[^0-9]", "", str(class_level or ""))
@@ -432,7 +466,7 @@ def get_canonical_topics(class_level: str, subject: str, chapter: str) -> list:
     chap_norm = normalize_key(chap)
     # Match subject (case-insensitive)
     for s_name, chaps in cl_dict.items():
-        if not subj or s_name.lower() == subj.lower() or (s_name.lower() == "maths" and "math" in subj.lower()):
+        if not subj or subjects_match(s_name, subj):
             for c_name, topics in chaps.items():
                 if normalize_key(c_name) == chap_norm or normalize_key(c_name.replace("-", " ")) == chap_norm.replace("-", " "):
                     return topics
@@ -452,20 +486,13 @@ def normalize_taxonomy(class_level: Any, subject: Any, chapter: Any,
     m = re.search(r"(\d{1,2})", cl_raw)
     cl = m.group(1) if m else cl_raw
 
-    subj = re.sub(r"\s+", " ", str(subject or "")).strip()
+    subj = normalize_subject(subject)
     chap = re.sub(r"\s+", " ", str(chapter or "")).strip()
     top = re.sub(r"\s+", " ", str(topic or "")).strip()
     raw_topics = [re.sub(r"\s+", " ", str(t)).strip() for t in (topics or []) if str(t).strip()]
     if top and top not in raw_topics:
         raw_topics.insert(0, top)
 
-    # Subject canonical alias (only exact known names, not test tags)
-    if subj:
-        subj_low = subj.casefold()
-        if subj_low in ("math", "maths", "mathematics"):
-            subj = "Maths"
-        elif subj_low in ("science", "sci"):
-            subj = "Science"
 
     # If subject or chapter is missing, attempt curriculum inference
     if not subj or not chap:
