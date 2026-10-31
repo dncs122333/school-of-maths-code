@@ -103,7 +103,7 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
         if c in CURRICULUM:
             classes.append(c)
     if not classes:
-        classes = ["10"]
+        return []
 
     topics = []
     seen = set()

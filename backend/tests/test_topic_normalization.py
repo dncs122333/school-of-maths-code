@@ -255,4 +255,37 @@ class TestTopicNormalization:
         assert quality["status"] == "warning"
         assert "unclassified topic" in quality["signal"]
 
+    def test_07_no_class_detected_skips_syllabus_union(self):
+        """When no class level is detected (class_level=None or empty), skip syllabus union
+        rather than guessing and dumping phantom Class-10 not_attempted rows."""
+        from lib.mastery import compute_topic_mastery, _extract_syllabus_topics
+
+        # 1. _extract_syllabus_topics returns empty list when no class detected
+        assert _extract_syllabus_topics(class_level=None) == []
+        assert _extract_syllabus_topics(class_level="") == []
+        assert _extract_syllabus_topics(class_level=[]) == []
+
+        # 2. A batch-less student with 0 attempts gets empty mastery, NOT hundreds of Class-10 rows
+        empty_mastery = compute_topic_mastery([], class_level=None)
+        assert len(empty_mastery) == 0, f"Expected 0 rows for empty attempts with no class, got {len(empty_mastery)}"
+
+        # 3. A batch-less Class-9 student with 1 attempt gets ONLY that 1 attempt,
+        # with NO phantom not_attempted Class-10 rows unioned into their profile
+        tag = uuid.uuid4().hex[:6]
+        c9_attempts = [
+            {"subject": "Maths", "chapter": "Number Systems", "topic": f"Irrational Numbers {tag}",
+             "is_correct": True, "difficulty": "easy", "time_s": 15}
+        ]
+        res = compute_topic_mastery(c9_attempts, class_level=None)
+        assert len(res) == 1, f"Expected exactly 1 attempted topic row, got {len(res)} (phantom rows leaked!)"
+        assert res[0]["topic"] == f"Irrational Numbers {tag}"
+        assert res[0]["band"] == "developing" or res[0]["band"] == "strong"
+        assert all(r["band"] != "not_attempted" for r in res)
+
+        # 4. When class_level IS provided (e.g. "10"), official syllabus is properly unioned
+        c10_mastery = compute_topic_mastery([], class_level="10")
+        assert len(c10_mastery) > 0
+        assert all(r["band"] == "not_attempted" for r in c10_mastery)
+
+
 
