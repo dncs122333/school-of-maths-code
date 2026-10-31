@@ -10,7 +10,7 @@ A coaching-center platform for **CBSE Classes 9–10**. Teachers create batches,
 - **Bank-driven tests & DPP** — 30/50/20 difficulty mix, async creation, per-student option shuffle, and hierarchical topic fallback
 - **Mastery engine** — weighted score (`easy 1.0 / medium 1.5 / hard 2.0`), recency decay, weak/developing/strong bands
 - **Diagnostic test** — 10-question syllabus-wide cold-start assessment
-- **Student Dashboard** — cosmic dark theme, streak tracker, interactive Mastery Map, AI Focus Today recommendations, and circular progress rings
+- **Student Dashboard** — cosmic dark theme, streak tracker, interactive Mastery Map, Focus Today recommendations, and circular progress rings
 - **Teacher Dashboard** — command hub, batch switcher, class heatmap (student × topic), weak topic leaderboard, and student velocity roster
 - **Batch Leaderboard** — students ranked by overall mastery (`#1 🥇, #2 🥈...`) on `/batches` with 1-click diagnostic drilldown modals
 - **Light anti-cheat** — tab-switch tracking, deterministic grading

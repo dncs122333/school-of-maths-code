@@ -86,9 +86,20 @@ class TestMastery:
         assert r.status_code == 200 and r.json()["score"] == 100, r.text
 
         m = requests.get(f"{API}/mastery/me", headers=self.state["sh"], timeout=15).json()
-        topic = next((x for x in m if x["topic"] == f"Topic {tag}"), None)
+        topics = m["topics"] if isinstance(m, dict) else m
+        topic = next((x for x in topics if x["topic"] == f"Topic {tag}"), None)
         assert topic is not None, m
         assert topic["score"] == 100 and topic["band"] == "strong" and topic["attempts"] == 4
+
+        # Validate attempted topics + summary counts optimization
+        if isinstance(m, dict):
+            assert "topics" in m
+            assert "not_attempted_by_chapter" in m
+            assert "summary" in m
+            assert m["is_full"] is False
+            # Verify lazy-loaded full radar returns is_full=True
+            m_full = requests.get(f"{API}/mastery/me?full=true", headers=self.state["sh"], timeout=15).json()
+            assert m_full["is_full"] is True
 
     def test_04_rbac_student_cannot_see_teacher_report(self):
         assert requests.get(f"{API}/mastery/teacher", headers=self.state["sh"],

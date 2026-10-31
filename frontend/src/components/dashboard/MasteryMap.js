@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Sparkles, Compass, Clock, Activity, Zap, ArrowUpRight } from "lucide-react";
+import { Target, Compass, Clock, Activity, Zap, ArrowUpRight } from "lucide-react";
 import { CircularProgress } from "./WeakTopicCard";
 
 const BAND_CONFIG = {
@@ -37,7 +37,7 @@ const BAND_CONFIG = {
   },
 };
 
-export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeTopic }) {
+export default function MasteryMap({ topics = [], summary = null, notAttemptedByChapter = {}, onStartDiagnostic, onPracticeTopic }) {
   const [filterSubject, setFilterSubject] = useState("all");
   const [selectedTopic, setSelectedTopic] = useState(null);
 
@@ -47,7 +47,7 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
     return (t.subject || "").toLowerCase() === filterSubject.toLowerCase();
   });
 
-  // AI Focus Today: pick the weakest topic or first unattempted topic
+  // Focus Today: prioritize weakest calibrated topic or first unattempted topic
   const focusTopic =
     topics.find((t) => t.band === "weak") ||
     topics.find((t) => t.band === "not_attempted") ||
@@ -64,7 +64,9 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
               Knowledge Topology
             </span>
             <span className="h-2 w-2 rounded-full bg-[#2F8A5F]" />
-            <span className="text-xs text-[#64748B] font-mono font-bold">{topics.length} concepts indexed</span>
+            <span className="text-xs text-[#64748B] font-mono font-bold">
+              {summary ? `${topics.length} attempted · ${summary.not_attempted_count || 0} unattempted` : `${topics.length} concepts indexed`}
+            </span>
           </div>
           <h2 className="font-head text-2xl sm:text-3xl font-black text-[#1E293B] mt-1">
             Mastery Radar
@@ -101,14 +103,14 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
         </div>
       </div>
 
-      {/* 2. AI Focus Today Hero Capsule */}
+      {/* 2. Focus Today Hero Capsule */}
       {focusTopic && (
         <div className="rounded-3xl bg-[#FFF9E8] border-[2.5px] border-[#1E293B] p-6 shadow-[4px_4px_0_#1E293B]">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-head font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">
-                  <Sparkles className="h-3.5 w-3.5 text-[#1E293B]" /> AI High-ROI Focus
+                  <Target className="h-3.5 w-3.5 text-[#1E293B]" /> Focus Today
                 </span>
                 <span className="text-xs text-[#64748B] font-mono font-bold">{focusTopic.subject} • {focusTopic.chapter}</span>
               </div>
@@ -118,7 +120,7 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
               </h3>
 
               <p className="text-xs sm:text-sm text-[#1E293B]/80 max-w-xl leading-relaxed">
-                Practicing this concept yields the highest accuracy gain on upcoming mock exams. Current calibration:{" "}
+                Targeting your weakest calibrated concept yields the highest accuracy gain on upcoming mock exams. Current calibration:{" "}
                 <span className={`font-bold ${focusTopic.band === "weak" ? "text-[#E04A3C]" : "text-[#1E293B]"}`}>
                   {focusTopic.score}% ({focusTopic.band})
                 </span>.
@@ -218,6 +220,51 @@ export default function MasteryMap({ topics = [], onStartDiagnostic, onPracticeT
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Unattempted Topics by Chapter Summary */}
+      {summary && (summary.not_attempted_count || 0) > 0 && (
+        <div className="rounded-3xl bg-[#FFF9E8] border-[2.5px] border-[#1E293B] p-5 shadow-[4px_4px_0_#1E293B] space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Compass className="h-4 w-4 text-[#3E7CB1]" />
+              <h4 className="font-head text-sm font-black text-[#1E293B]">
+                Unattempted Syllabus Concepts ({summary.not_attempted_count})
+              </h4>
+            </div>
+            <Link
+              to="/mastery"
+              className="text-xs font-head font-bold text-[#3E7CB1] hover:underline flex items-center gap-1"
+            >
+              Full syllabus radar <ArrowUpRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <p className="text-xs text-[#64748B] leading-relaxed">
+            Unattempted topics grouped by chapter. Solve questions in any chapter to index them into your calibration:
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {Object.entries(notAttemptedByChapter)
+              .filter(([, count]) => count > 0)
+              .slice(0, 10)
+              .map(([chap, count]) => (
+                <span
+                  key={chap}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-head font-bold bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
+                >
+                  <span>{chap}</span>
+                  <span className="font-mono text-[#E04A3C]">+{count}</span>
+                </span>
+              ))}
+            {Object.keys(notAttemptedByChapter).length > 10 && (
+              <Link
+                to="/mastery"
+                className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-head font-bold bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] hover:bg-[#ebd439]"
+              >
+                +{Object.keys(notAttemptedByChapter).length - 10} more chapters...
+              </Link>
+            )}
+          </div>
         </div>
       )}
 

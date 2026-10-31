@@ -51,7 +51,7 @@
    - **Hero Greeting & Streak Capsule**: Dynamic time-of-day greeting, fire streak counter with weekly day dots (`M T W T F S S`), and accuracy KPI tiles.
    - **Quick Study Sprints**: Action cards for DPP, Timed Mocks, AI Notes, and Batch Resources.
    - **Mastery Radar**: Interactive subject/chapter/topic cognitive map with color-coded band glows (`#34D399` Strong 🟢, `#FBBF24` Developing 🟡, `#F87171` Weak 🔴) and 1-click topic drilldown modal.
-   - **AI Focus Today**: High-ROI concept recommendation banner with direct practice CTA.
+   - **Focus Today**: High-ROI concept recommendation banner with direct practice CTA.
    - **Targeted Weak Topics**: Circular SVG progress rings, CBSE board exam weightage notes, and 1-click DPP generation.
    - **Recent Activity Timeline**: Last 5 attempts with score pills, accuracy ratios, and trend indicators (`TrendingUp` / `TrendingDown`).
 

@@ -35,6 +35,8 @@ export default function StudentDashboard() {
   // State
   const [stats, setStats] = useState({});
   const [masteryTopics, setMasteryTopics] = useState([]);
+  const [masterySummary, setMasterySummary] = useState(null);
+  const [notAttemptedByChapter, setNotAttemptedByChapter] = useState({});
   const [submissions, setSubmissions] = useState([]);
   const [activeTests, setActiveTests] = useState([]);
   const [materials, setMaterials] = useState([]);
@@ -81,7 +83,13 @@ export default function StudentDashboard() {
         ]);
 
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data || {});
-        if (masteryRes.status === "fulfilled") setMasteryTopics(masteryRes.value.data || []);
+        if (masteryRes.status === "fulfilled") {
+          const d = masteryRes.value.data;
+          const list = Array.isArray(d) ? d : (d?.topics || []);
+          setMasteryTopics(list);
+          setMasterySummary(d?.summary || null);
+          setNotAttemptedByChapter(d?.not_attempted_by_chapter || {});
+        }
         if (testsRes.status === "fulfilled") {
           const list = testsRes.value.data || [];
           const live = list.filter((t) => t.is_active && !t.submitted && t.kind === "test");
@@ -677,6 +685,8 @@ export default function StudentDashboard() {
           {/* Interactive Mastery Map */}
           <MasteryMap
             topics={masteryTopics}
+            summary={masterySummary}
+            notAttemptedByChapter={notAttemptedByChapter}
             onStartDiagnostic={handleStartDiagnostic}
             onPracticeTopic={handleFixConcept}
           />

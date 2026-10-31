@@ -124,9 +124,9 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     return topics
 
 
-def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None):
+def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None, include_unattempted=True):
     """Aggregate per-question attempts into per-(subject, chapter, topic) mastery,
-    unioned with the official syllabus topic list (marking unattempted topics as 'not_attempted').
+    optionally unioned with the official syllabus topic list (marking unattempted topics as 'not_attempted').
 
     `attempts` is an iterable of dicts: {subject, chapter, topic, difficulty,
     is_correct, time_s, created_at}. Returns a list sorted weakest/untested first.
@@ -207,20 +207,21 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
         })
 
     # Union with syllabus topics (surfacing unattempted as amber 'not_attempted')
-    for st in s_topics:
-        s_key = (normalize_key(st["subject"]), normalize_key(st["chapter"]), normalize_key(st["topic"]))
-        if s_key not in groups:
-            out.append({
-                "subject": st["subject"],
-                "chapter": st["chapter"],
-                "topic": st["topic"],
-                "score": 0,
-                "band": "not_attempted",
-                "attempts": 0,
-                "avg_time_s": 0.0,
-                "last_attempt": None,
-                "is_unclassified": False,
-            })
+    if include_unattempted:
+        for st in s_topics:
+            s_key = (normalize_key(st["subject"]), normalize_key(st["chapter"]), normalize_key(st["topic"]))
+            if s_key not in groups:
+                out.append({
+                    "subject": st["subject"],
+                    "chapter": st["chapter"],
+                    "topic": st["topic"],
+                    "score": 0,
+                    "band": "not_attempted",
+                    "attempts": 0,
+                    "avg_time_s": 0.0,
+                    "last_attempt": None,
+                    "is_unclassified": False,
+                })
 
     # Sort order:
     # 0. confirmed weak (score < 55) -> lowest score first
@@ -234,6 +235,61 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
 
     out.sort(key=_sort_key)
     return out
+
+
+def compute_unattempted_summary(attempted_topics, class_level=None, syllabus=None):
+    """Compute chapter-level unattempted counts and overview summary stats.
+    Returns:
+      {
+        "not_attempted_by_chapter": {chapter_name: count},
+        "summary": {
+          "attempted_count": int,
+          "not_attempted_count": int,
+          "total_topics": int,
+          "weak_count": int,
+          "developing_count": int,
+          "strong_count": int
+        }
+      }
+    """
+    try:
+        from curriculum import normalize_key
+    except ImportError:
+        try:
+            from ..curriculum import normalize_key
+        except ImportError:
+            def normalize_key(s): return re.sub(r"\s+", " ", str(s or "")).strip().casefold()
+
+    s_topics = _extract_syllabus_topics(class_level=class_level, syllabus=syllabus)
+    attempted_keys = {
+        (normalize_key(t.get("subject")), normalize_key(t.get("chapter")), normalize_key(t.get("topic")))
+        for t in attempted_topics
+    }
+
+    not_attempted_by_chapter = {}
+    for st in s_topics:
+        k = (normalize_key(st.get("subject")), normalize_key(st.get("chapter")), normalize_key(st.get("topic")))
+        if k not in attempted_keys:
+            chap = st.get("chapter") or "General"
+            not_attempted_by_chapter[chap] = not_attempted_by_chapter.get(chap, 0) + 1
+
+    total_unattempted = sum(not_attempted_by_chapter.values())
+    attempted_count = len(attempted_topics)
+    weak_count = sum(1 for t in attempted_topics if t.get("band") == "weak")
+    developing_count = sum(1 for t in attempted_topics if t.get("band") == "developing")
+    strong_count = sum(1 for t in attempted_topics if t.get("band") == "strong")
+
+    return {
+        "not_attempted_by_chapter": not_attempted_by_chapter,
+        "summary": {
+            "attempted_count": attempted_count,
+            "not_attempted_count": total_unattempted,
+            "total_topics": attempted_count + total_unattempted,
+            "weak_count": weak_count,
+            "developing_count": developing_count,
+            "strong_count": strong_count,
+        }
+    }
 
 
 def get_ingestion_quality_summary(mastery_items):

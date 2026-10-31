@@ -5,12 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any
 
-from jinja2 import Environment, FileSystemLoader
-
 logger = logging.getLogger("reports.pdf")
-
-TEMPLATES_DIR = Path(__file__).parent / "templates"
-env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)
 
 
 def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -> bytes:
@@ -199,15 +194,6 @@ def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -
 
 
 def render_test_report_pdf(report_data: Dict[str, Any]) -> bytes:
-    """Generates an un-watermarked, official PDF report for a test."""
+    """Generates an un-watermarked, official PDF report for a test using ReportLab."""
     now_iso = datetime.now(timezone.utc).strftime("%d %B %Y, %I:%M %p UTC")
-
-    # Primary Attempt: WeasyPrint (HTML+CSS)
-    try:
-        import weasyprint
-        tpl = env.get_template("test_report.html")
-        rendered_html = tpl.render(report=report_data, generated_date=now_iso)
-        return weasyprint.HTML(string=rendered_html).write_pdf()
-    except Exception as e:
-        logger.info(f"WeasyPrint unavailable or raised error ({e}). Using native ReportLab generator.")
-        return _render_reportlab_test_report(report_data, now_iso)
+    return _render_reportlab_test_report(report_data, now_iso)

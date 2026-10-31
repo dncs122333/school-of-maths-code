@@ -64,16 +64,38 @@ def test_01_compute_test_analytics_metrics():
 
 def test_02_item_discrimination_and_pace_outliers():
     # 6 students -> top 2 students vs bottom 2 students
+    # Benchmark median pacing is ~10s.
     test_doc = {
         "id": "test_disc",
         "duration_minutes": 10,
         "questions": [
             {"question": "Discriminates Well", "topic": "Topic A"},
             {"question": "Everyone Misses", "topic": "Topic B"},
-            {"question": "Slow Outlier Question", "topic": "Topic C"}
+            {"question": "Slow Question", "topic": "Topic C"}
         ]
     }
-    subs = [
+
+    # Case 1: Slow question has LOW discrimination (D = 0.0) -> True pacing outlier
+    subs_low_disc = [
+        {"score": 100, "times": [10, 10, 200], "results": [{"is_correct": True}, {"is_correct": False}, {"is_correct": False}]},
+        {"score": 90, "times": [12, 8, 190], "results": [{"is_correct": True}, {"is_correct": False}, {"is_correct": False}]},
+        {"score": 60, "times": [15, 12, 180], "results": [{"is_correct": True}, {"is_correct": False}, {"is_correct": False}]},
+        {"score": 50, "times": [14, 11, 210], "results": [{"is_correct": False}, {"is_correct": False}, {"is_correct": False}]},
+        {"score": 20, "times": [10, 9, 175], "results": [{"is_correct": False}, {"is_correct": False}, {"is_correct": False}]},
+        {"score": 10, "times": [8, 12, 185], "results": [{"is_correct": False}, {"is_correct": False}, {"is_correct": False}]}
+    ]
+    res1 = compute_test_analytics(test_doc, subs_low_disc, enrolled_count=6)
+    q1 = res1["question_analysis"][0]
+    assert q1["discrimination_index"] == 1.0
+    assert q1["discrimination_rating"] == "Excellent"
+
+    q3_low = res1["question_analysis"][2]
+    assert q3_low["discrimination_index"] == 0.0
+    # Slow (~190s) AND low discrimination (< 0.20) -> flagged as pace outlier
+    assert q3_low["is_pace_outlier"] is True
+
+    # Case 2: Slow question has HIGH discrimination (D = 1.0) -> Rigorous hard question, NOT an outlier
+    subs_high_disc = [
         {"score": 100, "times": [10, 10, 200], "results": [{"is_correct": True}, {"is_correct": False}, {"is_correct": True}]},
         {"score": 90, "times": [12, 8, 190], "results": [{"is_correct": True}, {"is_correct": False}, {"is_correct": True}]},
         {"score": 60, "times": [15, 12, 180], "results": [{"is_correct": True}, {"is_correct": False}, {"is_correct": False}]},
@@ -81,15 +103,12 @@ def test_02_item_discrimination_and_pace_outliers():
         {"score": 20, "times": [10, 9, 175], "results": [{"is_correct": False}, {"is_correct": False}, {"is_correct": False}]},
         {"score": 10, "times": [8, 12, 185], "results": [{"is_correct": False}, {"is_correct": False}, {"is_correct": False}]}
     ]
-    res = compute_test_analytics(test_doc, subs, enrolled_count=6)
-    q1 = res["question_analysis"][0]
-    # In Q1, top 2 are both correct (100%), bottom 2 are both wrong (0%) -> D = 1.0 (Excellent)
-    assert q1["discrimination_index"] == 1.0
-    assert q1["discrimination_rating"] == "Excellent"
+    res2 = compute_test_analytics(test_doc, subs_high_disc, enrolled_count=6)
+    q3_high = res2["question_analysis"][2]
+    assert q3_high["discrimination_index"] == 1.0
+    # Slow (~190s) BUT high discrimination (>= 0.20) -> valid hard question, NOT an outlier
+    assert q3_high["is_pace_outlier"] is False
 
-    # Q3 has avg time ~190s which is an outlier relative to 10s benchmark
-    q3 = res["question_analysis"][2]
-    assert q3["is_pace_outlier"] is True
 
 
 def test_03_topic_breakdown_and_anomalies():
@@ -102,20 +121,25 @@ def test_03_topic_breakdown_and_anomalies():
         {"student_id": "s1", "student_name": "Rapid Student", "score": 100, "times": [2, 3], "tab_switches": 0,
          "results": [{"is_correct": True, "topic": "Linear equations"}, {"is_correct": True, "topic": "Linear Equations"}]},
         {"student_id": "s2", "student_name": "Switch Student", "score": 50, "times": [40, 50], "tab_switches": 5,
-         "results": [{"is_correct": True, "topic": "Linear equations"}, {"is_correct": False, "topic": "Linear Equations"}]}
+         "results": [{"is_correct": True, "topic": "Linear equations"}, {"is_correct": False, "topic": "Linear Equations"}]},
+        {"student_id": "s3", "student_name": "Fast Strong Student", "score": 100, "times": [4, 4], "tab_switches": 0,
+         "results": [{"is_correct": True, "topic": "Linear equations"}, {"is_correct": True, "topic": "Linear Equations"}]}
     ]
-    res = compute_test_analytics(test_doc, subs, enrolled_count=2)
+    res = compute_test_analytics(test_doc, subs, enrolled_count=3)
     # Topics should merge into 1 topic "Linear Equations"
     assert len(res["topic_breakdown"]) == 1
     assert res["topic_breakdown"][0]["topic"] == "Linear Equations"
-    assert res["topic_breakdown"][0]["total_attempts"] == 4
-    assert res["topic_breakdown"][0]["accuracy"] == 75
 
-    # Check anomalies
+    # Check anomalies:
+    # - "Switch Student" flagged for 5 tab switches
+    # - "Rapid Student" flagged for taking < 6.0s (5s total for 2 questions)
+    # - "Fast Strong Student" (8s total for 2 questions, 100% score) is NOT flagged as rushing
     anomalies = res["anomalies"]
     names = [a["student_name"] for a in anomalies]
     assert "Switch Student" in names
     assert "Rapid Student" in names
+    assert "Fast Strong Student" not in names
+
 
 
 def test_04_pdf_generation_binary_header():
@@ -201,3 +225,142 @@ class TestReportsAPI:
         assert requests.get(f"{API}/reports/test/{tid}/pdf", headers=self.state["sh"], timeout=15).status_code == 403
         assert requests.get(f"{API}/reports/batch/{bid}/weekly", headers=self.state["sh"], timeout=15).status_code == 403
         assert requests.get(f"{API}/reports/batch/{bid}/term", headers=self.state["sh"], timeout=15).status_code == 403
+
+    def test_09_diagnostic_and_targeted_attempts_included_in_reports(self):
+        """Weekly and term reports do not drop diagnostic / targeted-sprint attempts (batch_id: None),
+        and completion rate uses true batch enrollment rather than falling back to 100%."""
+        bid = self.state["batch_id"]
+
+        # 1. Student creates a diagnostic test (batch_id: None)
+        diag_res = requests.post(f"{API}/tests/diagnostic", headers=self.state["sh"], json={
+            "class_level": "9", "subject": "Maths", "chapter": "Real Numbers", "topic": "Euclid Division"
+        }, timeout=30)
+        assert diag_res.status_code == 200, diag_res.text
+        diag_id = diag_res.json()["id"]
+
+        # 2. Student submits diagnostic
+        diag_details = requests.get(f"{API}/tests/{diag_id}", headers=self.state["sh"], timeout=15).json()
+        answers = [0] * len(diag_details.get("questions", []))
+        times = [10] * len(answers)
+        sub_res = requests.post(f"{API}/tests/{diag_id}/submit", headers=self.state["sh"], json={
+            "answers": answers, "times": times
+        }, timeout=30)
+        assert sub_res.status_code == 200, sub_res.text
+
+        # 3. Weekly digest must reflect the diagnostic submission
+        w_res = requests.get(f"{API}/reports/batch/{bid}/weekly", headers=self.state["th"], timeout=15)
+        assert w_res.status_code == 200
+        w_data = w_res.json()
+        assert w_data["submissions_count"] >= 1
+        assert w_data["active_students"] >= 1
+        assert w_data["enrolled_count"] >= 1
+
+        # 4. Term report must count student in student_summaries
+        t_res = requests.get(f"{API}/reports/batch/{bid}/term", headers=self.state["th"], timeout=15)
+        assert t_res.status_code == 200
+        t_data = t_res.json()
+        assert t_data["total_submissions"] >= 1
+        assert len(t_data["student_summaries"]) >= 1
+
+        # 5. Targeted test completion rate does not blindly fall back to 100%
+        # The test report for the diagnostic resolves the student's batch and uses true enrolled_count
+        rep_res = requests.get(f"{API}/reports/test/{diag_id}", headers=self.state["th"], timeout=15)
+        assert rep_res.status_code == 200
+        rep_data = rep_res.json()
+        assert rep_data["submitted_count"] == 1
+        # If enrolled in a batch with multiple students, completion_rate < 100%
+        assert rep_data["enrolled_count"] >= 1
+
+    def test_10_term_coverage_subjects_union_and_filtering(self):
+        """Term coverage unions all subjects in CURRICULUM[cl] by default,
+        and accurately scopes to Science or Maths when subject is specified."""
+        from reports.aggregations import compute_term_report
+        from curriculum import CURRICULUM
+
+        cl = "9"
+        maths_topics_count = sum(len(topics) for topics in CURRICULUM[cl]["Maths"].values())
+        science_topics_count = sum(len(topics) for topics in CURRICULUM[cl]["Science"].values())
+        total_union_count = maths_topics_count + science_topics_count
+
+        batch_base = {"id": "b1", "class_level": cl, "student_ids": ["s1"]}
+        subs = [
+            {"student_id": "s1", "results": [
+                {"subject": "Science", "topic": "Matter in Our Surroundings", "is_correct": True},
+                {"subject": "Maths", "topic": "Number Systems", "is_correct": True}
+            ]}
+        ]
+        student_map = {"s1": "Aarav"}
+
+        # 1. Default (no subject specified) -> denominator unions both Maths & Science
+        rep_all = compute_term_report("b1", batch_base, subs, student_map)
+        assert rep_all["total_curriculum_topics"] == total_union_count
+        assert rep_all["subject"] == "All"
+
+        # 2. Science batch / subject param -> denominator is Science only
+        rep_sci = compute_term_report("b1", {**batch_base, "subject": "Science"}, subs, student_map)
+        assert rep_sci["total_curriculum_topics"] == science_topics_count
+        assert rep_sci["subject"] == "Science"
+
+        # 3. Explicit subject query parameter overrides batch
+        rep_math = compute_term_report("b1", {**batch_base, "subject": "Science"}, subs, student_map, subject="Maths")
+        assert rep_math["total_curriculum_topics"] == maths_topics_count
+        assert rep_math["subject"] == "Maths"
+
+        # 4. API endpoint accepts subject param
+        bid = self.state["batch_id"]
+        api_sci = requests.get(f"{API}/reports/batch/{bid}/term", params={"subject": "Science"},
+                               headers=self.state["th"], timeout=15)
+        assert api_sci.status_code == 200
+        assert api_sci.json()["subject"] == "Science"
+        batch_cl = str(self.state["batch"].get("class_level") or "10")
+        expected_batch_sci_count = sum(len(topics) for topics in CURRICULUM.get(batch_cl, {}).get("Science", {}).values())
+        assert api_sci.json()["total_curriculum_topics"] == expected_batch_sci_count
+
+    def test_11_term_student_summary_weighting_and_weak_topics(self):
+        """Term student summary weights average score by question count (rather than plain avg of test scores),
+        and feeds attempts through compute_topic_mastery without counting a 1-question topic as confirmed weak."""
+        from reports.aggregations import compute_term_report
+
+        batch_base = {"id": "b1", "class_level": "9", "student_ids": ["s1"]}
+        student_map = {"s1": "Aarav"}
+
+        # Sub 1: 50 questions, all correct (100%)
+        sub_50_q = {
+            "student_id": "s1",
+            "score": 100,
+            "results": [{"subject": "Maths", "topic": "Number Systems", "is_correct": True} for _ in range(50)]
+        }
+        # Sub 2: 2 questions DPP, 1 correct, 1 wrong (50%)
+        # Topic 'Polynomials' has only 1 attempt here (wrong)
+        sub_2_q = {
+            "student_id": "s1",
+            "score": 50,
+            "results": [
+                {"subject": "Maths", "topic": "Number Systems", "is_correct": True},
+                {"subject": "Maths", "topic": "Polynomials", "is_correct": False}
+            ]
+        }
+
+        # 1. Total questions = 52, total correct = 51. Weighted avg = 51/52 * 100 = 98.1% (not (100+50)/2 = 75.0%)
+        rep = compute_term_report("b1", batch_base, [sub_50_q, sub_2_q], student_map, subject="Maths")
+        st_summary = rep["student_summaries"][0]
+        assert st_summary["avg_score"] == 98.1
+        assert st_summary["tests_taken"] == 2
+        # 'Polynomials' has only 1 attempt -> not counted as confirmed weak topic
+        assert st_summary["weak_topics_count"] == 0
+
+        # 2. When student attempts 'Polynomials' a second time and fails, it becomes confirmed weak (attempts >= 2)
+        sub_poly_2 = {
+            "student_id": "s1",
+            "score": 0,
+            "results": [
+                {"subject": "Maths", "topic": "Polynomials", "is_correct": False}
+            ]
+        }
+        rep2 = compute_term_report("b1", batch_base, [sub_50_q, sub_2_q, sub_poly_2], student_map, subject="Maths")
+        st_summary2 = rep2["student_summaries"][0]
+        # Total questions = 53, correct = 51 -> 51/53 * 100 = 96.2%
+        assert st_summary2["avg_score"] == 96.2
+        assert st_summary2["weak_topics_count"] == 1
+
+

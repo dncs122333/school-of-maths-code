@@ -35,7 +35,8 @@ from auth import (hash_password, verify_password, create_access_token, get_curre
 from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
 from lib.mastery import (compute_topic_mastery, round_half_up, band,
-                         get_ingestion_quality_summary, _extract_syllabus_topics)
+                         get_ingestion_quality_summary, _extract_syllabus_topics,
+                         compute_unattempted_summary)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
@@ -3049,7 +3050,7 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
 
 
 @api_router.get("/mastery/me")
-async def my_mastery(user: dict = Depends(require_role("student"))):
+async def my_mastery(full: bool = False, format: str = None, user: dict = Depends(require_role("student"))):
     subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).to_list(2000)
     class_levels = []
     if user.get("class_level"):
@@ -3059,7 +3060,26 @@ async def my_mastery(user: dict = Depends(require_role("student"))):
             if b.get("class_level") and b["class_level"] not in class_levels:
                 class_levels.append(b["class_level"])
     cl = class_levels if class_levels else None
-    return compute_topic_mastery(_flatten_attempts(subs), class_level=cl)
+
+    attempts = _flatten_attempts(subs)
+    s_topics = _extract_syllabus_topics(class_level=cl)
+    attempted_topics = compute_topic_mastery(attempts, class_level=cl, syllabus=s_topics, include_unattempted=False)
+    summary_data = compute_unattempted_summary(attempted_topics, syllabus=s_topics)
+
+    if full:
+        topics = compute_topic_mastery(attempts, class_level=cl, syllabus=s_topics, include_unattempted=True)
+    else:
+        topics = attempted_topics
+
+    if format == "flat":
+        return topics
+
+    return {
+        "topics": topics,
+        "not_attempted_by_chapter": summary_data["not_attempted_by_chapter"],
+        "summary": summary_data["summary"],
+        "is_full": full,
+    }
 
 
 @api_router.get("/mastery/teacher")
@@ -3076,7 +3096,8 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
                  "is_blocked": (batch_id in s.get("blocked_batch_ids", [])) or bool(s.get("is_blocked", False))} for s in students_raw]
     student_ids = [s["id"] for s in students]
 
-    batch_test_ids = [t["id"] async for t in db.tests.find({"batch_id": batch_id}, {"id": 1})]
+    test_q = {"$or": [{"batch_id": batch_id}, {"student_id": {"$in": student_ids}}]} if student_ids else {"batch_id": batch_id}
+    batch_test_ids = [t["id"] async for t in db.tests.find(test_q, {"id": 1})]
     sub_query = {"student_id": {"$in": student_ids}}
     if batch_test_ids:
         sub_query["$or"] = [{"batch_id": batch_id}, {"test_id": {"$in": batch_test_ids}}]
@@ -3325,8 +3346,10 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     if not student_map:
         return {"topper": None}
 
-    batch_test_ids = [t["id"] async for t in db.tests.find({"batch_id": batch_id}, {"id": 1})]
-    sub_query = {"student_id": {"$in": list(student_map.keys())}}
+    s_keys = list(student_map.keys())
+    test_q = {"$or": [{"batch_id": batch_id}, {"student_id": {"$in": s_keys}}]} if s_keys else {"batch_id": batch_id}
+    batch_test_ids = [t["id"] async for t in db.tests.find(test_q, {"id": 1})]
+    sub_query = {"student_id": {"$in": s_keys}}
     if batch_test_ids:
         sub_query["$or"] = [{"batch_id": batch_id}, {"test_id": {"$in": batch_test_ids}}]
     else:

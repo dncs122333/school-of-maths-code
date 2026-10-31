@@ -4,10 +4,10 @@ import statistics
 from typing import Dict, List, Optional, Any
 
 try:
-    from lib.mastery import round_half_up, band
+    from lib.mastery import round_half_up, band, compute_topic_mastery
     from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title
 except ImportError:
-    from ..lib.mastery import round_half_up, band
+    from ..lib.mastery import round_half_up, band, compute_topic_mastery
     from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title
 
 
@@ -129,7 +129,11 @@ def compute_test_analytics(
         times_for_q = q_times_map.get(i, [])
         avg_q_time = round_half_up(sum(times_for_q) / len(times_for_q), 1) if times_for_q else 0.0
 
-        is_pace_outlier = bool(avg_q_time > max(30.0, benchmark_median_time * 2.5))
+        # Pace outlier: question took unusually long (>2.5x benchmark) AND has low discrimination (<0.20 or N/A).
+        # When discrimination is high (>=0.20), it represents a demanding, valid hard question rather than a pacing anomaly.
+        is_slow = bool(avg_q_time > max(30.0, benchmark_median_time * 2.5))
+        is_low_disc = (d_val is None or d_val < 0.20)
+        is_pace_outlier = bool(is_slow and is_low_disc)
 
         question_analysis.append({
             "index": i + 1,
@@ -183,7 +187,6 @@ def compute_test_analytics(
 
     # Anomaly detection (tab switches & fast submissions)
     anomalies = []
-    min_reasonable_s = max(15.0, float(q_count * 5.0))  # Rushing faster than 5s/q is flagged as rapid
     for s in submissions:
         flag_reasons = []
         tab_switches = s.get("tab_switches", 0)
@@ -192,6 +195,15 @@ def compute_test_analytics(
 
         s_times = s.get("times") or []
         total_time_taken = sum(float(t) for t in s_times if t is not None)
+
+        # Rushing threshold: strong students (>=75%) can genuinely solve questions quickly without rushing;
+        # only flag them if impossibly fast (<2.5s/q). For non-strong students (<75%), <5s/q indicates rushed guessing.
+        student_score = s.get("score", 0)
+        if student_score >= 75:
+            min_reasonable_s = max(6.0, float(q_count * 2.5))
+        else:
+            min_reasonable_s = max(15.0, float(q_count * 5.0))
+
         if total_time_taken < min_reasonable_s:
             flag_reasons.append(f"Unusually rapid submission ({round_half_up(total_time_taken)}s total)")
 
@@ -334,18 +346,36 @@ def compute_term_report(
     batch: Dict[str, Any],
     all_submissions: List[Dict[str, Any]],
     student_map: Dict[str, str],
-    term: Optional[Dict[str, Any]] = None
+    term: Optional[Dict[str, Any]] = None,
+    subject: Optional[str] = None
 ) -> Dict[str, Any]:
     """Computes cumulative term-wise report: coverage of curriculum, student rank matrix, and batch mastery."""
     enrolled_ids = batch.get("student_ids") or []
     cl = str(batch.get("class_level", "9"))
 
-    # Syllabus coverage
-    canonical_syllabus = CURRICULUM.get(cl, {}).get("Maths", {})
+    # Syllabus coverage: union all subjects in CURRICULUM[cl], or filter to target subject
+    target_subject = (subject or batch.get("subject") or "").strip()
+    class_curriculum = CURRICULUM.get(cl, {})
+
     all_curriculum_topics = set()
-    for topics in canonical_syllabus.values():
-        for t in topics:
-            all_curriculum_topics.add(normalize_key(t))
+    if target_subject and target_subject.lower() not in ("all", "both"):
+        matched = False
+        for s_name, chaps in class_curriculum.items():
+            if target_subject.lower() in s_name.lower() or s_name.lower() in target_subject.lower():
+                matched = True
+                for topics in chaps.values():
+                    for t in topics:
+                        all_curriculum_topics.add(normalize_key(t))
+        if not matched:
+            for chaps in class_curriculum.values():
+                for topics in chaps.values():
+                    for t in topics:
+                        all_curriculum_topics.add(normalize_key(t))
+    else:
+        for chaps in class_curriculum.values():
+            for topics in chaps.values():
+                for t in topics:
+                    all_curriculum_topics.add(normalize_key(t))
 
     tested_topics = set()
     for s in all_submissions:
@@ -354,8 +384,9 @@ def compute_term_report(
             if top:
                 tested_topics.add(normalize_key(top))
 
+    covered_topics = tested_topics & all_curriculum_topics
     syllabus_coverage_pct = (
-        round_half_up(len(tested_topics & all_curriculum_topics) / len(all_curriculum_topics) * 100, 1)
+        round_half_up(len(covered_topics) / len(all_curriculum_topics) * 100, 1)
         if all_curriculum_topics else 0.0
     )
 
@@ -363,44 +394,59 @@ def compute_term_report(
     per_student_subs: Dict[str, List[Dict[str, Any]]] = {sid: [] for sid in enrolled_ids}
     for s in all_submissions:
         sid = s.get("student_id")
+        if not sid:
+            continue
         if sid in per_student_subs:
             per_student_subs[sid].append(s)
+        else:
+            per_student_subs[sid] = [s]
 
     student_summaries = []
     for sid, s_list in per_student_subs.items():
         name = student_map.get(sid, "Student")
         tests_taken = len(s_list)
-        scores = [sub.get("score", 0) for sub in s_list]
-        avg_score = round_half_up(sum(scores) / len(scores), 1) if scores else 0.0
 
-        # Topic breakdown for this student
-        s_top_map: Dict[str, Dict[str, int]] = {}
+        # 1. Question-weighted average score (weights a 50-q test higher than a 2-q DPP)
+        total_q = 0
+        total_corr = 0.0
+        student_attempts = []
         for sub in s_list:
-            for r in (sub.get("results") or []):
-                t_name = r.get("topic") or "General"
-                k = normalize_key(t_name)
-                if k not in s_top_map:
-                    s_top_map[k] = {"correct": 0, "total": 0}
-                s_top_map[k]["total"] += 1
-                if r.get("is_correct"):
-                    s_top_map[k]["correct"] += 1
+            results = sub.get("results") or []
+            sub_created = sub.get("created_at")
+            if results:
+                q_cnt = len(results)
+                q_corr = sum(1 for r in results if r.get("is_correct"))
+                for r in results:
+                    student_attempts.append({**r, "created_at": sub_created})
+            elif sub.get("total") is not None:
+                q_cnt = int(sub.get("total") or 0)
+                q_corr = float(sub.get("correct", 0))
+            else:
+                q_cnt = 1
+                q_corr = float(sub.get("score", 0)) / 100.0
+            total_q += q_cnt
+            total_corr += q_corr
 
-        weak_count = 0
-        strong_count = 0
-        for v in s_top_map.values():
-            acc = round_half_up(v["correct"] / v["total"] * 100) if v["total"] else 0
-            b = band(acc, v["total"])
-            if b == "weak":
-                weak_count += 1
-            elif b == "strong":
-                strong_count += 1
+        avg_score = round_half_up((total_corr / total_q) * 100, 1) if total_q else 0.0
+
+        # 2. Feed student attempts through compute_topic_mastery (single source of truth)
+        active_mastery = compute_topic_mastery(
+            student_attempts,
+            class_level=cl,
+            subject=target_subject if target_subject and target_subject.lower() not in ("all", "both") else None,
+            include_unattempted=False
+        )
+
+        # Weak topics require at least 2 attempts to confirm weakness (prevents 1-question distortion)
+        weak_count = sum(1 for t in active_mastery if t.get("band") == "weak" and t.get("attempts", 0) >= 2)
+        strong_count = sum(1 for t in active_mastery if t.get("band") == "strong" and t.get("attempts", 0) >= 2)
 
         student_summaries.append({
             "student_id": sid,
             "name": name,
             "tests_taken": tests_taken,
             "avg_score": avg_score,
-            "overall_band": band(avg_score, tests_taken),
+            "overall_band": band(avg_score, total_q),
             "weak_topics_count": weak_count,
             "strong_topics_count": strong_count
         })
@@ -414,11 +460,12 @@ def compute_term_report(
         "batch_id": batch_id,
         "batch_name": batch.get("name", "Batch"),
         "class_level": cl,
+        "subject": target_subject or "All",
         "term_name": term.get("name", "Academic Term") if term else "All-Time Academic Overview",
         "total_enrolled": len(enrolled_ids),
         "total_submissions": len(all_submissions),
         "syllabus_coverage_pct": syllabus_coverage_pct,
-        "covered_topics_count": len(tested_topics & all_curriculum_topics),
+        "covered_topics_count": len(covered_topics),
         "total_curriculum_topics": len(all_curriculum_topics),
         "student_summaries": student_summaries
     }

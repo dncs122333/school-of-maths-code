@@ -131,8 +131,9 @@ class TestTopicNormalization:
         mastery_r = requests.get(f"{API}/mastery/me", headers=self.state["sh"], timeout=15)
         assert mastery_r.status_code == 200
         mastery = mastery_r.json()
-        assert len(mastery) > 0
-        for entry in mastery:
+        topics = mastery["topics"] if isinstance(mastery, dict) else mastery
+        assert len(topics) > 0
+        for entry in topics:
             # Subject and chapter must not be blank strings
             assert entry["subject"].strip() != "", f"Found blank subject in mastery entry: {entry}"
             assert entry["chapter"].strip() != "", f"Found blank chapter in mastery entry: {entry}"
@@ -308,6 +309,43 @@ class TestTopicNormalization:
         # Batch-level weak_topics retains batch-level syllabus union
         assert "weak_topics" in data
         assert isinstance(data["weak_topics"], list)
+
+    def test_09_student_mastery_me_payload_bloat_prevention(self):
+        """GET /mastery/me returns only attempted topics + summary counts by default,
+        and lazy-loads the full syllabus radar when full=true."""
+        from lib.mastery import compute_topic_mastery, compute_unattempted_summary
+
+        attempts = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": True, "time_s": 45, "created_at": "2026-10-31T10:00:00Z"},
+        ]
+        # Unit test compute_topic_mastery with include_unattempted=False
+        attempted_only = compute_topic_mastery(attempts, class_level="10", include_unattempted=False)
+        assert len(attempted_only) == 1
+        assert attempted_only[0]["topic"] == "Fundamental Theorem of Arithmetic"
+
+        summary = compute_unattempted_summary(attempted_only, class_level="10")
+        assert summary["summary"]["attempted_count"] == 1
+        assert summary["summary"]["not_attempted_count"] > 100
+        assert "Real Numbers" in summary["not_attempted_by_chapter"]
+
+        # API integration test
+        res_default = requests.get(f"{API}/mastery/me", headers=self.state["sh"], timeout=15)
+        assert res_default.status_code == 200
+        data_default = res_default.json()
+        assert data_default["is_full"] is False
+        assert "not_attempted_by_chapter" in data_default
+        assert "summary" in data_default
+        for t in data_default["topics"]:
+            assert t["attempts"] > 0
+            assert t["band"] != "not_attempted"
+
+        # Lazy-loaded full radar
+        res_full = requests.get(f"{API}/mastery/me?full=true", headers=self.state["sh"], timeout=15)
+        assert res_full.status_code == 200
+        data_full = res_full.json()
+        assert data_full["is_full"] is True
+        assert len(data_full["topics"]) > len(data_default["topics"])
 
 
 
