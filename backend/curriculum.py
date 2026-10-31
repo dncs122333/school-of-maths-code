@@ -475,9 +475,8 @@ def normalize_taxonomy(class_level: Any, subject: Any, chapter: Any,
         if not chap and inferred_chap:
             chap = inferred_chap
 
-    # Default subject fallback if still missing
-    if not subj:
-        subj = "Maths"
+    # Do not silently default missing subject to "Maths" — leave empty so ingestion can be fixed,
+    # rather than polluting the Maths curriculum and mastery map with unclassified questions.
 
     # Match chapter against curriculum to standardize casing
     chap_norm = normalize_key(chap)

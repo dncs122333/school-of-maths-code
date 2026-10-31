@@ -38,8 +38,10 @@ from lib.mastery import compute_topic_mastery, round_half_up, band
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
+from reports.router import router as reports_router
 
 app = FastAPI()
+api_router.include_router(reports_router)
 
 _DATA_SOURCE_STATUS_PATH = "/api/admin/data-source-status"
 
@@ -2899,9 +2901,9 @@ async def get_questions_hierarchy(user: dict = Depends(get_current_user)):
     hierarchy = {}
     async for doc in cursor:
         cl = doc["_id"].get("class_level")
-        subj = doc["_id"].get("subject")
-        chap = doc["_id"].get("chapter")
-        if not cl or not subj or not chap:
+        subj = (doc["_id"].get("subject") or "").strip() or "Unknown"
+        chap = (doc["_id"].get("chapter") or "").strip() or "General"
+        if not cl:
             continue
         all_topics = set()
         for t in doc.get("topics", []):
@@ -2934,7 +2936,10 @@ async def list_questions(class_level: Optional[str] = None, subject: Optional[st
     if class_level:
         q["class_level"] = _normalize_class(class_level)
     if subject:
-        q["subject"] = {"$regex": f"^{re.escape(subject.strip())}$", "$options": "i"}
+        if subject.strip().lower() in ("unknown", ""):
+            q["$or"] = [{"subject": ""}, {"subject": None}, {"subject": {"$regex": "^unknown$", "$options": "i"}}]
+        else:
+            q["subject"] = {"$regex": f"^{re.escape(subject.strip())}$", "$options": "i"}
     if chapters:
         chaps_list = [c.strip() for c in chapters.split(",") if c.strip()]
         if len(chaps_list) == 1:

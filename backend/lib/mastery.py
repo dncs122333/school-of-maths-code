@@ -162,7 +162,11 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
             if not chap and inferred_chap:
                 chap = inferred_chap
             if not subj:
-                subj = "Maths"
+                subj = "Unknown"
+
+        # If a specific subject is requested, do not pollute with other or unknown subjects
+        if subject and normalize_key(subj) != normalize_key(subject):
+            continue
 
         key = (normalize_key(subj), normalize_key(chap), normalize_key(top))
 
@@ -172,8 +176,8 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
             display_chap = s_lookup[key]["chapter"]
             display_top = s_lookup[key]["topic"]
         else:
-            display_subj = subj
-            display_chap = chap
+            display_subj = subj or "Unknown"
+            display_chap = chap or "General"
             display_top = canonicalize_topic_title(top)
 
         g = groups.setdefault(key, {

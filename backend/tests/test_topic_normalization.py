@@ -185,3 +185,65 @@ class TestTopicNormalization:
         assert entry["score"] == 55, f"Expected 55, got {entry['score']}"
         assert entry["band"] == "developing", f"Expected developing, got {entry['band']}"
 
+    def test_06_unclassified_subject_does_not_pollute_maths(self):
+        """A question failing curriculum inference leaves subject empty, fails silent ingestion,
+        and does NOT pollute Maths mastery map."""
+        from curriculum import normalize_taxonomy
+        from lib.mastery import compute_topic_mastery
+
+        # 1. normalize_taxonomy does not silently inject 'Maths'
+        cl, subj, chap, top, _ = normalize_taxonomy("9", "", "Custom Quantum Optics", "Photonic Entanglement", [])
+        assert subj == "", f"Expected empty subject for un-inferred topic, got '{subj}'"
+        assert chap == "Custom Quantum Optics"
+        assert top == "Photonic Entanglement"
+
+        # 2. Ingestion exposes error instead of silently filing under Maths
+        tag = uuid.uuid4().hex[:6]
+        payload = {
+            "class_level": "9",
+            # subject omitted
+            "chapter": f"CustomScience_{tag}",
+            "questions": [
+                {
+                    "question": f"What is Planck constant in quantum optics ({tag})?",
+                    "options": ["6.626e-34", "3.00e8", "1.60e-19", "9.81"],
+                    "correct_answer": "6.626e-34",
+                    "topic": "Quantum Constants",
+                    "difficulty": "medium"
+                }
+            ]
+        }
+        r = requests.post(f"{API}/questions/import-json", headers=self.state["th"], json=payload, timeout=20)
+        assert r.status_code == 200, r.text
+        res = r.json()
+        assert res["imported"] == 0, "Question with missing subject should not be imported silently"
+        assert len(res["errors"]) > 0
+        assert any("missing subject" in err.get("problems", []) for err in res["errors"])
+
+        # Verify it was NOT filed under Maths in question bank
+        q_check = requests.get(f"{API}/questions?subject=Maths&chapter=CustomScience_{tag}",
+                               headers=self.state["th"], timeout=15).json()
+        assert len(q_check) == 0, "Corrupted question was found under Maths!"
+
+        # 3. compute_topic_mastery: unclassified attempt is tagged 'Unknown' and does not pollute Maths
+        attempts = [
+            # One valid Maths attempt
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Euclid Division Lemma",
+             "is_correct": True, "difficulty": "easy", "time_s": 15},
+            # One unclassified attempt with no subject tag and custom non-curriculum topic
+            {"subject": "", "chapter": f"CustomScience_{tag}", "topic": "Quantum Constants",
+             "is_correct": False, "difficulty": "hard", "time_s": 45}
+        ]
+
+        # When filtered specifically for 'Maths':
+        maths_mastery = compute_topic_mastery(attempts, class_level="9", subject="Maths")
+        maths_topics = [m["topic"] for m in maths_mastery]
+        assert "Quantum Constants" not in maths_topics, "Unclassified question polluted Maths mastery map!"
+
+        # When unfiltered:
+        all_mastery = compute_topic_mastery(attempts, class_level="9")
+        unknown_entry = next((m for m in all_mastery if m["topic"] == "Quantum Constants"), None)
+        assert unknown_entry is not None, "Unknown topic should be exposed in general mastery list"
+        assert unknown_entry["subject"] == "Unknown", f"Expected subject 'Unknown', got '{unknown_entry['subject']}'"
+
+
