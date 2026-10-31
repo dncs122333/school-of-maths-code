@@ -16,13 +16,19 @@ This guide covers running the app locally on your machine during development.
 
 ### backend/.env
 ```env
-MONGO_URL="mongodb+srv://dncs122333_db_user:6Tci8xfr2euAGJsa@learning.gmqg1hr.mongodb.net/?retryWrites=true&w=majority&appName=learning"
+MONGO_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority"
 DB_NAME="test_database"
 CORS_ORIGINS="*"
 JWT_SECRET="dev_secret_key_1234567890"
 ADMIN_EMAIL="admin@vidya.com"
 ADMIN_PASSWORD="admin123"
-EMERGENT_LLM_KEY=""
+# Optional: Cloudflare R2 / S3-compatible storage for uploads.
+# Leave unset to store files on local disk in backend/local_storage/.
+S3_ENDPOINT_URL=""          # e.g. https://<account_id>.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=""
+S3_SECRET_ACCESS_KEY=""
+S3_BUCKET=""
+S3_REGION="auto"
 ENABLE_WATERMARKING="false"
 ```
 

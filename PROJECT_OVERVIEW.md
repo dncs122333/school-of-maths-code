@@ -77,8 +77,8 @@
 | Frontend | React 19, React Router, Tailwind CSS, shadcn/ui, Framer Motion, lucide-react, sonner (toasts), axios |
 | Backend | FastAPI (Python), Motor (async MongoDB), Pydantic, PyJWT, bcrypt |
 | Database | MongoDB (standalone local binary on macOS or Atlas) |
-| AI | Gemini **3.1 Pro** (text) + **Nano Banana** image model, via the **Emergent Universal LLM key** (`emergentintegrations`) |
-| Storage | Emergent Object Storage (AI images + uploaded materials) |
+| AI | Gemini, called directly with the teacher's own API key (MCQ extraction from uploaded papers) |
+| Storage | Cloudflare R2 via boto3 (S3-compatible), falling back to local disk when `S3_*` is unset |
 | File parsing | `pypdf` (PDF), `python-docx` (DOCX), plain text |
 
 ### 2.2 Architecture

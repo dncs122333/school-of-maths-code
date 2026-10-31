@@ -70,8 +70,27 @@ If your student community grows beyond **1,000 daily active students** or more t
    JWT_SECRET=<generate_a_random_32_char_secret>
    CORS_ORIGINS=https://your-frontend.vercel.app
    ADMIN_EMAIL=admin@vidya.com
+   S3_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
+   S3_ACCESS_KEY_ID=<r2_access_key_id>
+   S3_SECRET_ACCESS_KEY=<r2_secret_access_key>
+   S3_BUCKET=school-of-maths-files
+   S3_REGION=auto
    ```
+   *(Render's free-tier disk is wiped on every deploy and restart, so set the `S3_*` variables from
+   [Step 2b](#step-2b-create-cloudflare-r2-storage). Without them, uploaded class notes are stored on local disk and lost.)*
 6. Click **Create Web Service**. Note your backend public URL (e.g. `https://school-of-maths-api.onrender.com`).
+
+---
+
+### Step 2b: Create Cloudflare R2 Storage
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com), open **R2 Object Storage** and click **Create bucket**
+   (e.g. `school-of-maths-files`). Keep it private: files are served through the backend's authenticated download routes.
+2. Note your **Account ID** from the R2 overview page. The S3 endpoint is `https://<account_id>.r2.cloudflarestorage.com`.
+3. Go to **R2 → Manage R2 API Tokens → Create API token**, choose **Object Read & Write**, and scope it to the bucket.
+4. Copy the **Access Key ID** and **Secret Access Key** into the Render environment variables above.
+5. After deploying, the backend log should show `Object storage: S3 bucket '<bucket>' at <endpoint>` followed by
+   `Storage initialized`. A `Storage init failed` line means the endpoint, keys or bucket name are wrong.
 
 ---
 

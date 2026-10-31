@@ -25,15 +25,15 @@ from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger, EMERGENT_KEY, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE
+from config import logger, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
 from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, CreateNoteInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
                   require_claim_role, user_from_token)
-from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
-                extract_text_from_file, llm_generate_notes, extract_questions_from_media)
+from ai import extract_text_from_file, extract_questions_from_media
+from storage import init_storage, put_object, get_object, delete_object
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
                          compute_unattempted_summary, is_answered, apply_batch_confirmation)

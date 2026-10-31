@@ -24,7 +24,8 @@ The architecture is deliberately **small and monolithic**:
 - **One Python process** (`backend/server.py`) serves the entire REST API.
 - **One MongoDB database** holds all state (no separate cache or queue in the MVP).
 - **One React SPA** (`frontend/`) is the only client.
-- **Two external services**: Emergent Object Storage (files) and Gemini (AI notes / drafting).
+- **Two external services**: Cloudflare R2 object storage (files; local disk when unconfigured) and Gemini
+  (MCQ extraction from uploaded papers, using the teacher's own API key).
 
 There is **no** microservice layer, **no** Redis, **no** PostgreSQL, **no** message queue, and
 **no** payment/monetization in the MVP (all explicitly deferred in SPEC v3.0 §8).
@@ -53,13 +54,13 @@ flowchart LR
   end
 
   subgraph Ext["External services"]
-    OBJ["Emergent Object Storage<br/>(objstore API)"]
-    GEM["Gemini<br/>(3.1 Pro + 3.1 Flash)"]
+    OBJ["Cloudflare R2<br/>(S3 API via boto3)"]
+    GEM["Gemini<br/>(generateContent REST)"]
   end
 
   SPA -->|"HTTPS + JSON<br/>Bearer JWT"| HTTP
   HTTP --> MDB
-  HTTP -->|"init / put / get object"| OBJ
+  HTTP -->|"put / get / delete object"| OBJ
   HTTP -->|"notes + MCQ draft + images"| GEM
 ```
 
@@ -88,8 +89,7 @@ and/or object storage / Gemini → JSON response.
 | Env config | python-dotenv | 1.2.2 |
 | Multipart uploads | python-multipart | 0.0.32 |
 | PDF / DOCX text extraction | pypdf / python-docx | 6.16.1 / 1.2.0 |
-| Platform AI/storage SDK | emergentintegrations | 0.2.0 |
-| Gemini SDK | google-genai / google-generativeai | 2.18.1 / 0.8.6 |
+| Object storage SDK | boto3 (S3-compatible, Cloudflare R2) | 1.43.72 |
 | Tests | pytest + pytest-xdist | 9.1.1 / 3.8.0 |
 
 ### 3.2 Frontend (`frontend/`)
@@ -115,15 +115,14 @@ and/or object storage / Gemini → JSON response.
 
 - **MongoDB** (single deployment; Motor async access). Collections: `users`, `batches`, `notes`,
   `resources`, `tests`, `submissions`, `question_bank`.
-- **Emergent Object Storage** — S3-like object store reached via
-  `{INTEGRATION_PROXY_URL|https://integrations.emergentagent.com}/objstore/api/v1/storage` using an
-  `X-Storage-Key` header (`init` → `put`/`get`). Used for note concept images and uploaded materials.
+- **Object storage** (`backend/storage.py`) — Cloudflare R2 through boto3's S3 client when
+  `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_BUCKET` are set; otherwise local disk
+  under `backend/local_storage/`. Used for uploaded materials.
 
 ### 3.4 AI
 
-- **Gemini 3.1 Pro** (`gemini-3.1-pro-preview`, via `emergentintegrations.llm.chat.LlmChat`): study-note
-  generation (3-pass) and MCQ drafting.
-- **Gemini 3.1 Flash** (`gemini-3.1-flash-image-preview`): note concept illustrations.
+- **Gemini** (`generativelanguage.googleapis.com` REST, `ai.extract_questions_from_media`): extracts MCQs
+  from an uploaded question paper image/PDF, using the API key the teacher supplies with the request.
 
 ---
 
@@ -276,7 +275,7 @@ generates ≤4 concept images, then sets `status: ready` (or `failed`). A startu
 in `processing` > 20 min as `failed`.
 
 ### 7.3 Materials (no AI)
-Teacher uploads a file → `put_object` to Emergent storage → metadata row in `resources`. Download is
+Teacher uploads a file → `put_object` to object storage (R2 or local disk) → metadata row in `resources`. Download is
 bearer-authenticated (`user_from_token`) and role-checked (admin / owner teacher / batch student).
 
 ### 7.4 Timed test
@@ -309,10 +308,10 @@ explanation-vs-key `Option X` mismatch is detected).
 | `MONGO_URL` | yes | MongoDB connection string |
 | `DB_NAME` | yes | database name |
 | `JWT_SECRET` | yes | HS256 signing secret |
-| `EMERGENT_LLM_KEY` | AI features | Gemini + storage auth |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | no (defaults) | seeded admin (`admin@vidya.com` / `admin123`) |
 | `CORS_ORIGINS` | no (default `*`) | allowed origins |
-| `INTEGRATION_PROXY_URL` | no | object-storage base URL |
+| `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | no (local disk if unset) | Cloudflare R2 / S3-compatible storage |
+| `S3_REGION` | no (default `auto`) | S3 region (`auto` for R2) |
 
 ### 8.2 Auth & authorization
 - Passwords hashed with **bcrypt**; JWTs are **HS256**, 7-day expiry.

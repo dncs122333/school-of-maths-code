@@ -12,5 +12,4 @@
 //   3. Re-export here: `export * from './<feature>';`
 
 export * from './auth';
-export * from './home';
 export * from './dataSource';

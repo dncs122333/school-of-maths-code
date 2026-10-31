@@ -22,8 +22,8 @@ A coaching-center platform for **CBSE Classes 9–10**. Teachers create batches,
 | Backend | FastAPI · Motor (MongoDB) · Pydantic · bcrypt · PyJWT |
 | Frontend | React 19 · Tailwind CSS · shadcn/ui · react-router · axios |
 | Database | MongoDB |
-| Files | Emergent Object Storage |
-| AI | Gemini 3.1 Pro (notes/MCQ) · Gemini 3.1 Flash (images) |
+| Files | Cloudflare R2 (S3-compatible) or local disk |
+| AI | Gemini (MCQ extraction from uploaded papers, teacher-supplied key) |
 
 ## Architecture & docs
 

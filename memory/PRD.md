@@ -6,8 +6,8 @@ Build an EdTech platform for CBSE Class 9 & 10 students with notes, DPP, and tim
 ## Architecture
 - **Frontend**: React 19, Tailwind, Shadcn UI, Framer Motion. JWT stored in localStorage (`vidya_token`), Bearer header via axios interceptor.
 - **Backend**: FastAPI + MongoDB (motor). All routes under `/api`.
-- **AI**: Gemini 3.1 Pro (note & MCQ generation) + Gemini Nano Banana (concept images) via Emergent Universal LLM key.
-- **Storage**: Emergent Object Storage for AI-generated concept images, served via `/api/media/{path}`.
+- **AI**: Gemini, called directly with the teacher's own API key, for MCQ extraction from uploaded papers.
+- **Storage**: Cloudflare R2 (S3-compatible, `backend/storage.py`) or local disk when `S3_*` is unset; served via `/api/media/{path}` and resource downloads.
 
 ## User Personas
 - **Teacher**: creates batches, uploads notes/test sheets, launches timed tests & DPPs.

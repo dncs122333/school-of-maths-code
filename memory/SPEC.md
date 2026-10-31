@@ -13,7 +13,7 @@ Public URL: https://correct-docs-preview.preview.emergentagent.com
   `config.py`, `lib/mastery.py`.
 - `frontend/` — CRA on :3000 (supervisor `frontend`, `yarn dev` → `craco start`).
 - `mongodb` — in-pod process may exist but is not an application data source. `backend/.env`: Atlas-only `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `JWT_SECRET`.
-- Object storage falls back to `backend/local_storage/` when `EMERGENT_LLM_KEY` is absent.
+- Object storage uses Cloudflare R2 when the `S3_*` variables are set, and falls back to `backend/local_storage/` otherwise.
 
 ### API base (changed in this session)
 `frontend/src/lib/api.js` uses a **relative** `/api` base (empty `REACT_APP_BACKEND_URL`), proxied

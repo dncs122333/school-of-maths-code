@@ -34,13 +34,19 @@ yarn start
 
 ### Backend Configuration (`backend/.env`)
 ```env
-MONGO_URL="mongodb+srv://dncs122333_db_user:6Tci8xfr2euAGJsa@learning.gmqg1hr.mongodb.net/?retryWrites=true&w=majority&appName=learning"
+MONGO_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority"
 DB_NAME="test_database"
 CORS_ORIGINS="*"
 JWT_SECRET="dev_secret_key_1234567890"
 ADMIN_EMAIL="admin@vidya.com"
 ADMIN_PASSWORD="admin123"
-EMERGENT_LLM_KEY=""
+# Optional: Cloudflare R2 / S3-compatible storage for uploads.
+# Leave unset to store files on local disk in backend/local_storage/.
+S3_ENDPOINT_URL=""          # e.g. https://<account_id>.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=""
+S3_SECRET_ACCESS_KEY=""
+S3_BUCKET=""
+S3_REGION="auto"
 ```
 
 ### Frontend Configuration (`frontend/.env`)
@@ -62,8 +68,8 @@ Created automatically on startup from `backend/.env`:
 - **Frontend:** React 19, Tailwind CSS, shadcn/ui, Framer Motion, Axios (Port 3000)
 - **Backend:** Python FastAPI, Motor (Async MongoDB driver), PyJWT, bcrypt, pypdf, python-docx (Port 8001)
 - **Database:** MongoDB Atlas (Cloud)
-- **AI / LLM:** Gemini 3.1 Pro (via Emergent Universal LLM API)
-- **Object Storage:** Emergent Object Storage proxy (for concept images and uploaded batch files)
+- **AI / LLM:** Gemini (question extraction from uploaded papers, using the teacher's own Gemini API key)
+- **Object Storage:** Cloudflare R2 (S3-compatible) when `S3_*` is set, otherwise local disk (`backend/local_storage/`)
 
 ### System Flow & Lifecycle
 1. **Client-Server Communication:** React frontend calls `/api/*` on the FastAPI server with Axios.
