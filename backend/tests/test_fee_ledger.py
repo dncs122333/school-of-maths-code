@@ -706,3 +706,80 @@ class TestFeeLedger:
         stored = r.json()["fee_schedule"]
         assert all(item["amount"] == 1000.01 for item in stored)
         assert all(item.get("year") for item in stored)
+
+
+class TestFeeAuditAndArchive:
+    @classmethod
+    def setup_class(cls):
+        cls.teacher = _register_user("Audit Teacher", "teacher")
+        r = requests.post(f"{API}/batches", json={"name": "Audit Batch", "class_level": "10", "fee_amount": 60000},
+                          headers=cls.teacher["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        cls.batch = r.json()
+
+    def _join(self, student, code=None):
+        return requests.post(f"{API}/batches/join", json={"code": code or self.batch["code"]},
+                             headers=student["headers"], timeout=15)
+
+    def _fee(self, sid, body):
+        r = requests.post(f"{API}/batches/{self.batch['id']}/students/{sid}/fee", json=body,
+                          headers=self.teacher["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_ledger_records_every_change_and_nets_to_paid(self):
+        student = _register_user("Audit Student", "student")
+        assert self._join(student).status_code == 200
+        sid = student["id"]
+
+        self._fee(sid, {"month": "April", "amount": 5000})
+        self._fee(sid, {"mark_as_paid": True})
+        self._fee(sid, {"unmark_month": "October", "reason": "cheque bounced"})
+        final = self._fee(sid, {"paid_fee": 20000})
+
+        r = requests.get(f"{API}/batches/{self.batch['id']}/students/{sid}/fee-history",
+                         headers=self.teacher["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        ledger = r.json()["ledger"]
+        types = [e["type"] for e in ledger]
+        assert types.count("payment") == 2
+        assert "reversal" in types
+        assert any(e.get("reason") == "cheque bounced" for e in ledger)
+        assert all(e.get("by_id") == self.teacher["id"] and e.get("at") for e in ledger)
+        net = sum(e["amount"] for e in ledger if e["type"] in ("payment", "reversal", "adjustment"))
+        assert round(net, 2) == final["paid_fee"] == 20000
+
+    def test_removed_student_keeps_fee_history_on_rejoin(self):
+        student = _register_user("Returning Student", "student")
+        assert self._join(student).status_code == 200
+        sid = student["id"]
+        self._fee(sid, {"months_paid": ["April", "May"]})
+
+        r_rem = requests.delete(f"{API}/batches/{self.batch['id']}/students/{sid}", headers=self.teacher["headers"], timeout=15)
+        assert r_rem.status_code == 200, r_rem.text
+        assert self._join(student).status_code == 200
+
+        r_list = requests.get(f"{API}/batches/{self.batch['id']}/students", headers=self.teacher["headers"], timeout=15)
+        s_data = next(s for s in r_list.json()["students"] if s["id"] == sid)
+        assert s_data["paid_fee"] == 10000
+        assert s_data["paid_months"] == ["April", "May"]
+
+    def test_delete_batch_with_fees_needs_force_and_archives(self):
+        teacher = _register_user("Archiving Teacher", "teacher")
+        batch = requests.post(f"{API}/batches", json={"name": "To Archive", "class_level": "10", "fee_amount": 12000},
+                              headers=teacher["headers"], timeout=15).json()
+        student = _register_user("Archived Batch Student", "student")
+        assert self._join(student, batch["code"]).status_code == 200
+        r_pay = requests.post(f"{API}/batches/{batch['id']}/students/{student['id']}/fee", json={"month": "April", "amount": 1000},
+                              headers=teacher["headers"], timeout=15)
+        assert r_pay.status_code == 200, r_pay.text
+
+        r_del = requests.delete(f"{API}/batches/{batch['id']}", headers=teacher["headers"], timeout=15)
+        assert r_del.status_code == 409, r_del.text
+        r_force = requests.delete(f"{API}/batches/{batch['id']}", params={"force": "true"}, headers=teacher["headers"], timeout=15)
+        assert r_force.status_code == 200, r_force.text
+
+        listed = [b["id"] for b in requests.get(f"{API}/batches", headers=teacher["headers"], timeout=15).json()]
+        assert batch["id"] not in listed
+        assert requests.get(f"{API}/batches/{batch['id']}/students", headers=teacher["headers"], timeout=15).status_code == 404
+        assert self._join(student, batch["code"]).status_code == 404

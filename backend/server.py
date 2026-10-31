@@ -11,6 +11,7 @@ import hashlib
 import random
 import re
 import time
+import copy
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any, Union
@@ -118,6 +119,9 @@ async def catalog():
 
 
 # ------------------------- Batches -------------------------
+# Deleted batches and removed students' fee records are archived (archived_at set), never hard-deleted
+NOT_ARCHIVED = {"archived_at": {"$exists": False}}
+
 DEFAULT_ACADEMIC_MONTHS = [
     "April", "May", "June", "July", "August", "September",
     "October", "November", "December", "January", "February", "March"
@@ -378,6 +382,38 @@ def _derive_fee_allocation(payments: list, schedule: list, unmarked_months: list
     }
 
 
+def _fee_ledger_entries(old_payments: list, new_payments: list, old_total: float, new_total: float,
+                        actor: dict, action: str, reason: str = "") -> list:
+    """Diffs the payment list before/after a write into append-only audit entries. `payments` stays the
+    current net view used for allocation; `ledger` is never rewritten, so every reversal keeps who/when/why.
+    Signed amounts: sum(ledger payment/reversal/adjustment amounts) == current paid_fee."""
+    at = datetime.now(timezone.utc).isoformat()
+    base = {"at": at, "by_id": actor.get("id"), "by_name": actor.get("name"), "action": action, "reason": reason or ""}
+    entries = []
+    if to_paise(old_total) != to_paise(new_total):
+        entries.append({**base, "type": "fee_change", "old_total": float(old_total or 0), "new_total": float(new_total or 0)})
+
+    old_by_id = {p.get("id"): p for p in old_payments}
+    new_ids = set()
+    for p in new_payments:
+        pid = p.get("id")
+        new_ids.add(pid)
+        old = old_by_id.get(pid)
+        if old is None:
+            entries.append({**base, "type": "payment", "payment_id": pid, "amount": from_paise(to_paise(p.get("amount"))),
+                            "month": p.get("month", ""), "date": p.get("date"), "notes": p.get("notes", "")})
+            continue
+        delta = to_paise(p.get("amount")) - to_paise(old.get("amount"))
+        if delta != 0 or (old.get("month") or "") != (p.get("month") or ""):
+            entries.append({**base, "type": "reversal" if delta < 0 else "adjustment", "payment_id": pid,
+                            "amount": from_paise(delta), "month_before": old.get("month", ""), "month_after": p.get("month", "")})
+    for pid, old in old_by_id.items():
+        if pid not in new_ids:
+            entries.append({**base, "type": "reversal", "payment_id": pid, "amount": from_paise(-to_paise(old.get("amount"))),
+                            "month_before": old.get("month", ""), "month_after": None})
+    return entries
+
+
 def _derive_paid_months(payments: list, schedule: list, unmarked_months: list = None) -> list:
     return _derive_fee_allocation(payments, schedule, unmarked_months=unmarked_months)["paid_months"]
 
@@ -507,7 +543,7 @@ async def create_batch(body: BatchInput, user: dict = Depends(require_role("teac
 
 @api_router.put("/batches/{batch_id}")
 async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depends(require_role("teacher", "admin"))):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -563,8 +599,9 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
     if fee_changed:
         new_fee_amount = update_fields["fee_amount"]
         new_schedule = update_fields["fee_schedule"]
-        cursor = db.batch_fees.find({"batch_id": batch_id, "is_custom_fee": {"$ne": True}})
+        cursor = db.batch_fees.find({"batch_id": batch_id, "is_custom_fee": {"$ne": True}, **NOT_ARCHIVED})
         async for r in cursor:
+            ledger_entries = _fee_ledger_entries([], [], r.get("total_fee", 0), new_fee_amount, user, "batch_fee_update")
             payments = r.get("payments", [])
             current_paid_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
             new_fee_paise = to_paise(new_fee_amount)
@@ -585,26 +622,41 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
                     "status": new_status,
                     "paid_months": derived["paid_months"],
                     "updated_at": update_fields["updated_at"]
-                }}
+                }, **({"$push": {"ledger": {"$each": ledger_entries}}} if ledger_entries else {})}
             )
 
-    updated = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    updated = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     return updated
 
 
 @api_router.delete("/batches/{batch_id}")
-async def delete_batch(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    batch = await db.batches.find_one({"id": batch_id})
+async def delete_batch(batch_id: str, force: bool = False, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="You do not own this batch")
 
-    # Delete batch document
-    await db.batches.delete_one({"id": batch_id})
+    collected_paise = 0
+    async for r in db.batch_fees.find({"batch_id": batch_id, **NOT_ARCHIVED}, {"payments": 1}):
+        collected_paise += sum(to_paise(p.get("amount", 0.0)) for p in r.get("payments", []))
+    if collected_paise > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This batch has ₹{from_paise(collected_paise):,.2f} in recorded fee payments. "
+                   f"Deleting archives the batch and its fee records; confirm to continue."
+        )
+
+    # Archive rather than delete so collected-fee history and enrollment survive; the batch disappears from
+    # listings, joins and teacher actions via NOT_ARCHIVED
+    now_iso = datetime.now(timezone.utc).isoformat()
+    affected_ids = [str(u["_id"]) async for u in db.users.find({"batch_ids": batch_id}, {"_id": 1})]
+    await db.batches.update_one(
+        {"id": batch_id},
+        {"$set": {"archived_at": now_iso, "archived_by": user["id"], "archived_student_ids": affected_ids}}
+    )
 
     # Remove batch_id from all enrolled students, then re-derive their lockout flags
-    affected_ids = [str(u["_id"]) async for u in db.users.find({"batch_ids": batch_id}, {"_id": 1})]
     await db.users.update_many(
         {"batch_ids": batch_id},
         {"$pull": {
@@ -616,8 +668,10 @@ async def delete_batch(batch_id: str, user: dict = Depends(require_role("teacher
     for sid in affected_ids:
         await recompute_user_status_flags(sid)
 
-    # Delete fee records for this batch
-    await db.batch_fees.delete_many({"batch_id": batch_id})
+    await db.batch_fees.update_many(
+        {"batch_id": batch_id, **NOT_ARCHIVED},
+        {"$set": {"archived_at": now_iso, "archived_reason": "batch_deleted"}}
+    )
 
     return {"success": True, "id": batch_id, "message": f"Batch '{batch.get('name')}' deleted successfully."}
 
@@ -630,7 +684,7 @@ async def list_batches(user: dict = Depends(get_current_user)):
         blocked_batch_ids = set(user.get("blocked_batch_ids", []))
         student_bids = [bid for bid in user.get("batch_ids", []) if bid not in blocked_batch_ids]
         q = {"id": {"$in": student_bids}}
-    batches = [b async for b in db.batches.find(q, {"_id": 0})]
+    batches = [b async for b in db.batches.find({**q, **NOT_ARCHIVED}, {"_id": 0})]
     if not batches:
         return []
     batch_ids = [b["id"] for b in batches]
@@ -656,12 +710,17 @@ async def join_batch(body: JoinInput, request: Request, user: dict = Depends(req
     if not await _check_join_rate_limit(user["id"], client_ip, max_attempts=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="Too many join attempts. Please try again later.")
 
-    batch = await db.batches.find_one({"code": body.code.upper().strip()}, {"_id": 0})
+    batch = await db.batches.find_one({"code": body.code.upper().strip(), **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Invalid batch code")
     if batch["id"] in user.get("blocked_batch_ids", []):
         raise HTTPException(status_code=403, detail="You are blocked from joining this batch")
     await db.users.update_one({"_id": ObjectId(user["id"])}, {"$addToSet": {"batch_ids": batch["id"]}})
+    # A returning student keeps the payments recorded before they were removed
+    await db.batch_fees.update_one(
+        {"batch_id": batch["id"], "student_id": user["id"], "archived_reason": "student_removed"},
+        {"$unset": {"archived_at": "", "archived_reason": "", "archived_by": ""}}
+    )
     return _sanitize_batch_for_student(batch)
 
 
@@ -680,11 +739,12 @@ class RecordPaymentInput(BaseModel):
     is_partial: Optional[bool] = False
     partial_amount: Optional[float] = None
     idempotency_key: Optional[str] = None
+    reason: Optional[str] = None
 
 
 @api_router.get("/batches/{batch_id}/students")
 async def list_batch_students(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -836,7 +896,7 @@ async def record_student_fee(
     request: Request,
     user: dict = Depends(require_role("teacher", "admin"))
 ):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -985,6 +1045,9 @@ async def record_student_fee(
                 "month": "All Months" if legacy_paid >= total_fee else "",
                 "notes": "Imported payment"
             }]
+        # Snapshot before any branch mutates payment dicts in place, for the audit ledger diff
+        payments_before = copy.deepcopy(payments)
+        total_before = float(record.get("total_fee", batch_default_fee) or 0)
 
         total_fee_paise = to_paise(total_fee)
         current_paid_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
@@ -1253,9 +1316,26 @@ async def record_student_fee(
             "is_custom_fee": is_custom_fee
         }
 
+        if body.unmark_month:
+            action = "unmark_month"
+        elif body.mark_as_paid:
+            action = "mark_as_paid"
+        elif body.is_partial:
+            action = "partial_payment"
+        elif body.paid_fee is not None or body.due_fee is not None:
+            action = "manual_adjustment"
+        elif body.month or body.months_paid or body.amount:
+            action = "payment"
+        else:
+            action = "fee_update"
+        ledger_entries = _fee_ledger_entries(payments_before, payments, total_before, total_fee, user, action, body.reason)
+        fee_update = {"$set": update_doc}
+        if ledger_entries:
+            fee_update["$push"] = {"ledger": {"$each": ledger_entries}}
+
         await db.batch_fees.update_one(
             {"batch_id": batch_id, "student_id": student_id},
-            {"$set": update_doc},
+            fee_update,
             upsert=True
         )
 
@@ -1275,6 +1355,17 @@ async def record_student_fee(
         }
 
 
+@api_router.get("/batches/{batch_id}/students/{student_id}/fee-history")
+async def student_fee_history(batch_id: str, student_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+    record = await db.batch_fees.find_one({"batch_id": batch_id, "student_id": student_id}, {"_id": 0, "ledger": 1})
+    return {"batch_id": batch_id, "student_id": student_id, "ledger": (record or {}).get("ledger", [])}
+
+
 @api_router.post("/batches/{batch_id}/students/{student_id}/status")
 @api_router.put("/batches/{batch_id}/students/{student_id}/status")
 async def update_student_status(
@@ -1283,7 +1374,7 @@ async def update_student_status(
     body: StudentStatusInput,
     user: dict = Depends(require_role("teacher", "admin"))
 ):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -1396,7 +1487,7 @@ async def remove_student_from_batch(
     student_id: str,
     user: dict = Depends(require_role("teacher", "admin"))
 ):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -1425,8 +1516,11 @@ async def remove_student_from_batch(
         }
     )
 
-    # Clean up fee records for this student and batch
-    await db.batch_fees.delete_many({"batch_id": batch_id, "student_id": student_id})
+    # Archive (not delete) the fee record; it is restored if the student rejoins
+    await db.batch_fees.update_many(
+        {"batch_id": batch_id, "student_id": student_id, **NOT_ARCHIVED},
+        {"$set": {"archived_at": now_iso, "archived_reason": "student_removed", "archived_by": user["id"]}}
+    )
 
     await recompute_user_status_flags(student_id)
 
@@ -1458,7 +1552,7 @@ async def create_note(body: CreateNoteInput, user: dict = Depends(require_role("
     batch_id = body.batch_id if body.batch_id and body.batch_id != "all" else None
     batch_name = None
     if batch_id:
-        batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+        batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
         if not batch:
             raise HTTPException(status_code=400, detail="Invalid batch selected")
         if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -1628,7 +1722,7 @@ async def create_resource(
     topic: str = Form(""),
     user: dict = Depends(require_role("teacher", "admin")),
 ):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -3108,7 +3202,7 @@ async def my_mastery(full: bool = False, format: str = None, user: dict = Depend
 
 @api_router.get("/mastery/teacher")
 async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
@@ -3368,7 +3462,7 @@ async def stats(user: dict = Depends(get_current_user)):
         async for doc in db.users.aggregate(enrollment_pipeline):
             total_enrollments = doc["total"]
     else:
-        teacher_batches = [b["id"] async for b in db.batches.find({"teacher_id": user["id"]}, {"id": 1})]
+        teacher_batches = [b["id"] async for b in db.batches.find({"teacher_id": user["id"], **NOT_ARCHIVED}, {"id": 1})]
         if teacher_batches:
             student_count = await db.users.count_documents({"role": "student", "batch_ids": {"$in": teacher_batches}})
             enrollment_pipeline = [
@@ -3387,7 +3481,7 @@ async def stats(user: dict = Depends(get_current_user)):
     return {"notes": await db.notes.count_documents(q),
             "tests": await db.tests.count_documents({**q, "kind": "test", "is_active": {"$ne": False}}),
             "dpps": await db.tests.count_documents({**q, "kind": "dpp", "is_active": {"$ne": False}}),
-            "batches": await db.batches.count_documents(q if user["role"] == "admin" else {"teacher_id": user["id"]}),
+            "batches": await db.batches.count_documents({**(q if user["role"] == "admin" else {"teacher_id": user["id"]}), **NOT_ARCHIVED}),
             "students": student_count,
             "enrollments": total_enrollments}
 
@@ -3398,7 +3492,7 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     if user_role not in ["student", "teacher", "admin"]:
         raise HTTPException(status_code=403, detail="Not authorized to access this batch")
 
-    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 

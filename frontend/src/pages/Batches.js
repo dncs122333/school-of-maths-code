@@ -676,11 +676,18 @@ export default function Batches() {
 
   const handleDeleteBatch = async (batch) => {
     if (!batch) return;
-    if (!window.confirm(`Are you sure you want to delete batch "${batch.name}"? This action will remove all student enrollments and fee records for this batch.`)) {
+    if (!window.confirm(`Delete batch "${batch.name}"? Students will be removed from it. Fee records are archived, not erased.`)) {
       return;
     }
     try {
-      await api.delete(`/batches/${batch.id}`);
+      try {
+        await api.delete(`/batches/${batch.id}`);
+      } catch (err) {
+        // 409 = the batch has collected fees; the server wants an explicit second confirmation
+        if (err.response?.status !== 409) throw err;
+        if (!window.confirm(formatApiErrorDetail(err.response?.data?.detail))) return;
+        await api.delete(`/batches/${batch.id}`, { params: { force: true } });
+      }
       toast.success(`Batch "${batch.name}" deleted successfully!`);
       if (selectedBatchId === batch.id) {
         setSelectedBatchId("");
@@ -693,7 +700,7 @@ export default function Batches() {
 
   const handleRemoveStudentFromBatch = async (student) => {
     if (!student || !selectedBatchId) return;
-    if (!window.confirm(`Are you sure you want to remove ${student.name} from this batch?`)) {
+    if (!window.confirm(`Remove ${student.name} from this batch? Their fee history is kept and restored if they rejoin.`)) {
       return;
     }
     setStatusBusyId(student.id);
