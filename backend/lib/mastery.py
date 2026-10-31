@@ -197,11 +197,13 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     out = []
     for g in groups.values():
         score = round_half_up(g["weighted_correct"] / g["weighted_total"] * 100) if g["weighted_total"] else 0
+        is_unclass = (g["subject"] or "").lower() == "unknown"
         out.append({
             "subject": g["subject"], "chapter": g["chapter"], "topic": g["topic"],
             "score": score, "band": band(score, g["attempts"]), "attempts": g["attempts"],
             "avg_time_s": round_half_up(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
             "last_attempt": g["last_attempt"],
+            "is_unclassified": is_unclass,
         })
 
     # Union with syllabus topics (surfacing unattempted as amber 'not_attempted')
@@ -217,6 +219,7 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                 "attempts": 0,
                 "avg_time_s": 0.0,
                 "last_attempt": None,
+                "is_unclassified": False,
             })
 
     # Sort order:
@@ -231,4 +234,23 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
 
     out.sort(key=_sort_key)
     return out
+
+
+def get_ingestion_quality_summary(mastery_items):
+    """Scan computed mastery items and return an ingestion-quality signal for teachers."""
+    unclassified = [
+        m for m in mastery_items
+        if m.get("is_unclassified") or (m.get("subject") or "").lower() == "unknown"
+    ]
+    total_attempts = sum(m.get("attempts", 0) for m in unclassified)
+    has_issues = len(unclassified) > 0
+    return {
+        "has_unknown": has_issues,
+        "unknown_topics_count": len(unclassified),
+        "unknown_attempts_count": total_attempts,
+        "topics": [{"subject": m["subject"], "chapter": m["chapter"], "topic": m["topic"], "attempts": m.get("attempts", 0)} for m in unclassified],
+        "status": "warning" if has_issues else "healthy",
+        "signal": f"{len(unclassified)} unclassified topic(s) with {total_attempts} student attempt(s) detected ('Unknown' subject). Ingestion tags need correction." if has_issues else "All attempted questions are properly classified."
+    }
+
 

@@ -291,6 +291,21 @@ export default function Reports() {
             </div>
           ) : (
             <>
+              {/* Ingestion Quality Signal Alert */}
+              {testReport.ingestion_quality?.has_unknown && (
+                <div data-testid="report-ingestion-quality" className="rounded-2xl bg-[#FFF9E8] border-2 border-[#D97706] p-4 flex items-start gap-3 shadow-[2px_2px_0_#D97706]">
+                  <AlertTriangle className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-head font-bold text-sm text-[#92400E]">
+                      Ingestion Quality Signal: Unclassified Questions Detected
+                    </div>
+                    <p className="text-xs text-[#B45309] font-medium mt-0.5">
+                      {testReport.ingestion_quality.signal} Questions failing subject inference are marked <strong>Unknown</strong> to prevent corrupting Maths mastery. Update tags in the Question Bank.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* KPI Cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
@@ -656,6 +671,21 @@ export default function Reports() {
             </div>
           ) : (
             <>
+              {/* Ingestion Quality Signal Alert */}
+              {matrixData.ingestion_quality?.has_unknown && (
+                <div data-testid="matrix-ingestion-quality" className="rounded-2xl bg-[#FFF9E8] border-2 border-[#D97706] p-4 flex items-start gap-3 shadow-[2px_2px_0_#D97706]">
+                  <AlertTriangle className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-head font-bold text-sm text-[#92400E]">
+                      Ingestion Quality Signal: {matrixData.ingestion_quality.unknown_topics_count || matrixData.ingestion_quality.unknown_count} Unclassified Topic(s)
+                    </div>
+                    <p className="text-xs text-[#B45309] font-medium mt-0.5">
+                      {matrixData.ingestion_quality.signal}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 shadow-[4px_4px_0_#1E293B]">
                 <h2 className="font-head font-800 text-lg text-[#1E293B] flex items-center gap-2">
                   <TrendingDown className="h-5 w-5 text-[#FF6B5E]" /> Weakest concepts (class average)

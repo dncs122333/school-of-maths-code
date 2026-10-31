@@ -245,5 +245,14 @@ class TestTopicNormalization:
         unknown_entry = next((m for m in all_mastery if m["topic"] == "Quantum Constants"), None)
         assert unknown_entry is not None, "Unknown topic should be exposed in general mastery list"
         assert unknown_entry["subject"] == "Unknown", f"Expected subject 'Unknown', got '{unknown_entry['subject']}'"
+        assert unknown_entry["is_unclassified"] is True
+
+        # 4. Ingestion quality signal surfaced to teachers
+        from lib.mastery import get_ingestion_quality_summary
+        quality = get_ingestion_quality_summary(all_mastery)
+        assert quality["has_unknown"] is True
+        assert quality["unknown_topics_count"] >= 1
+        assert quality["status"] == "warning"
+        assert "unclassified topic" in quality["signal"]
 
 

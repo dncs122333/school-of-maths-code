@@ -122,6 +122,12 @@ export default function QuestionBankExplorer({ onQuestionsChange }) {
     return allChapters.reduce((acc, c) => acc + (c.count || 0), 0);
   }, [allChapters]);
 
+  const unknownQuestionsCount = useMemo(() => {
+    return allChapters
+      .filter((c) => (c.subject || "").toLowerCase() === "unknown")
+      .reduce((acc, c) => acc + (c.count || 0), 0);
+  }, [allChapters]);
+
   // Lazy-load questions for a chapter
   const loadChapterQuestions = async (chap) => {
     const key = chap.key;
@@ -285,6 +291,32 @@ export default function QuestionBankExplorer({ onQuestionsChange }) {
           </Button>
         </div>
       </div>
+
+      {/* INGESTION QUALITY SIGNAL BANNER */}
+      {unknownQuestionsCount > 0 && (
+        <div data-testid="ingestion-quality-banner" className="rounded-2xl bg-[#FFF9E8] border-2 border-[#D97706] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[2px_2px_0_#D97706]">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5" />
+            <div>
+              <div className="font-head font-bold text-sm text-[#92400E]">
+                Ingestion Quality Alert: {unknownQuestionsCount} Question{unknownQuestionsCount > 1 ? "s" : ""} With Unknown Subject
+              </div>
+              <p className="text-xs text-[#B45309] font-medium mt-0.5">
+                Questions that failed curriculum inference are isolated under <strong>Unknown</strong> to protect Maths and Science mastery maps from data corruption. Filter to inspect and assign correct subjects.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedSubject(selectedSubject === "Unknown" ? "all" : "Unknown")}
+            className={`px-3.5 py-1.5 rounded-xl border-2 border-[#D97706] font-head font-bold text-xs whitespace-nowrap transition-all shadow-[2px_2px_0_#D97706] ${
+              selectedSubject === "Unknown" ? "bg-[#D97706] text-white" : "bg-white text-[#92400E] hover:bg-[#FEF3C7]"
+            }`}
+          >
+            {selectedSubject === "Unknown" ? "Clear Subject Filter" : "Inspect Unknown Questions"}
+          </button>
+        </div>
+      )}
 
       {/* 2. FILTER & SEARCH CONTROLS */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#FFF9E8] p-4 rounded-2xl border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]">

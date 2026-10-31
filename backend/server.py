@@ -34,7 +34,7 @@ from auth import (hash_password, verify_password, create_access_token, get_curre
                   require_claim_role, user_from_token)
 from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
-from lib.mastery import compute_topic_mastery, round_half_up, band
+from lib.mastery import compute_topic_mastery, round_half_up, band, get_ingestion_quality_summary
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
@@ -3107,12 +3107,15 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
                    for v in topic_scores.values()]
     weak_topics.sort(key=lambda x: x["class_avg"])  # weakest first
 
+    ingestion_quality = get_ingestion_quality_summary(weak_topics)
+
     return {"students": [{"id": s["id"], "name": s["name"],
                           "is_disabled": s.get("is_disabled", False),
                           "is_blocked": s.get("is_blocked", False),
                           "topics": list(student_topics.get(s["id"], {}).values())}
                          for s in students],
-            "weak_topics": weak_topics}
+            "weak_topics": weak_topics,
+            "ingestion_quality": ingestion_quality}
 
 
 @api_router.get("/mastery/teacher/student/{student_id}")
@@ -3145,12 +3148,13 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
                 class_levels.append(b["class_level"])
     cl = class_levels if class_levels else None
     topics = compute_topic_mastery(_flatten_attempts(subs), class_level=cl)
+    ingestion_quality = get_ingestion_quality_summary(topics)
     trend = [{"test_id": s["test_id"], "title": s.get("title", ""), "kind": s.get("kind", ""),
               "score": s.get("score"), "correct": s.get("correct"), "total": s.get("total"),
               "tab_switches": s.get("tab_switches", 0), "created_at": s.get("created_at")}
              for s in subs[:50]]
     return {"student": {"id": str(student["_id"]), "name": student["name"]},
-            "topics": topics, "trend": trend}
+            "topics": topics, "trend": trend, "ingestion_quality": ingestion_quality}
 
 
 # ------------------------- Media -------------------------

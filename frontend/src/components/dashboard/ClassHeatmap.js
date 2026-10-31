@@ -6,6 +6,7 @@ import {
   Users,
   Layers,
   TrendingDown,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function ClassHeatmap({
@@ -22,6 +23,10 @@ export default function ClassHeatmap({
 
   const students = useMemo(() => reportData?.students || [], [reportData]);
   const allTopics = useMemo(() => reportData?.weak_topics || [], [reportData]);
+
+  const unclassifiedCount = useMemo(() => {
+    return allTopics.filter((t) => (t.subject || "").toLowerCase() === "unknown").length;
+  }, [allTopics]);
 
   const subjects = useMemo(
     () => Array.from(new Set(allTopics.map((t) => t.subject).filter(Boolean))),
@@ -151,6 +156,32 @@ export default function ClassHeatmap({
         </div>
       </div>
 
+      {/* Ingestion Quality Signal Alert */}
+      {unclassifiedCount > 0 && (
+        <div data-testid="ingestion-quality-signal" className="rounded-2xl bg-[#FFF9E8] border-2 border-[#D97706] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[2px_2px_0_#D97706]">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-[#D97706] shrink-0 mt-0.5" />
+            <div>
+              <div className="font-head font-bold text-sm text-[#92400E]">
+                Ingestion Quality Signal: {unclassifiedCount} Unclassified Topic{unclassifiedCount > 1 ? "s" : ""}
+              </div>
+              <p className="text-xs text-[#B45309] font-medium mt-0.5">
+                Questions failing curriculum inference are isolated under <strong>Unknown</strong> to protect the Maths mastery map. Re-tag them in the Question Bank to assign proper subjects.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubjectFilter(subjectFilter === "Unknown" ? "all" : "Unknown")}
+            className={`px-3.5 py-1.5 rounded-xl border-2 border-[#D97706] font-head font-bold text-xs whitespace-nowrap transition-all shadow-[2px_2px_0_#D97706] ${
+              subjectFilter === "Unknown" ? "bg-[#D97706] text-white" : "bg-white text-[#92400E] hover:bg-[#FEF3C7]"
+            }`}
+          >
+            {subjectFilter === "Unknown" ? "Clear Filter" : "Filter Unknown Topics"}
+          </button>
+        </div>
+      )}
+
       {/* 2. Band Breakdown Metrics Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
         <div className="p-3.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-between">
@@ -223,6 +254,11 @@ export default function ClassHeatmap({
                     title={`${top.subject} • ${top.chapter} • ${top.topic}`}
                   >
                     <span className="block truncate max-w-[130px] mx-auto">{top.topic}</span>
+                    {(top.subject || "").toLowerCase() === "unknown" && (
+                      <span className="inline-block mt-0.5 text-[9px] font-head font-extrabold px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] border border-[#D97706]">
+                        Unclassified
+                      </span>
+                    )}
                     <span className="text-[10px] text-[#64748B] font-mono block mt-0.5">
                       Batch Avg: <span className="font-bold text-[#1E293B]">{top.class_avg}%</span>
                     </span>

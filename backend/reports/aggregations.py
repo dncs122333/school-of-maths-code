@@ -205,6 +205,16 @@ def compute_test_analytics(
                 "time_taken_s": round_half_up(total_time_taken)
             })
 
+    # Ingestion quality signal (unclassified topics/subject)
+    unknown_topics = [t for t in topic_breakdown if (t.get("subject") or "").lower() == "unknown"]
+    is_test_subject_unknown = (test.get("subject") or "").lower() in ("unknown", "")
+    ingestion_quality = {
+        "has_unknown": len(unknown_topics) > 0 or is_test_subject_unknown,
+        "unknown_topics_count": len(unknown_topics),
+        "status": "warning" if (len(unknown_topics) > 0 or is_test_subject_unknown) else "healthy",
+        "signal": f"{len(unknown_topics)} question topic(s) have 'Unknown' subject." if unknown_topics else ("Test subject is 'Unknown'." if is_test_subject_unknown else "All topics classified.")
+    }
+
     return {
         "test_id": test.get("id"),
         "title": test.get("title", "Assessment Report"),
@@ -218,6 +228,7 @@ def compute_test_analytics(
         "enrolled_count": total_enrolled,
         "submitted_count": submitted_count,
         "completion_rate": completion_rate,
+        "ingestion_quality": ingestion_quality,
         "summary": {
             "avg_score": avg_score,
             "median_score": median_score,
