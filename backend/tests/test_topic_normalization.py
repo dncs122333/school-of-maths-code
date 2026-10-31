@@ -481,14 +481,41 @@ class TestTopicNormalization:
         assert mastery_two[0]["sessions"] == 2
         assert mastery_two[0]["is_confirmed_weak"] is True
 
-        # 3. compute_unattempted_summary uses is_confirmed_weak
+        # 3. compute_unattempted_summary uses is_confirmed_weak and is_confirmed_strong symmetrically
         summary_single = compute_unattempted_summary(mastery_single, class_level="10")
         assert summary_single["summary"]["weak_count"] == 0
         assert summary_single["summary"]["developing_count"] == 1
+        assert summary_single["summary"]["strong_count"] == 0
 
         summary_two = compute_unattempted_summary(mastery_two, class_level="10")
         assert summary_two["summary"]["weak_count"] == 1
         assert summary_two["summary"]["developing_count"] == 0
+        assert summary_two["summary"]["strong_count"] == 0
+
+        # Symmetrical test for strong topics (1 attempt does not inflate strong_count, requires confirmation)
+        strong_single_attempt = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": True, "time_s": 25, "created_at": "2026-10-31T10:00:00Z"}
+        ]
+        mastery_single_strong = compute_topic_mastery(strong_single_attempt, class_level="10", include_unattempted=False)
+        assert mastery_single_strong[0]["band"] == "strong"
+        assert mastery_single_strong[0]["is_confirmed_strong"] is False
+        summary_single_strong = compute_unattempted_summary(mastery_single_strong, class_level="10")
+        assert summary_single_strong["summary"]["strong_count"] == 0
+        assert summary_single_strong["summary"]["developing_count"] == 1
+
+        strong_two_attempts = [
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": True, "time_s": 25, "submission_id": "sub_s1", "created_at": "2026-10-31T10:00:00Z"},
+            {"subject": "Maths", "chapter": "Real Numbers", "topic": "Fundamental Theorem of Arithmetic",
+             "difficulty": "medium", "is_correct": True, "time_s": 20, "submission_id": "sub_s2", "created_at": "2026-10-31T11:00:00Z"}
+        ]
+        mastery_two_strong = compute_topic_mastery(strong_two_attempts, class_level="10", include_unattempted=False)
+        assert mastery_two_strong[0]["band"] == "strong"
+        assert mastery_two_strong[0]["is_confirmed_strong"] is True
+        summary_two_strong = compute_unattempted_summary(mastery_two_strong, class_level="10")
+        assert summary_two_strong["summary"]["strong_count"] == 1
+        assert summary_two_strong["summary"]["developing_count"] == 0
 
         # 4. compute_term_report matches compute_unattempted_summary
         batch = {"id": "b_confirm", "class_level": "10", "subject": "Maths", "student_ids": ["s_single", "s_single_sitting_two_q", "s_two"]}

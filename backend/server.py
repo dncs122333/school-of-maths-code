@@ -35,7 +35,7 @@ from auth import (hash_password, verify_password, create_access_token, get_curre
 from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
-                         get_ingestion_quality_summary, _extract_syllabus_topics,
+                         is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
                          compute_unattempted_summary)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
@@ -3143,6 +3143,7 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
                 "class_avg": m["score"],
                 "band": m["band"],
                 "is_confirmed_weak": m.get("is_confirmed_weak", False),
+                "is_confirmed_strong": m.get("is_confirmed_strong", False),
                 "attempts": m["attempts"],
                 "sessions": m.get("sessions", m.get("attempts", 0)),
                 "avg_time_s": m.get("avg_time_s", 0.0),
@@ -3151,7 +3152,7 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     def _sort_key(item):
         if is_confirmed_weak(item):
             order_val = 0
-        elif item.get("band") == "strong":
+        elif is_confirmed_strong(item):
             order_val = 2
         else:
             order_val = 1

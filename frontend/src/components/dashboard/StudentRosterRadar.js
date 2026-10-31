@@ -28,7 +28,7 @@ export default function StudentRosterRadar({ students = [] }) {
     return students.map((s) => {
       const overall = calculateOverallMastery(s.topics);
       const weakTopics = (s.topics || []).filter((t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2)).length;
-      const strongTopics = (s.topics || []).filter((t) => t.band === "strong").length;
+      const strongTopics = (s.topics || []).filter((t) => t.is_confirmed_strong ?? (t.band === "strong" && (t.attempts || 0) >= 2)).length;
       const isStruggling = weakTopics >= 2 || (weakTopics > 0 && strongTopics === 0);
       return { ...s, overall, weakTopics, strongTopics, isStruggling };
     });
@@ -271,7 +271,7 @@ export default function StudentRosterRadar({ students = [] }) {
                           className={`font-mono font-900 px-2.5 py-1 rounded-xl border-2 border-[#1E293B] shrink-0 ${
                             (t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2))
                               ? "bg-[#FF6B5E] text-white"
-                              : t.band === "strong"
+                              : (t.is_confirmed_strong ?? (t.band === "strong" && (t.attempts || 0) >= 2))
                               ? "bg-[#4CAF7D] text-white"
                               : "bg-[#F5C842] text-[#1E293B]"
                           }`}

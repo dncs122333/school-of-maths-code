@@ -742,11 +742,9 @@ export default function Reports() {
                         <span className={`font-head font-900 text-lg ${
                           (w.is_confirmed_weak ?? (w.band === "weak" && (w.attempts || 0) >= 2))
                             ? "text-[#FF6B5E]"
-                            : w.band === "developing" || w.band === "weak"
-                            ? "text-[#B4881B]"
-                            : w.band === "strong"
+                            : (w.is_confirmed_strong ?? (w.band === "strong" && (w.attempts || 0) >= 2))
                             ? "text-[#4CAF7D]"
-                            : "text-[#1E293B]"
+                            : "text-[#B4881B]"
                         }`}>{w.class_avg}%</span>
                       </div>
                     ))

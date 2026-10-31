@@ -288,6 +288,9 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
             "is_confirmed_weak": is_confirmed_weak(
                 b, attempts=g["attempts"], sessions=sessions_count, min_attempts=min_attempts, use_sessions=use_sessions
             ),
+            "is_confirmed_strong": is_confirmed_strong(
+                b, attempts=g["attempts"], sessions=sessions_count, min_attempts=min_attempts, use_sessions=use_sessions
+            ),
             "avg_time_s": round_half_up(g["time_total"] / g["attempts"], 1) if g["attempts"] else 0.0,
             "last_attempt": g["last_attempt"],
             "is_unclassified": is_unclass,
@@ -307,22 +310,23 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                     "attempts": 0,
                     "sessions": 0,
                     "is_confirmed_weak": False,
+                    "is_confirmed_strong": False,
                     "avg_time_s": 0.0,
                     "last_attempt": None,
                     "is_unclassified": False,
                 })
 
     # Sort order:
-    # 0. confirmed weak (score < 55 and attempts >= 2) -> lowest score first
+    # 0. confirmed weak (score < 55 and attempts/sessions >= 2) -> lowest score first
     # 1. not_attempted -> alphabetical by chapter, topic
-    # 2. developing / unconfirmed weak -> lowest score first
-    # 3. strong (score > 75) -> lowest score first
+    # 2. developing / unconfirmed weak / unconfirmed strong -> lowest score first
+    # 3. confirmed strong (score > 75 and attempts/sessions >= 2) -> lowest score first
     def _sort_key(item):
         if is_confirmed_weak(item):
             order_val = 0
         elif item.get("band") == "not_attempted":
             order_val = 1
-        elif item.get("band") == "strong":
+        elif is_confirmed_strong(item):
             order_val = 3
         else:
             order_val = 2
@@ -371,7 +375,7 @@ def compute_unattempted_summary(attempted_topics, class_level=None, syllabus=Non
     total_unattempted = sum(not_attempted_by_chapter.values())
     attempted_count = len(attempted_topics)
     weak_count = sum(1 for t in attempted_topics if is_confirmed_weak(t))
-    strong_count = sum(1 for t in attempted_topics if t.get("band") == "strong")
+    strong_count = sum(1 for t in attempted_topics if is_confirmed_strong(t))
     developing_count = attempted_count - weak_count - strong_count
 
     return {

@@ -76,15 +76,23 @@ export default function Mastery() {
   };
 
   const activeTopicList = showFullRadar ? (fullTopics || attemptedTopics || []) : (attemptedTopics || []);
+
+  const isWeak = (t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2);
+  const isStrong = (t) => t.is_confirmed_strong ?? (t.band === "strong" && (t.attempts || 0) >= 2);
+  const isDev = (t) => !isWeak(t) && !isStrong(t) && t.band !== "not_attempted";
+
   const displayedTopics = activeTopicList.filter((t) => {
     if (filterBand === "all") return true;
-    if (filterBand === "weak") return t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2);
+    if (filterBand === "weak") return isWeak(t);
+    if (filterBand === "strong") return isStrong(t);
+    if (filterBand === "developing") return isDev(t);
     return t.band === filterBand;
   });
 
-  const weak = summary?.weak_count ?? (activeTopicList.filter((t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2)).length);
-  const strong = summary?.strong_count ?? (activeTopicList.filter((t) => t.band === "strong").length);
-  const untested = summary?.not_attempted_count ?? (activeTopicList.filter((t) => t.band === "not_attempted").length);
+  const weak = summary?.weak_count ?? activeTopicList.filter(isWeak).length;
+  const strong = summary?.strong_count ?? activeTopicList.filter(isStrong).length;
+  const developing = summary?.developing_count ?? activeTopicList.filter(isDev).length;
+  const untested = summary?.not_attempted_count ?? activeTopicList.filter((t) => t.band === "not_attempted").length;
   const totalSyllabus = summary?.total_topics ?? activeTopicList.length;
 
   return (
@@ -133,10 +141,10 @@ export default function Mastery() {
         <div className="flex items-center gap-2 overflow-x-auto py-1">
           {[
             { id: "all", label: `All (${activeTopicList.length})` },
-            { id: "weak", label: `Weak (${summary?.weak_count ?? activeTopicList.filter((t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2)).length})` },
-            { id: "developing", label: `Developing (${activeTopicList.filter((t) => t.band === "developing").length})` },
-            { id: "strong", label: `Strong (${activeTopicList.filter((t) => t.band === "strong").length})` },
-            ...(showFullRadar ? [{ id: "not_attempted", label: `Untested (${activeTopicList.filter((t) => t.band === "not_attempted").length})` }] : []),
+            { id: "weak", label: `Weak (${weak})` },
+            { id: "developing", label: `Developing (${developing})` },
+            { id: "strong", label: `Strong (${strong})` },
+            ...(showFullRadar ? [{ id: "not_attempted", label: `Untested (${untested})` }] : []),
           ].map((tab) => (
             <button
               key={tab.id}
