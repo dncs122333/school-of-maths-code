@@ -254,7 +254,10 @@ async def get_batch_term_report(
         context="term submissions"
     )
 
-    report = compute_term_report(batch_id, batch, all_submissions, student_map, subject=subject)
+    try:
+        report = compute_term_report(batch_id, batch, all_submissions, student_map, subject=subject)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if cap_warn:
         report["cap_warning"] = cap_warn
         report["is_capped"] = True

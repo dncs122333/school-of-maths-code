@@ -5,10 +5,10 @@ from typing import Dict, List, Optional, Any
 
 try:
     from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong
-    from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject
+    from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 except ImportError:
     from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong
-    from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject
+    from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 
 
 def compute_test_analytics(
@@ -410,12 +410,18 @@ def compute_term_report(
 ) -> Dict[str, Any]:
     """Computes cumulative term-wise report: coverage of curriculum, student rank matrix, and batch mastery."""
     enrolled_ids = batch.get("student_ids") or []
-    cl = str(batch.get("class_level", "9"))
+    raw_cl = batch.get("class_level", "9")
+    cl = normalize_class_level(raw_cl)
+    if cl not in CURRICULUM:
+        raise ValueError(
+            f"Class level '{raw_cl}' (normalized: '{cl}') not found in CURRICULUM. "
+            f"Supported class levels: {list(CURRICULUM.keys())}"
+        )
 
     # Syllabus coverage: union all subjects in CURRICULUM[cl], or filter to target subject
     # Key on (subject, chapter, topic) tuple so identical topic names across different chapters/subjects do not collide
     target_subject = (subject or batch.get("subject") or "").strip()
-    class_curriculum = CURRICULUM.get(cl, {})
+    class_curriculum = CURRICULUM[cl]
 
     all_curriculum_topics = set()
     if target_subject and target_subject.lower() not in ("all", "both"):

@@ -130,11 +130,12 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     if syllabus is not None:
         return syllabus
     try:
-        from curriculum import CURRICULUM, normalize_key, normalize_subject, subjects_match
+        from curriculum import CURRICULUM, normalize_key, normalize_subject, subjects_match, normalize_class_level
     except ImportError:
         try:
-            from ..curriculum import CURRICULUM, normalize_key, normalize_subject, subjects_match
+            from ..curriculum import CURRICULUM, normalize_key, normalize_subject, subjects_match, normalize_class_level
         except ImportError:
+            def normalize_class_level(cl): return re.sub(r"[^0-9]", "", str(cl or "")).strip() or str(cl or "").strip()
             def normalize_subject(s):
                 low = re.sub(r"\s+", " ", str(s or "")).strip().casefold()
                 if low in ("math", "maths", "mathematics"): return "Maths"
@@ -151,11 +152,11 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     classes = []
     if isinstance(class_level, (list, tuple, set)):
         for item in class_level:
-            c = re.sub(r"[^0-9]", "", str(item))
+            c = normalize_class_level(item)
             if c in CURRICULUM and c not in classes:
                 classes.append(c)
     elif class_level:
-        c = re.sub(r"[^0-9]", "", str(class_level))
+        c = normalize_class_level(class_level)
         if c in CURRICULUM:
             classes.append(c)
     if not classes:

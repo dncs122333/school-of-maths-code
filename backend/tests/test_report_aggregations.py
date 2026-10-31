@@ -668,6 +668,43 @@ class TestReportsAPI:
         assert digest_utc["delta_avg"] == 20.0
         assert digest_utc["submissions_count"] == 1  # exactly 1 in recent window
 
+    def test_17_normalize_class_level_and_curriculum_validation(self):
+        """Tests that normalize_class_level extracts digits for 'Class 9', 9 (int), 'Class 10', 10 (int),
+        allowing compute_term_report to look up curriculum correctly and failing loudly for invalid classes."""
+        import pytest
+        from curriculum import normalize_class_level, CURRICULUM
+        from reports.aggregations import compute_term_report
+
+        # 1. normalize_class_level unit assertions
+        assert normalize_class_level("Class 9") == "9"
+        assert normalize_class_level(9) == "9"
+        assert normalize_class_level("Class 10") == "10"
+        assert normalize_class_level(10) == "10"
+        assert normalize_class_level("10th") == "10"
+        assert normalize_class_level("Grade 9") == "9"
+        assert normalize_class_level("mock_cl") == "mock_cl"
+
+        student_map = {"s1": "Aarav"}
+        submissions = []
+
+        # 2. Batch with 'Class 9' (string with text) computes correct curriculum topics (> 0)
+        batch_str = {"id": "b_c9", "class_level": "Class 9", "subject": "Maths", "student_ids": ["s1"]}
+        rep_str = compute_term_report("b_c9", batch_str, submissions, student_map, subject="Maths")
+        assert rep_str["total_curriculum_topics"] > 0
+        expected_c9_topics = sum(len(topics) for topics in CURRICULUM["9"]["Maths"].values())
+        assert rep_str["total_curriculum_topics"] == expected_c9_topics
+
+        # 3. Batch with integer 9 computes identical curriculum topics
+        batch_int = {"id": "b_c9_int", "class_level": 9, "subject": "Maths", "student_ids": ["s1"]}
+        rep_int = compute_term_report("b_c9_int", batch_int, submissions, student_map, subject="Maths")
+        assert rep_int["total_curriculum_topics"] == expected_c9_topics
+
+        # 4. Batch with invalid class level fails loudly with ValueError
+        batch_invalid = {"id": "b_inv", "class_level": "Class 12", "subject": "Maths", "student_ids": ["s1"]}
+        with pytest.raises(ValueError) as excinfo:
+            compute_term_report("b_inv", batch_invalid, submissions, student_map, subject="Maths")
+        assert "not found in CURRICULUM" in str(excinfo.value)
+
 
 
 

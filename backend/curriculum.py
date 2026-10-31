@@ -370,6 +370,15 @@ def normalize_key(text: Any) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().casefold()
 
 
+def normalize_class_level(class_level: Any) -> str:
+    """Normalize class level by extracting digits (e.g. 'Class 9', 9, '10th' -> '9', '10').
+    Falls back to raw stripped string if no digits are found (e.g. mock/custom keys).
+    """
+    raw = str(class_level or "").strip()
+    digits = re.sub(r"[^0-9]", "", raw)
+    return digits if digits else raw
+
+
 def canonicalize_topic_title(topic: str) -> str:
     """Normalize capitalization and whitespace for non-curriculum topic strings.
     E.g. 'Linear equations' -> 'Linear Equations', 'linear equations in two variables' -> 'Linear Equations in Two Variables'.
@@ -395,7 +404,7 @@ def infer_subject_and_chapter(class_level: Optional[str] = None, chapter: Option
     """Given class_level, chapter, or topic, infer the canonical subject and chapter from CURRICULUM.
     Guarantees diagnostic results do not land in ("", "", topic) groups.
     """
-    cl = re.sub(r"[^0-9]", "", str(class_level or ""))
+    cl = normalize_class_level(class_level)
     classes = [cl] if cl in CURRICULUM else ["9", "10"]
     
     chap_norm = normalize_key(chapter)
@@ -458,7 +467,7 @@ def subjects_match(subj1: Any, subj2: Any) -> bool:
 
 def get_canonical_topics(class_level: str, subject: str, chapter: str) -> list:
     """Returns canonical topics for a given class, subject, and chapter, if defined."""
-    cl = re.sub(r"[^0-9]", "", str(class_level or ""))
+    cl = normalize_class_level(class_level)
     subj = (subject or "").strip()
     chap = (chapter or "").strip()
     
@@ -482,9 +491,7 @@ def normalize_taxonomy(class_level: Any, subject: Any, chapter: Any,
     - Inherits subject tags for diagnostic questions/results
     - Standardizes custom topic casing so 'Linear Equations' vs 'Linear equations' do not fork.
     """
-    cl_raw = str(class_level or "").strip()
-    m = re.search(r"(\d{1,2})", cl_raw)
-    cl = m.group(1) if m else cl_raw
+    cl = normalize_class_level(class_level)
 
     subj = normalize_subject(subject)
     chap = re.sub(r"\s+", " ", str(chapter or "")).strip()
