@@ -638,9 +638,10 @@ class TestReportsAPI:
         assert triangles["delta"] is None
         assert triangles["band"] == "not_attempted"
 
-        # 'Real Numbers' was in both (improving from 100 to 100 -> steady)
+        # 'Real Numbers' was in both windows, but with one question each: too few to call a trend
         assert "Real Numbers" in m_map
-        assert m_map["Real Numbers"]["trajectory"] == "steady"
+        assert m_map["Real Numbers"]["trajectory"] == "insufficient_data"
+        assert m_map["Real Numbers"]["delta"] == 0
 
         # 'Coordinate Geometry' was new in recent
         assert "Coordinate Geometry" in m_map
@@ -951,3 +952,74 @@ def test_24_student_mastery_infers_chapter_from_batch_class(monkeypatch):
     with_class = compute_topic_mastery(attempt, class_level="10", include_unattempted=False)
     assert without_class[0]["chapter"] == "Number Systems"
     assert with_class[0]["chapter"] == "Real Numbers"
+
+
+def test_25_weekly_trajectory_needs_min_questions_in_both_windows():
+    """A one-question swing between weeks is reported as a delta but not called a trend, and does not
+    outrank genuinely slipping topics."""
+    from datetime import datetime, timezone
+
+    batch = {"id": "b", "name": "B", "class_level": "9", "student_ids": ["s1"]}
+    now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
+
+    def sub(when, rows):
+        return {"student_id": "s1", "score": 0, "created_at": when,
+                "results": [{"subject": "Maths", "chapter": c, "topic": t, "is_correct": ok} for c, t, ok in rows]}
+
+    prior = [sub("2026-10-20T10:00:00+00:00", [
+        ("Polynomials", "Zeroes", True), ("Polynomials", "Zeroes", True),   # 100% on 2 questions
+        ("Lines", "Angles", True),                                           # 100% on 1 question
+    ])]
+    recent = [sub("2026-10-30T10:00:00+00:00", [
+        ("Polynomials", "Zeroes", False), ("Polynomials", "Zeroes", False),  # 0% on 2 questions -> slipping
+        ("Lines", "Angles", False),                                          # 0% on 1 question -> too few
+    ])]
+    digest = compute_weekly_digest("b", batch, recent, prior, now=now)
+    by_topic = {t["topic"]: t for t in digest["topic_movement"]}
+
+    assert by_topic["Zeroes"]["trajectory"] == "slipping"
+    assert by_topic["Angles"]["trajectory"] == "insufficient_data"
+    assert by_topic["Angles"]["delta"] == -100
+    assert digest["topic_movement"][0]["topic"] == "Zeroes"
+
+
+def test_26_submission_topic_summary_excludes_skips_and_groups_by_chapter():
+    from lib.mastery import summarize_submission_topics
+
+    results = [
+        {"chapter": "Polynomials", "topic": "Introduction", "is_correct": True, "answered": True},
+        {"chapter": "Polynomials", "topic": "Introduction", "is_correct": False, "answered": False},
+        {"chapter": "Real Numbers", "topic": "Introduction", "is_correct": False, "answered": True},
+        # Legacy row without the flag: falls back to the answers list (-1 = skipped)
+        {"q": 3, "chapter": "Real Numbers", "topic": "Introduction", "is_correct": False},
+    ]
+    summary = summarize_submission_topics(results, answers=[0, -1, 2, -1])
+    by_chapter = {s["chapter"]: s for s in summary}
+
+    assert set(by_chapter) == {"Polynomials", "Real Numbers"}
+    assert by_chapter["Polynomials"] == {"topic": "Introduction", "chapter": "Polynomials",
+                                         "total": 1, "correct": 1, "skipped": 1, "accuracy": 100}
+    assert by_chapter["Real Numbers"]["total"] == 1
+    assert by_chapter["Real Numbers"]["skipped"] == 1
+    assert by_chapter["Real Numbers"]["accuracy"] == 0
+
+
+def test_27_unattempted_summary_counts_unconfirmed_topics():
+    """Weak/strong scores from a single test count as developing (matching the UI filter) and are
+    reported separately as unconfirmed."""
+    from lib.mastery import compute_topic_mastery, compute_unattempted_summary
+
+    def attempt(topic, ok, sub):
+        return {"subject": "Maths", "chapter": "Ch", "topic": topic, "is_correct": ok, "submission_id": sub}
+
+    topics = compute_topic_mastery([
+        attempt("Single Weak", False, "a"),
+        attempt("Confirmed Weak", False, "a"), attempt("Confirmed Weak", False, "b"),
+        attempt("Single Strong", True, "a"),
+    ], include_unattempted=False)
+    summary = compute_unattempted_summary(topics, syllabus=[])["summary"]
+
+    assert summary["weak_count"] == 1
+    assert summary["strong_count"] == 0
+    assert summary["developing_count"] == 2
+    assert summary["unconfirmed_count"] == 2

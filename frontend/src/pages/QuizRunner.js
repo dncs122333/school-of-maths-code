@@ -132,6 +132,7 @@ export default function QuizRunner() {
                       </span>
                       <span className="font-mono">
                         {ts.correct} / {ts.total} ({acc}%)
+                        {ts.skipped > 0 && <span className="text-[#64748B] font-normal"> · {ts.skipped} skipped</span>}
                       </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-white border border-[#1E293B] overflow-hidden">

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { api, formatApiErrorDetail } from "../../lib/api";
+import { isConfirmedWeak, isConfirmedStrong } from "../../lib/mastery";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -27,8 +28,8 @@ export default function StudentRosterRadar({ students = [] }) {
   const processedStudents = useMemo(() => {
     return students.map((s) => {
       const overall = calculateOverallMastery(s.topics);
-      const weakTopics = (s.topics || []).filter((t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2)).length;
-      const strongTopics = (s.topics || []).filter((t) => t.is_confirmed_strong ?? (t.band === "strong" && (t.attempts || 0) >= 2)).length;
+      const weakTopics = (s.topics || []).filter(isConfirmedWeak).length;
+      const strongTopics = (s.topics || []).filter(isConfirmedStrong).length;
       const isStruggling = weakTopics >= 2 || (weakTopics > 0 && strongTopics === 0);
       return { ...s, overall, weakTopics, strongTopics, isStruggling };
     });
@@ -269,9 +270,9 @@ export default function StudentRosterRadar({ students = [] }) {
                         </div>
                         <span
                           className={`font-mono font-900 px-2.5 py-1 rounded-xl border-2 border-[#1E293B] shrink-0 ${
-                            (t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2))
+                            isConfirmedWeak(t)
                               ? "bg-[#FF6B5E] text-white"
-                              : (t.is_confirmed_strong ?? (t.band === "strong" && (t.attempts || 0) >= 2))
+                              : isConfirmedStrong(t)
                               ? "bg-[#4CAF7D] text-white"
                               : "bg-[#F5C842] text-[#1E293B]"
                           }`}

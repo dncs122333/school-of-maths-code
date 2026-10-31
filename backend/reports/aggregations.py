@@ -385,7 +385,11 @@ def compute_weekly_digest(
         cur_acc = v["acc"]
         if prev_acc is not None:
             diff = cur_acc - prev_acc
-            trajectory = "improving" if diff >= 5 else "slipping" if diff <= -5 else "steady"
+            if min(v["total"], pri_t[k]["total"]) < MIN_TOPIC_QUESTIONS:
+                # One question per week swings accuracy by 100 points; report the delta but don't call a trend
+                trajectory = "insufficient_data"
+            else:
+                trajectory = "improving" if diff >= 5 else "slipping" if diff <= -5 else "steady"
         else:
             diff = None
             trajectory = "new"

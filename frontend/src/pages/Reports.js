@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
+import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -611,6 +612,8 @@ export default function Reports() {
                             </span>
                           ) : t.trajectory === "new" ? (
                             <span className="text-[#3E7CB1] font-bold">✦ New</span>
+                          ) : t.trajectory === "insufficient_data" ? (
+                            <span className="text-[#64748B] font-bold">Too few Qs</span>
                           ) : (
                             <span className="text-[#64748B] font-bold">● Steady</span>
                           )}
@@ -746,9 +749,9 @@ export default function Reports() {
                           <div className="text-xs text-[#1E293B]/70 font-semibold">{w.chapter}</div>
                         </div>
                         <span className={`font-head font-900 text-lg ${
-                          (w.is_confirmed_weak ?? (w.band === "weak" && (w.attempts || 0) >= 2))
+                          isConfirmedWeak(w)
                             ? "text-[#FF6B5E]"
-                            : (w.is_confirmed_strong ?? (w.band === "strong" && (w.attempts || 0) >= 2))
+                            : isConfirmedStrong(w)
                             ? "text-[#4CAF7D]"
                             : "text-[#B4881B]"
                         }`}>{w.class_avg}%</span>

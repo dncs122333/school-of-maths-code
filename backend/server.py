@@ -36,7 +36,8 @@ from ai import extract_text_from_file, extract_questions_from_media
 from storage import init_storage, put_object, get_object, delete_object
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
-                         compute_unattempted_summary, is_answered, apply_batch_confirmation)
+                         compute_unattempted_summary, is_answered, apply_batch_confirmation,
+                         summarize_submission_topics)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
@@ -2203,18 +2204,8 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
     score = round_half_up(correct / total * 100) if total else 0
     status = "flagged" if tab_switches >= 3 else "submitted"
 
-    # Compute chapter topic breakdown
-    topic_summary_map = {}
-    for r in results:
-        t_name = r.get("topic") or "General"
-        if t_name not in topic_summary_map:
-            topic_summary_map[t_name] = {"topic": t_name, "total": 0, "correct": 0}
-        topic_summary_map[t_name]["total"] += 1
-        if r.get("is_correct"):
-            topic_summary_map[t_name]["correct"] += 1
-    for t_data in topic_summary_map.values():
-        t_data["accuracy"] = round_half_up((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
-    topic_summary = list(topic_summary_map.values())
+    # Chapter topic breakdown: accuracy over answered questions, skips counted separately
+    topic_summary = summarize_submission_topics(results)
 
     sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
            "student_id": user["id"], "student_name": user["name"],
@@ -2297,19 +2288,12 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
             "time_s": times[i] if i < len(times) else 0.0,
         })
 
-    topic_summary = sub.get("topic_summary")
-    if not topic_summary:
-        topic_summary_map = {}
-        for rq in review_questions:
-            t_name = rq.get("topic") or "General"
-            if t_name not in topic_summary_map:
-                topic_summary_map[t_name] = {"topic": t_name, "chapter": rq.get("chapter", ""), "total": 0, "correct": 0}
-            topic_summary_map[t_name]["total"] += 1
-            if rq.get("is_correct"):
-                topic_summary_map[t_name]["correct"] += 1
-        for t_data in topic_summary_map.values():
-            t_data["accuracy"] = round_half_up((t_data["correct"] / t_data["total"]) * 100) if t_data["total"] else 0
-        topic_summary = list(topic_summary_map.values())
+    # Recomputed rather than read from the stored summary, which older submissions built with skips as wrong
+    topic_summary = summarize_submission_topics([
+        {"topic": rq.get("topic"), "chapter": rq.get("chapter"), "is_correct": rq.get("is_correct"),
+         "answered": not rq.get("is_unattempted")}
+        for rq in review_questions
+    ])
 
     return {
         "student": {

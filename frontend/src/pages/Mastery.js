@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
+import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Brain, Target, Loader2, Activity, BookOpenCheck, Sparkles, Compass } from "lucide-react";
@@ -77,8 +78,8 @@ export default function Mastery() {
 
   const activeTopicList = showFullRadar ? (fullTopics || attemptedTopics || []) : (attemptedTopics || []);
 
-  const isWeak = (t) => t.is_confirmed_weak ?? (t.band === "weak" && (t.attempts || 0) >= 2);
-  const isStrong = (t) => t.is_confirmed_strong ?? (t.band === "strong" && (t.attempts || 0) >= 2);
+  const isWeak = isConfirmedWeak;
+  const isStrong = isConfirmedStrong;
   const isDev = (t) => !isWeak(t) && !isStrong(t) && t.band !== "not_attempted";
 
   const displayedTopics = activeTopicList.filter((t) => {
@@ -220,8 +221,12 @@ export default function Mastery() {
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
           {displayedTopics.map((t) => {
-            const b = BAND[t.band] || BAND.developing;
             const isUntested = t.band === "not_attempted";
+            // Badge follows the same confirmed rule as the counts and filters: a weak/strong score from a
+            // single test reads as Developing, with a hint that more data is needed
+            const bandKey = isUntested ? "not_attempted" : isWeak(t) ? "weak" : isStrong(t) ? "strong" : "developing";
+            const b = BAND[bandKey] || BAND.developing;
+            const needsMoreData = bandKey === "developing" && (t.band === "weak" || t.band === "strong");
             return (
               <div key={`${t.subject}|${t.chapter}|${t.topic}`} className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-5 shadow-[4px_4px_0_#1E293B]">
                 <div className="flex items-start justify-between gap-3">
@@ -229,7 +234,12 @@ export default function Mastery() {
                     <div className="font-head font-800 text-lg text-[#1E293B]">{t.topic}</div>
                     <div className="text-xs font-semibold text-[#1E293B]/60 mt-0.5">{t.chapter} · {t.subject}</div>
                   </div>
-                  <Badge data-testid="band-badge" className={`border-2 ${b.cls}`}>{b.label}</Badge>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge data-testid="band-badge" className={`border-2 ${b.cls}`}>{b.label}</Badge>
+                    {needsMoreData && (
+                      <span className="text-[10px] font-semibold text-[#1E293B]/60">Needs another test to confirm</span>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-4 flex items-center gap-3">
                   <div className="flex-1 h-3 rounded-full bg-[#FFF9E8] border-2 border-[#1E293B] overflow-hidden">

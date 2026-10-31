@@ -44,21 +44,21 @@ export function CircularProgress({ score, size = 68, strokeWidth = 6, color = "#
 export default function WeakTopicCard({ topic, onPractice }) {
   if (!topic) return null;
 
-  const getWeightageNote = (sub, top) => {
-    const t = (top || "").toLowerCase();
-    if (t.includes("triangle") || t.includes("circle") || t.includes("trigonometry")) {
-      return "High-weightage in CBSE board exams (~6–8 marks)";
+  // Evidence behind the flag, from the mastery payload: how many tests and questions, and when last tried
+  const getEvidenceNote = (t) => {
+    const sessions = t.sessions ?? 0;
+    const attempts = t.attempts ?? 0;
+    const parts = [
+      `Weak across ${sessions} ${sessions === 1 ? "test" : "tests"}`,
+      `${attempts} ${attempts === 1 ? "question" : "questions"} answered`,
+    ];
+    if (t.last_attempt) {
+      const d = new Date(t.last_attempt);
+      if (!Number.isNaN(d.getTime())) {
+        parts.push(`last tried ${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`);
+      }
     }
-    if (t.includes("reaction") || t.includes("electricity") || t.includes("light")) {
-      return "Frequent numericals & diagram questions in Section C/D";
-    }
-    if (t.includes("quadratic") || t.includes("polynomial") || t.includes("arithmetic")) {
-      return "Core algebra standard with frequent 3-mark questions";
-    }
-    if (t.includes("gravitation") || t.includes("motion") || t.includes("force")) {
-      return "Key mechanics chapter with formula-based numericals";
-    }
-    return "Core CBSE syllabus concept with high board relevance";
+    return parts.join(" · ");
   };
 
   const isMaths = (topic.subject || "").toLowerCase().includes("math");
@@ -98,17 +98,14 @@ export default function WeakTopicCard({ topic, onPractice }) {
           <CircularProgress score={topic.score ?? 0} size={64} strokeWidth={6} color={scoreColor} />
         </div>
 
-        {/* Why this matters callout with retro dashed inner border */}
+        {/* Why this was flagged, with retro dashed inner border */}
         <div className="mt-3.5 p-3 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex items-center gap-2.5 text-xs text-[#1E293B]">
           <AlertTriangle className="h-4 w-4 text-[#E04A3C] shrink-0" />
-          <span className="truncate leading-relaxed font-medium">{getWeightageNote(topic.subject, topic.topic)}</span>
+          <span className="truncate leading-relaxed font-medium">{getEvidenceNote(topic)}</span>
         </div>
       </div>
 
-      <div className="mt-4 pt-3.5 border-t-2 border-[#1E293B]/20 flex items-center justify-between gap-3">
-        <div className="text-xs font-mono font-bold text-[#64748B]">
-          CBSE Board Priority
-        </div>
+      <div className="mt-4 pt-3.5 border-t-2 border-[#1E293B]/20 flex items-center justify-end gap-3">
         <Button
           size="sm"
           onClick={() => onPractice && onPractice(topic)}

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Badge } from "../ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import { isConfirmedWeak } from "../../lib/mastery";
 import {
   BarChart3,
   Users,
@@ -51,9 +52,6 @@ export default function ClassHeatmap({
     });
     return map;
   }, [students]);
-
-const isConfirmedWeak = (t) =>
-  Boolean(t && (t.is_confirmed_weak !== undefined ? t.is_confirmed_weak : (t.band === "weak" && (t.attempts || 0) >= 2)));
 
   // Filtered students by search and struggling flag
   const filteredStudents = useMemo(() => {

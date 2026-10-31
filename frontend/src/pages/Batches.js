@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../lib/api";
+import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -758,7 +759,8 @@ export default function Batches() {
     setLoadingDrill(true);
     try {
       const res = await api.get(`/mastery/teacher/student/${st.id}`);
-      setStudentDrill(res.data);
+      // Keep only attempted topics; the payload also lists untested syllabus topics at 0%
+      setStudentDrill({ ...res.data, topics: (res.data.topics || []).filter((t) => t.band !== "not_attempted") });
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
     } finally {
@@ -776,10 +778,12 @@ export default function Batches() {
     const rawList = batchDetails?.students || [];
     const processed = rawList.map((s) => {
       const topics = s.topics || [];
-      const totalScore = topics.reduce((acc, t) => acc + (t.score || 0), 0);
-      const overall = topics.length > 0 ? Math.round(totalScore / topics.length) : 0;
-      const weakTopics = topics.filter((t) => t.band === "weak");
-      const strongTopics = topics.filter((t) => t.band === "strong");
+      // Weight each topic by its answered questions so a 1-question topic doesn't count like a 100-question one
+      const totalAttempts = topics.reduce((acc, t) => acc + (t.attempts || 0), 0);
+      const weightedScore = topics.reduce((acc, t) => acc + (t.score || 0) * (t.attempts || 0), 0);
+      const overall = totalAttempts > 0 ? Math.round(weightedScore / totalAttempts) : 0;
+      const weakTopics = topics.filter(isConfirmedWeak);
+      const strongTopics = topics.filter(isConfirmedStrong);
       return {
         ...s,
         overall,
@@ -1909,9 +1913,9 @@ export default function Batches() {
                           <div className="flex items-center gap-3 shrink-0">
                             <span
                               className={`font-mono font-black px-2.5 py-1 rounded-xl border-2 border-[#1E293B] ${
-                                t.band === "weak"
+                                isConfirmedWeak(t)
                                   ? "text-[#E04A3C] bg-[#E04A3C]/15"
-                                  : t.band === "strong"
+                                  : isConfirmedStrong(t)
                                   ? "text-[#2F8A5F] bg-[#2F8A5F]/15"
                                   : "text-[#B45309] bg-[#F5C842]/30"
                               }`}

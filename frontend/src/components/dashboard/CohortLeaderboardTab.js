@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../../lib/api";
+import { isConfirmedWeak } from "../../lib/mastery";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -415,13 +416,14 @@ export default function CohortLeaderboardTab({
           {!reportData || (reportData.weak_topics || []).length === 0 ? (
             <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-8 text-center text-xs text-[#64748B] space-y-1">
               <CheckCircle2 className="h-8 w-8 text-[#4CAF7D] mx-auto opacity-70" />
-              <p className="font-bold text-[#1E293B]">No Critical Weaknesses Identified</p>
-              <p>All student submissions in this batch are currently above the 55% threshold.</p>
+              <p className="font-bold text-[#1E293B]">No Attempted Topics Yet</p>
+              <p>Topic rankings appear once students in this batch submit tests or practice sets.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {reportData.weak_topics.slice(0, 5).map((w, idx) => {
-                const isSevere = w.band ? w.band === "weak" : w.class_avg < 55;
+                // weak_topics is pre-sorted with batch-confirmed weak topics first, then lowest class average
+                const isSevere = isConfirmedWeak(w);
                 return (
                   <div
                     key={`${w.subject}|${w.chapter}|${w.topic}|${idx}`}

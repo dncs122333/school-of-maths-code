@@ -57,6 +57,26 @@ def is_answered(result: dict, answers=None, index: int = None) -> bool:
     return True
 
 
+def summarize_submission_topics(results, answers=None) -> list:
+    """Per-topic summary for one submission's result screen: grouped by (chapter, topic), accuracy over
+    answered questions only, with skipped questions counted separately. Keeps first-seen topic order."""
+    groups = {}
+    for i, r in enumerate(results or []):
+        topic = r.get("topic") or "General"
+        chapter = r.get("chapter") or ""
+        key = (chapter.strip().casefold(), topic.strip().casefold())
+        g = groups.setdefault(key, {"topic": topic, "chapter": chapter, "total": 0, "correct": 0, "skipped": 0})
+        if not is_answered(r, answers, i):
+            g["skipped"] += 1
+            continue
+        g["total"] += 1
+        if r.get("is_correct"):
+            g["correct"] += 1
+    for g in groups.values():
+        g["accuracy"] = round_half_up(g["correct"] / g["total"] * 100) if g["total"] else 0
+    return list(groups.values())
+
+
 def difficulty_weight(difficulty: str) -> float:
     return DIFFICULTY_WEIGHT.get((difficulty or "").lower(), DEFAULT_WEIGHT)
 
@@ -432,7 +452,13 @@ def compute_unattempted_summary(attempted_topics, class_level=None, syllabus=Non
     attempted_count = len(attempted_topics)
     weak_count = sum(1 for t in attempted_topics if is_confirmed_weak(t))
     strong_count = sum(1 for t in attempted_topics if is_confirmed_strong(t))
+    # Developing includes weak/strong scores not yet confirmed across 2 tests (matches the UI filter);
+    # unconfirmed_count says how many of those are waiting on more evidence
     developing_count = attempted_count - weak_count - strong_count
+    unconfirmed_count = sum(
+        1 for t in attempted_topics
+        if t.get("band") in ("weak", "strong") and not is_confirmed_weak(t) and not is_confirmed_strong(t)
+    )
 
     return {
         "not_attempted_by_chapter": not_attempted_by_chapter,
@@ -442,6 +468,7 @@ def compute_unattempted_summary(attempted_topics, class_level=None, syllabus=Non
             "total_topics": attempted_count + total_unattempted,
             "weak_count": weak_count,
             "developing_count": developing_count,
+            "unconfirmed_count": unconfirmed_count,
             "strong_count": strong_count,
         }
     }

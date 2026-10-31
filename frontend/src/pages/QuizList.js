@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link, useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
+import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -96,7 +97,8 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
   const sortedTopics = useMemo(() => {
     let list = [];
     if (studentMastery?.topics?.length) {
-      list = [...studentMastery.topics];
+      // The mastery payload also lists untested syllabus topics (score 0); they are not calibrations
+      list = studentMastery.topics.filter((t) => t.band !== "not_attempted");
     } else if (studentReview?.topic_summary?.length) {
       list = [...studentReview.topic_summary].map((t) => ({
         topic: t.topic,
@@ -341,8 +343,10 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
                         const rawScore = top.score ?? 0;
                         const score = Math.round(Math.max(0, Math.min(100, rawScore)));
                         const gap = 100 - score;
-                        const isWeak = top.band ? top.band === "weak" : score < 55;
-                        const isDev = top.band ? top.band === "developing" : (score >= 55 && score < 75);
+                        // Mastery rows carry backend confirmation flags (weak/strong across >= 2 tests);
+                        // anything unconfirmed reads as Developing. Per-test topic_summary rows have no band.
+                        const isWeak = top.band ? isConfirmedWeak(top) : score < 55;
+                        const isDev = top.band ? !isWeak && !isConfirmedStrong(top) : (score >= 55 && score < 75);
                         const bandLabel = isWeak ? "Needs Work" : isDev ? "Developing" : "Mastered";
                         const bandClass = isWeak
                           ? "text-[#E04A3C] border-[#E04A3C] bg-[#FEE2E2]"
