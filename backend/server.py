@@ -34,7 +34,8 @@ from auth import (hash_password, verify_password, create_access_token, get_curre
                   require_claim_role, user_from_token)
 from ai import (init_storage, put_object, get_object, delete_object, gen_concept_image,
                 extract_text_from_file, llm_generate_notes, extract_questions_from_media)
-from lib.mastery import compute_topic_mastery, round_half_up, band, get_ingestion_quality_summary
+from lib.mastery import (compute_topic_mastery, round_half_up, band,
+                         get_ingestion_quality_summary, _extract_syllabus_topics)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
@@ -3089,30 +3090,61 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
             per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
 
     batch_class = batch.get("class_level")
+    # Compute syllabus union ONCE at the batch level (avoiding O(students * topics) explosion)
+    batch_syllabus = _extract_syllabus_topics(class_level=batch_class, subject=batch.get("subject"))
+
     topic_scores = {}  # norm_key -> {"subject": ..., "chapter": ..., "topic": ..., "scores": []}
     student_topics = {}
     for sid in student_ids:
-        mastery = compute_topic_mastery(per_student.get(sid, []), class_level=batch_class)
-        student_topics[sid] = {f"{m['subject']}|{m['chapter']}|{m['topic']}": m for m in mastery}
-        for m in mastery:
-            if m.get("attempts", 0) > 0:
-                k = (normalize_key(m["subject"]), normalize_key(m["chapter"]), normalize_key(m["topic"]))
-                if k not in topic_scores:
-                    topic_scores[k] = {"subject": m["subject"], "chapter": m["chapter"], "topic": m["topic"], "scores": []}
-                topic_scores[k]["scores"].append(m["score"])
+        # Pass class_level=None to evaluate only actual attempts without redundant syllabus union
+        mastery = compute_topic_mastery(per_student.get(sid, []), class_level=None)
+        # Drop not_attempted rows: only retain topics the student actually attempted (attempts > 0)
+        active_mastery = [m for m in mastery if m.get("attempts", 0) > 0]
+        student_topics[sid] = active_mastery
+        for m in active_mastery:
+            k = (normalize_key(m["subject"]), normalize_key(m["chapter"]), normalize_key(m["topic"]))
+            if k not in topic_scores:
+                topic_scores[k] = {"subject": m["subject"], "chapter": m["chapter"], "topic": m["topic"], "scores": []}
+            topic_scores[k]["scores"].append(m["score"])
 
+    # Batch-level weak topics from attempted topics
     weak_topics = [{"subject": v["subject"], "chapter": v["chapter"], "topic": v["topic"],
                     "class_avg": round_half_up(sum(v["scores"]) / len(v["scores"])),
-                    "band": band(round_half_up(sum(v["scores"]) / len(v["scores"])), len(v["scores"]))}
+                    "band": band(round_half_up(sum(v["scores"]) / len(v["scores"])), len(v["scores"])),
+                    "attempts": len(v["scores"])}
                    for v in topic_scores.values()]
-    weak_topics.sort(key=lambda x: x["class_avg"])  # weakest first
+
+    # Union with batch syllabus ONCE at the batch level for untested curriculum coverage
+    seen_batch_keys = {
+        (normalize_key(w["subject"]), normalize_key(w["chapter"]), normalize_key(w["topic"]))
+        for w in weak_topics
+    }
+    for st in batch_syllabus:
+        s_key = (normalize_key(st["subject"]), normalize_key(st["chapter"]), normalize_key(st["topic"]))
+        if s_key not in seen_batch_keys:
+            seen_batch_keys.add(s_key)
+            weak_topics.append({
+                "subject": st["subject"],
+                "chapter": st["chapter"],
+                "topic": st["topic"],
+                "class_avg": 0,
+                "band": "not_attempted",
+                "attempts": 0
+            })
+
+    def _sort_key(item):
+        b = item["band"]
+        order = {"weak": 0, "not_attempted": 1, "developing": 2, "strong": 3}
+        return (order.get(b, 1), item["class_avg"], item["subject"], item["chapter"], item["topic"])
+
+    weak_topics.sort(key=_sort_key)
 
     ingestion_quality = get_ingestion_quality_summary(weak_topics)
 
     return {"students": [{"id": s["id"], "name": s["name"],
                           "is_disabled": s.get("is_disabled", False),
                           "is_blocked": s.get("is_blocked", False),
-                          "topics": list(student_topics.get(s["id"], {}).values())}
+                          "topics": student_topics.get(s["id"], [])}
                          for s in students],
             "weak_topics": weak_topics,
             "ingestion_quality": ingestion_quality}

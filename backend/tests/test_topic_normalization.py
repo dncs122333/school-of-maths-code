@@ -287,5 +287,28 @@ class TestTopicNormalization:
         assert len(c10_mastery) > 0
         assert all(r["band"] == "not_attempted" for r in c10_mastery)
 
+    def test_08_teacher_mastery_payload_does_not_explode_with_unattempted_rows(self):
+        """teacher_mastery computes syllabus union once at batch level and drops not_attempted
+        rows from per-student topic lists to avoid 16k empty cell payload explosions."""
+        batches = requests.get(f"{API}/batches", headers=self.state["th"], timeout=15).json()
+        assert len(batches) > 0, "No batches found for teacher"
+        batch_id = batches[0]["id"]
+
+        res = requests.get(f"{API}/mastery/teacher", params={"batch_id": batch_id},
+                           headers=self.state["th"], timeout=15)
+        assert res.status_code == 200, res.text
+        data = res.json()
+
+        # Each student's topic array must NOT contain not_attempted rows
+        for s in data.get("students", []):
+            for t in s.get("topics", []):
+                assert t.get("attempts", 0) > 0, f"Found unattempted topic row in student {s['name']}: {t}"
+                assert t.get("band") != "not_attempted", f"Found not_attempted band in student {s['name']}: {t}"
+
+        # Batch-level weak_topics retains batch-level syllabus union
+        assert "weak_topics" in data
+        assert isinstance(data["weak_topics"], list)
+
+
 
 
