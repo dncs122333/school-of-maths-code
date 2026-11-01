@@ -3904,6 +3904,7 @@ async def seed_default_questions():
             )
             explanation = (row.get("Explanation") or "").strip()
             difficulty = _normalize_difficulty(row.get("Difficulty") or "")
+            correct_index = _normalize_correct_option(row.get("Correct Option") or "")
             if not question or any(not o for o in options) or correct_index is None:
                 continue
             doc = {"id": str(uuid.uuid4()), "class_level": class_level, "subject": subject,
