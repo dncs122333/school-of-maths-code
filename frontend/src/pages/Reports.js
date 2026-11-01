@@ -686,7 +686,17 @@ export default function Reports() {
                       <tr key={st.student_id} className="border-b border-[#1E293B]/10 hover:bg-[#FFF9E8]/40">
                         <td className="py-3 px-3 font-mono font-bold text-[#1E293B]">#{st.rank}</td>
                         <td className="py-3 px-3 font-bold text-[#1E293B]">{st.name}</td>
-                        <td className="py-3 px-2 font-mono text-[#64748B]">{st.tests_taken} Tests</td>
+                        <td className="py-3 px-2 font-mono text-[#64748B]">
+                          {st.tests_assigned != null ? (
+                            // Attendance beside the average: tests attended out of class tests assigned (excused left out)
+                            <span title={st.attendance_pct != null ? `${st.attendance_pct}% attendance` : undefined}>
+                              {st.tests_attended}/{st.tests_assigned} tests
+                              {st.tests_excused > 0 && <span className="block text-[10px]">{st.tests_excused} excused</span>}
+                            </span>
+                          ) : (
+                            `${st.tests_taken} Tests`
+                          )}
+                        </td>
                         <td className="py-3 px-2 font-mono font-900 text-sm text-[#1E293B]">{st.avg_score}%</td>
                         <td className="py-3 px-2">
                           <Badge className={BAND[st.overall_band]?.badge}>{st.overall_band}</Badge>

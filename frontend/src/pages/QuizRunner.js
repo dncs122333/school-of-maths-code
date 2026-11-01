@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
@@ -22,6 +22,9 @@ import { toast } from "sonner";
 
 export default function QuizRunner() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  // ?review=1 opens a submitted class test's released answers
+  const reviewMode = searchParams.get("review") === "1";
   const nav = useNavigate();
   const { user } = useAuth();
   const isTeacher = user?.role === "teacher" || user?.role === "admin";
@@ -42,6 +45,13 @@ export default function QuizRunner() {
   const draftKey = (startedAt) => `quiz-draft:${id}:${user?.id}:${startedAt || ""}`;
 
   useEffect(() => {
+    if (reviewMode) {
+      // Released class-test results: the student's own answers next to the correct ones
+      api.get(`/tests/${id}/my-review`)
+        .then((r) => { setQuiz({ title: r.data.title, questions: [] }); setResult(r.data); })
+        .catch((e) => { toast.error(formatApiErrorDetail(e.response?.data?.detail)); nav(-1); });
+      return;
+    }
     api.get(`/tests/${id}`)
       .then((r) => {
         const n = r.data.questions.length;
@@ -49,6 +59,8 @@ export default function QuizRunner() {
         try {
           saved = JSON.parse(sessionStorage.getItem(draftKey(r.data.started_at)) || "null");
         } catch {}
+        // Fall back to the server's autosave (e.g. the tab was closed or another device was used)
+        if (!saved && r.data.draft_answers?.length === n) saved = { answers: r.data.draft_answers };
         setQuiz(r.data);
         setAnswers(saved?.answers?.length === n ? saved.answers : new Array(n).fill(-1));
         timesRef.current = saved?.times?.length === n ? saved.times : new Array(n).fill(0);
@@ -61,10 +73,15 @@ export default function QuizRunner() {
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!quiz || isTeacher || result) return;
+    if (!quiz || isTeacher || result || reviewMode) return;
     try {
       sessionStorage.setItem(draftKey(quiz.started_at), JSON.stringify({ answers, times: timesRef.current }));
     } catch {}
+    // Server autosave (debounced): if the tab closes, the server auto-submits these answers at the deadline
+    const t = setTimeout(() => {
+      api.put(`/tests/${id}/draft`, { answers, times: timesRef.current }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(t);
   }, [answers, quiz, result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { idxRef.current = idx; setShowHint(false); }, [idx]);
@@ -164,8 +181,20 @@ export default function QuizRunner() {
           </div>
         )}
 
+        {!result.review && (
+          // Class test answers stay hidden while classmates (or make-ups) can still take it
+          <div className="rounded-3xl bg-[#FFF9E8] border-[2.5px] border-[#1E293B] p-6 text-center text-[#1E293B] shadow-[4px_4px_0_#1E293B]">
+            <div className="font-head font-bold">Answers will be shown after the test closes</div>
+            {result.review_available_at && (
+              <div className="text-xs font-mono mt-1 text-[#1E293B]/70">
+                Available from {new Date(result.review_available_at).toLocaleString()}. Open it again from Class Tests.
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-4">
-          {result.review.map((q, i) => (
+          {(result.review || []).map((q, i) => (
             <div key={i} className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2">

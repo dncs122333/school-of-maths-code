@@ -29,6 +29,7 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
   const [activeTab, setActiveTab] = useState("leaderboard");
   const [leaderboard, setLeaderboard] = useState(null);
   const [missedData, setMissedData] = useState(null);
+  const [absenceBusy, setAbsenceBusy] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState(false);
@@ -121,6 +122,47 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
   }, [studentReview, questionFilter]);
 
   if (!test) return null;
+
+  const reloadMissed = () =>
+    api.get(`/tests/${test.id}/missed-students`).then((r) => setMissedData(r.data || null)).catch(() => {});
+
+  const handleMakeup = async (st) => {
+    if (!window.confirm(`Give ${st.name} a make-up window starting now (${test.duration_minutes || ""} min test, open ${(Number(test.duration_minutes) || 0) + 30} min)? Answers stay hidden from the class until it closes.`)) return;
+    setAbsenceBusy(st.id);
+    try {
+      await api.post(`/tests/${test.id}/makeup`, { student_ids: [st.id] });
+      toast.success(`Make-up opened for ${st.name}`);
+      await reloadMissed();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not open a make-up");
+    } finally {
+      setAbsenceBusy(null);
+    }
+  };
+
+  const handleExcuse = async (st, excused) => {
+    setAbsenceBusy(st.id);
+    try {
+      await api.post(`/tests/${test.id}/excuse`, { student_ids: [st.id], excused });
+      toast.success(excused ? `${st.name} excused from this test` : `${st.name} no longer excused`);
+      await reloadMissed();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not update");
+    } finally {
+      setAbsenceBusy(null);
+    }
+  };
+
+  const handleReleaseResults = async () => {
+    if (!window.confirm("Show students the correct answers now? Anyone who hasn't taken it yet could be told them.")) return;
+    try {
+      await api.post(`/tests/${test.id}/release-results`);
+      toast.success("Answers released to students");
+      await reloadMissed();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not release results");
+    }
+  };
 
   const handleCopyAbsent = () => {
     if (!missedData?.missed_students?.length) return;
@@ -708,9 +750,33 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
                               </span>
                             )}
                           </div>
-                          <span className="px-2 py-0.5 rounded-lg bg-[#E04A3C]/10 border border-[#E04A3C]/40 text-[#E04A3C] font-mono text-[10px] font-bold">
-                            Missed
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {st.excused ? (
+                              <span className="px-2 py-0.5 rounded-lg bg-[#1E293B]/5 border border-[#1E293B]/30 text-[#1E293B]/70 font-mono text-[10px] font-bold">Excused</span>
+                            ) : st.makeup ? (
+                              <span className="px-2 py-0.5 rounded-lg bg-[#3E7CB1]/10 border border-[#3E7CB1]/40 text-[#3E7CB1] font-mono text-[10px] font-bold" title={`Until ${new Date(st.makeup.closes_at).toLocaleString()}`}>
+                                Make-up {new Date(st.makeup.opens_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-lg bg-[#E04A3C]/10 border border-[#E04A3C]/40 text-[#E04A3C] font-mono text-[10px] font-bold">Missed</span>
+                            )}
+                            {missedData?.kind === "test" && missedData?.window_closed && (
+                              <>
+                                {!st.makeup && (
+                                  <button type="button" disabled={absenceBusy === st.id} onClick={() => handleMakeup(st)}
+                                    className="px-2 py-0.5 rounded-lg border border-[#1E293B] bg-white text-[10px] font-bold hover:bg-[#FFF9E8]"
+                                    title="Give this student their own window (same questions and duration) starting now">
+                                    Make-up
+                                  </button>
+                                )}
+                                <button type="button" disabled={absenceBusy === st.id} onClick={() => handleExcuse(st, !st.excused)}
+                                  className="px-2 py-0.5 rounded-lg border border-[#1E293B] bg-white text-[10px] font-bold hover:bg-[#FFF9E8]"
+                                  title={st.excused ? "Count this test in their attendance again" : "Leave this test out of their attendance"}>
+                                  {st.excused ? "Un-excuse" : "Excuse"}
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -730,6 +796,13 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
               className="rounded-full border-2 border-[#1E293B] bg-white font-head font-bold text-xs h-9 px-4 shadow-[1.5px_1.5px_0_#1E293B]"
             >
               ← Back to Leaderboard
+            </Button>
+          ) : missedData?.kind === "test" && !missedData?.results_released ? (
+            // Answers are hidden until the test (and make-ups) close; the teacher can release them early
+            <Button type="button" variant="outline" onClick={handleReleaseResults}
+              className="rounded-full border-2 border-[#1E293B] bg-white font-head font-bold text-xs h-9 px-4 shadow-[1.5px_1.5px_0_#1E293B]"
+              title={missedData?.results_release_at ? `Otherwise released ${new Date(missedData.results_release_at).toLocaleString()}` : undefined}>
+              Release answers now
             </Button>
           ) : <div />}
           <Button
@@ -928,8 +1001,21 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
               </Button>
             </div>
           )
+        ) : done && !isDpp ? (
+          // Class test answers open once the test (and any make-ups) close, or when the teacher releases them
+          t.results_released ? (
+            <Button asChild variant="outline" className="w-full rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] hover:bg-[#FFF9E8] font-head font-bold">
+              <Link to={`/quiz/${t.id}?review=1`}>View answers</Link>
+            </Button>
+          ) : (
+            <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Answers after the test closes</Button>
+          )
         ) : done ? (
           <Button disabled className="w-full rounded-full font-head font-bold bg-[#FFF9E8] text-[#64748B] border-2 border-[#1E293B]">Completed</Button>
+        ) : t.opens_in_future ? (
+          <Button disabled className="w-full rounded-full font-head font-bold bg-[#F1F5F9] text-[#1E293B] border-2 border-[#1E293B]">
+            Opens {formatExpiry(t.valid_from)}
+          </Button>
         ) : studentLive ? (
           <Button data-testid={`start-quiz-${t.id}`} asChild className={`w-full rounded-full border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold ${
             isTargeted
@@ -937,7 +1023,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
               : "bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B]"
           }`}>
             <Link to={`/quiz/${t.id}`}>
-              {isTargeted ? "Fix Concept Sprint ➔" : isDpp ? "Practice Sprint" : "Start Test"}
+              {isTargeted ? "Fix Concept Sprint ➔" : isDpp ? "Practice Sprint" : t.is_makeup ? "Start Make-up Test" : "Start Test"}
             </Link>
           </Button>
         ) : (

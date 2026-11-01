@@ -60,7 +60,9 @@ export default function CreateQuiz({ kind }) {
     question_count: 10,
     duration_minutes: 20,
     valid_hours: 24,
-    activate_now: true
+    activate_now: true,
+    start_at: "",
+    window_minutes: "",
   });
   const [busy, setBusy] = useState(false);
 
@@ -357,8 +359,11 @@ export default function CreateQuiz({ kind }) {
       chapter: finalChapter,
       chapters: finalChapters,
       batch_id: targetBatchId,
-      duration_minutes: timingMode === "timed" ? Number(f.duration_minutes || 20) : 0,
+      // Class tests are always timed and use start time + window instead of hours of validity
+      duration_minutes: (!isDpp || timingMode === "timed") ? Number(f.duration_minutes || 20) : 0,
       valid_hours: Number(f.valid_hours || 24),
+      start_at: !isDpp && f.start_at ? new Date(f.start_at).toISOString() : undefined,
+      window_minutes: !isDpp && f.window_minutes ? Number(f.window_minutes) : undefined,
       is_active: !saveOnly,
       activate_now: !saveOnly,
       is_draft: saveOnly,
@@ -1063,6 +1068,10 @@ export default function CreateQuiz({ kind }) {
         <div className="pt-2 border-t border-[#1E293B]/20 space-y-4">
           <div>
             <Label className="font-800 text-[#1E293B] block mb-2">Timing & Test Duration</Label>
+            {!isDpp && (
+              <p className="text-[11px] font-semibold text-[#1E293B]/60 -mt-1 mb-2">Class tests are always timed.</p>
+            )}
+            {isDpp && (
             <div className="grid grid-cols-2 gap-3 p-1.5 bg-[#FFF9E8] rounded-2xl border-2 border-[#1E293B]">
               <button
                 type="button"
@@ -1087,6 +1096,7 @@ export default function CreateQuiz({ kind }) {
                 <Clock className="h-4 w-4" /> Timed Sprint / Test
               </button>
             </div>
+            )}
           </div>
 
           <div className="grid sm:grid-cols-3 gap-4">
@@ -1125,7 +1135,7 @@ export default function CreateQuiz({ kind }) {
             </div>
 
             {/* Duration Input (if timed) */}
-            {timingMode === "timed" ? (
+            {(!isDpp || timingMode === "timed") ? (
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="font-800 text-[#1E293B]">Duration (min)</Label>
@@ -1161,7 +1171,38 @@ export default function CreateQuiz({ kind }) {
               </div>
             )}
 
-            {/* Validity Hours */}
+            {/* Class tests: scheduled start and a short window (default duration + 30 min) so the class sits it together */}
+            {!isDpp ? (
+            <div className="space-y-3">
+              <div>
+                <Label className="font-800 text-[#1E293B]">Starts at</Label>
+                <Input
+                  data-testid="quiz-start-at"
+                  type="datetime-local"
+                  className={inp + " font-mono"}
+                  value={f.start_at}
+                  onChange={(e) => setF({ ...f, start_at: e.target.value })}
+                />
+                <div className="text-[11px] text-[#1E293B]/60 font-semibold mt-1">Leave empty to start now.</div>
+              </div>
+              <div>
+                <Label className="font-800 text-[#1E293B]">Open for (minutes)</Label>
+                <Input
+                  data-testid="quiz-window"
+                  type="number"
+                  min={Number(f.duration_minutes) || 1}
+                  className={inp + " font-mono"}
+                  placeholder={String((Number(f.duration_minutes) || 0) + 30)}
+                  value={f.window_minutes}
+                  onChange={(e) => setF({ ...f, window_minutes: e.target.value })}
+                />
+                <div className="text-[11px] text-[#5B9BD5] font-bold font-mono mt-1">
+                  Closes: {formatExpiry(new Date((f.start_at ? new Date(f.start_at).getTime() : Date.now())
+                    + (Number(f.window_minutes) || (Number(f.duration_minutes) || 0) + 30) * 60000))}
+                </div>
+              </div>
+            </div>
+            ) : (
             <div>
               <Label className="font-800 text-[#1E293B]">Valid for (hours)</Label>
               <Input
@@ -1178,6 +1219,7 @@ export default function CreateQuiz({ kind }) {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
 

@@ -67,7 +67,17 @@ async def _verify_teacher_test_access(user: dict, test: dict) -> dict:
     """Verifies that the teacher or admin has permission to view the test's reports."""
     batch_id = test.get("batch_id")
     batch = None
-    if batch_id and batch_id not in ("Saved / Unassigned", ""):
+    if batch_id == "all":
+        # "All Students" = every student in the test teacher's batches; without this the report had no
+        # roster and showed no completion rate
+        teacher_batches = [b["id"] async for b in db.batches.find(
+            {"teacher_id": test.get("teacher_id"), "archived_at": {"$exists": False}}, {"_id": 0, "id": 1})]
+        students_raw, _ = await fetch_cursor_paged(
+            db.users.find({"role": "student", "batch_ids": {"$in": teacher_batches}}, {"_id": 1}),
+            limit=5000, context="students")
+        batch = {"id": "all", "name": "All Students", "teacher_id": test.get("teacher_id"),
+                 "student_ids": [str(s["_id"]) for s in students_raw]}
+    elif batch_id and batch_id not in ("Saved / Unassigned", ""):
         batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     elif test.get("student_id"):
         # Targeted sprint / diagnostic test without explicit batch: resolve student's batch
@@ -254,8 +264,22 @@ async def get_batch_term_report(
         context="term submissions"
     )
 
+    # Attendance inputs: this batch's live class tests (plus the teacher's "All Students" ones) and join dates
+    class_tests = [t async for t in db.tests.find(
+        {"kind": "test", "is_deleted": {"$ne": True}, "is_draft": {"$ne": True}, "valid_until": {"$ne": None},
+         "$or": [{"batch_id": batch_id}, {"batch_id": "all", "teacher_id": batch.get("teacher_id")}]},
+        {"_id": 0, "id": 1, "valid_from": 1, "valid_until": 1, "makeups": 1, "excused_student_ids": 1})]
+    enrolled_at = {}
+    if student_ids:
+        valid_oids = [ObjectId(sid) for sid in student_ids if ObjectId.is_valid(sid)]
+        async for u in db.users.find({"_id": {"$in": valid_oids}}, {"_id": 1, "batch_enrolled_at": 1}):
+            joined = (u.get("batch_enrolled_at") or {}).get(batch_id)
+            if joined:
+                enrolled_at[str(u["_id"])] = joined
+
     try:
-        report = compute_term_report(batch_id, batch, all_submissions, student_map, subject=subject)
+        report = compute_term_report(batch_id, batch, all_submissions, student_map, subject=subject,
+                                     class_tests=class_tests, enrolled_at=enrolled_at)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if cap_warn:

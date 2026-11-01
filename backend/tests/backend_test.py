@@ -249,8 +249,14 @@ class TestFullFlow:
         assert r.status_code == 200, r.text
         d = r.json()
         assert d["total"] == len(answers)
-        assert isinstance(d["review"], list) and len(d["review"]) == d["total"]
-        for item in d["review"]:
+        # Class test still open for classmates: answers are withheld until it closes (or the teacher releases)
+        assert d["review"] is None and d["review_available_at"]
+        assert st["s"].get(f"{API}/tests/{tid}/my-review", headers=st["student"]["h"], timeout=15).json()["review"] is None
+        rel = st["s"].post(f"{API}/tests/{tid}/release-results", headers=st["teacher"]["h"], timeout=15)
+        assert rel.status_code == 200, rel.text
+        review = st["s"].get(f"{API}/tests/{tid}/my-review", headers=st["student"]["h"], timeout=15).json()["review"]
+        assert isinstance(review, list) and len(review) == d["total"]
+        for item in review:
             for k in ("correct_index", "explanation", "is_correct", "chosen"):
                 assert k in item
 

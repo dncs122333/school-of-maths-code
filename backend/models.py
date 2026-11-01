@@ -65,6 +65,9 @@ class GenerateTestInput(BaseModel):
     is_active: Optional[bool] = None
     is_draft: Optional[bool] = None
     question_ids: Optional[List[str]] = None
+    # Class tests: scheduled start (ISO, default now) and how long they stay open (default duration + 30 min)
+    start_at: Optional[str] = None
+    window_minutes: Optional[int] = None
 
 
 class SubmitInput(BaseModel):

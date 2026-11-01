@@ -2092,7 +2092,23 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
             raise HTTPException(status_code=400, detail=f"question_count must be between 1 and {MAX_TEST_QUESTIONS}")
         count = body.question_count
     now = datetime.now(timezone.utc)
-    valid_from = now  # MVP: tests go live immediately (activate_now is a no-op)
+    valid_from = now
+    window_minutes = None
+    if body.kind == "test":
+        # Class tests are always timed, start at a scheduled time (default now) and stay open only
+        # duration + 30 min, so the class takes it together instead of across a 24-hour spread
+        if int(body.duration_minutes or 0) < 1:
+            raise HTTPException(status_code=400, detail="Class tests need a time limit")
+        if body.start_at:
+            start = _parse_utc(body.start_at)
+            if not start:
+                raise HTTPException(status_code=400, detail="Invalid start time")
+            if start > now + timedelta(days=60):
+                raise HTTPException(status_code=400, detail="Start time must be within 60 days")
+            valid_from = max(start, now)
+        window_minutes = int(body.window_minutes or (body.duration_minutes + CLASS_TEST_WINDOW_BUFFER_MIN))
+        if not body.duration_minutes <= window_minutes <= 60 * 24 * 90:
+            raise HTTPException(status_code=400, detail="The test window must be at least as long as the test")
     chap_name = body.chapter or ""
     active_chaps = body.chapters or ([chap_name] if chap_name else [])
     if active_chaps and not chap_name:
@@ -2115,14 +2131,20 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
 
     is_act = False if is_draft else (body.is_active if body.is_active is not None else body.activate_now)
 
+    window = timedelta(minutes=window_minutes) if window_minutes else timedelta(hours=body.valid_hours)
     valid_from_val = None if is_draft else valid_from.isoformat()
-    valid_until_val = None if is_draft else (valid_from + timedelta(hours=body.valid_hours)).isoformat()
+    valid_until_val = None if is_draft else (valid_from + window).isoformat()
 
     doc = {"id": str(uuid.uuid4()), "title": body.title, "kind": body.kind,
            "class_level": body.class_level, "subject": body.subject, "chapter": chap_name,
            "chapters": active_chaps,
            "topic": body.topic or "", "batch_id": batch_val, "batch_name": batch_name,
-           "duration_minutes": body.duration_minutes, "valid_hours": body.valid_hours,
+           "duration_minutes": body.duration_minutes,
+           "valid_hours": max(1, math.ceil(window_minutes / 60)) if window_minutes else body.valid_hours,
+           "window_minutes": window_minutes,
+           # New class tests show questions in a per-student order (answers are stored in canonical order)
+           "question_order": "per_student" if body.kind == "test" else "fixed",
+           "excused_student_ids": [], "makeups": [], "results_released_at": None,
            "valid_from": valid_from_val,
            "valid_until": valid_until_val,
            "questions": [], "status": "processing", "is_active": is_act, "is_draft": is_draft,
@@ -2262,13 +2284,25 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
     return [_format_q(x) for x in picked]
 
 
+def _question_order(test: dict, student_id: str) -> List[int]:
+    """Display order of questions for this student, as canonical indices. Class tests created with
+    question_order="per_student" get a stable per-student shuffle (harder to share "Q3 is B"); older tests
+    keep one order for everyone so their stored answers still line up."""
+    n = len(test.get("questions") or [])
+    if test.get("question_order") != "per_student":
+        return list(range(n))
+    return _shuffled_order(_option_seed(test["id"], student_id, -1), n)
+
+
 def _strip_answers(test: dict, student_id: str) -> dict:
     t = dict(test)
     questions = t.get("questions", [])
     t["question_count"] = len(questions)
     out = []
     is_dpp = t.get("kind") == "dpp"
-    for i, q in enumerate(questions):
+    # Questions in the student's display order; option shuffle stays keyed by the canonical index i
+    for i in _question_order(test, student_id):
+        q = questions[i]
         order = _shuffled_order(_option_seed(t["id"], student_id, i), len(q["options"]))
         out.append({
             "question": q["question"],
@@ -2310,6 +2344,8 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
             t["is_active"] = t.get("is_active", True) is not False
             is_draft = bool(t.get("is_draft") or (t.get("is_active") is False and (not t.get("valid_until") or t.get("batch_name") in ("Saved / Unassigned", None, ""))))
             t["is_draft"] = is_draft
+            t["results_released"] = _results_released(t)
+            t["makeup_count"] = len(t.get("makeups") or [])
         return tests
     if user["role"] == "student":
         q["status"] = "ready"
@@ -2323,6 +2359,8 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
                 {"batch_id": {"$in": list(OPEN_AUDIENCE)}, "student_id": None,
                  "teacher_id": {"$in": await _student_teacher_ids(user)}},
             ]
+        # Expired class-test attempts left open (tab closed) are auto-submitted before listing scores
+        await _finalize_expired_attempts(student_id=user["id"])
     tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
     subs_by_test = {}
@@ -2339,15 +2377,9 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
     out = []
     for t in tests:
         is_draft = bool(t.get("is_draft") or not t.get("valid_until"))
-        if is_draft:
-            time_valid = False
-        else:
-            try:
-                vu = datetime.fromisoformat(t["valid_until"])
-                vf = datetime.fromisoformat(t["valid_from"]) if t.get("valid_from") else now - timedelta(days=1)
-                time_valid = (vf <= now <= vu)
-            except Exception:
-                time_valid = True
+        # The student's own window: a make-up window if granted, else the test's
+        vf, vu = _student_window(t, user["id"])
+        time_valid = (not is_draft) and (vf is None or vf <= now) and (vu is None or now <= vu)
 
         sub = subs_by_test.get(t["id"])
         is_ready = t.get("status") == "ready"
@@ -2358,7 +2390,12 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
                     "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
                     "duration_minutes": t.get("duration_minutes", 0), "question_count": q_count,
-                    "valid_from": t.get("valid_from"), "valid_until": t.get("valid_until"),
+                    # This student's window (make-up if granted) and whether answers are visible yet
+                    "valid_from": vf.isoformat() if vf else t.get("valid_from"),
+                    "valid_until": vu.isoformat() if vu else t.get("valid_until"),
+                    "is_makeup": bool(_student_makeup(t, user["id"])),
+                    "opens_in_future": bool(vf and now < vf and not is_draft),
+                    "results_released": _results_released(t, now),
                     "is_active": is_ready and manually_active and time_valid,
                     "submitted": bool(sub), "score": sub.get("score") if sub else None,
                     "status": t.get("status"), "batch_id": t.get("batch_id"),
@@ -2458,37 +2495,43 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="This test is currently inactive or closed by your teacher.")
         if test.get("status") != "ready":
             raise HTTPException(status_code=403, detail="This test is still building or has failed.")
+        await _ensure_student_can_access_test(test, user)
         now = datetime.now(timezone.utc)
-        if test.get("valid_from") and test.get("valid_until"):
-            try:
-                vf = datetime.fromisoformat(test["valid_from"].replace("Z", "+00:00"))
-                vu = datetime.fromisoformat(test["valid_until"].replace("Z", "+00:00"))
-                vf = vf if vf.tzinfo else vf.replace(tzinfo=timezone.utc)
-                vu = vu if vu.tzinfo else vu.replace(tzinfo=timezone.utc)
-            except Exception:
-                vf = vu = None
-            if vf and vu and not (vf <= now <= vu):
-                raise HTTPException(status_code=403, detail="This test is not active right now")
+        opens, closes = _student_window(test, user["id"])
+        if opens and now < opens:
+            raise HTTPException(status_code=403, detail=f"This test opens at {opens.isoformat()}")
         if test["kind"] == "test":
             if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
                 raise HTTPException(status_code=403, detail="Already submitted")
-        await _ensure_student_can_access_test(test, user)
-        # The attempt clock lives on the server: a refresh resumes the same deadline instead of restarting it
-        await db.test_starts.update_one(
-            {"test_id": test_id, "student_id": user["id"]},
-            {"$setOnInsert": {"started_at": now.isoformat()}}, upsert=True)
         start = await db.test_starts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
-        deadline = _attempt_deadline(test, start)
+        if closes and now > closes and not start:
+            raise HTTPException(status_code=403, detail="This test is not active right now")
+        # The attempt clock lives on the server: a refresh resumes the same deadline instead of restarting it
+        if not start:
+            await db.test_starts.update_one(
+                {"test_id": test_id, "student_id": user["id"]},
+                {"$setOnInsert": {"started_at": now.isoformat()}}, upsert=True)
+            start = await db.test_starts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+        deadline = _attempt_deadline(test, start, user["id"])
         stripped = _strip_answers(test, user["id"])
+        stripped.pop("makeups", None)
+        stripped.pop("excused_student_ids", None)
         stripped["started_at"] = start.get("started_at")
         stripped["seconds_left"] = (max(0, int((deadline - now).total_seconds()))
                                     if deadline and int(test.get("duration_minutes") or 0) > 0 else None)
+        # Autosaved answers (display order) so a lost tab doesn't lose work
+        stripped["draft_answers"] = start.get("draft_answers")
         return stripped
     _ensure_teacher_owns_test(test, user)  # the full test includes the answer key
     return test
 
 
 SUBMIT_GRACE_SECONDS = 120  # network lag on auto-submit at time-up
+CLASS_TEST_WINDOW_BUFFER_MIN = 30  # class tests stay open for duration + this, from their start
+
+
+def _class_test_window_minutes(test: dict) -> int:
+    return int(test.get("window_minutes") or (int(test.get("duration_minutes") or 0) + CLASS_TEST_WINDOW_BUFFER_MIN))
 
 
 def _parse_utc(value) -> Optional[datetime]:
@@ -2501,15 +2544,173 @@ def _parse_utc(value) -> Optional[datetime]:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def _attempt_deadline(test: dict, start: Optional[dict]) -> Optional[datetime]:
-    """Timed tests: start + duration, never past the test window. Untimed: the window's end."""
-    window_end = _parse_utc(test.get("valid_until"))
+def _student_makeup(test: dict, student_id: str) -> Optional[dict]:
+    return next((m for m in (test.get("makeups") or []) if m.get("student_id") == student_id), None)
+
+
+def _student_window(test: dict, student_id: str):
+    """(opens, closes) for this student: their make-up window if the teacher granted one, else the test's."""
+    makeup = _student_makeup(test, student_id)
+    if makeup:
+        return _parse_utc(makeup.get("opens_at")), _parse_utc(makeup.get("closes_at"))
+    return _parse_utc(test.get("valid_from")), _parse_utc(test.get("valid_until"))
+
+
+def _attempt_deadline(test: dict, start: Optional[dict], student_id: Optional[str] = None) -> Optional[datetime]:
+    """Timed tests: start + duration, never past the student's window. Untimed: the window's end."""
+    _, window_end = _student_window(test, student_id) if student_id else (None, _parse_utc(test.get("valid_until")))
     started = _parse_utc((start or {}).get("started_at"))
     duration = int(test.get("duration_minutes") or 0)
     if started and duration > 0:
         timed_end = started + timedelta(minutes=duration)
         return min(timed_end, window_end) if window_end else timed_end
     return window_end
+
+
+def _results_release_at(test: dict) -> Optional[datetime]:
+    """When class-test answers become visible: the teacher's manual release, else when the last window
+    (including any make-up) closes, so a make-up student can't be handed the answers."""
+    if test.get("kind") != "test":
+        return None
+    if test.get("results_released_at"):
+        return _parse_utc(test["results_released_at"])
+    ends = [_parse_utc(test.get("valid_until"))] + [_parse_utc(m.get("closes_at")) for m in (test.get("makeups") or [])]
+    ends = [e for e in ends if e]
+    return max(ends) if ends else None
+
+
+def _results_released(test: dict, now: Optional[datetime] = None) -> bool:
+    if test.get("kind") != "test":
+        return True  # practice/diagnostic answers are part of learning
+    release_at = _results_release_at(test)
+    return bool(release_at) and (now or datetime.now(timezone.utc)) >= release_at
+
+
+def _review_rows(test: dict, student_id: str, answers: list, times: list) -> list:
+    """Per-question review in the student's display order. `answers`/`times` are stored in canonical order;
+    each chosen index points into that student's shuffled options."""
+    rows = []
+    for i in _question_order(test, student_id):
+        q = test["questions"][i]
+        order = _shuffled_order(_option_seed(test["id"], student_id, i), len(q["options"]))
+        chosen = answers[i] if i < len(answers) else -1
+        correct_display = order.index(q["correct_index"])
+        rows.append({"question": q["question"], "options": [q["options"][j] for j in order], "chosen": chosen,
+                     "correct_index": correct_display, "explanation": q.get("explanation", ""),
+                     "is_correct": chosen == correct_display, "time_s": times[i] if i < len(times) else 0.0,
+                     "subject": q.get("subject", ""), "chapter": q.get("chapter", ""), "topic": q.get("topic", ""),
+                     "topics": q.get("topics", []), "difficulty": q.get("difficulty", "medium"),
+                     "marks": q.get("marks", 1.0), "negative_marks": q.get("negative_marks", 0.0),
+                     "hint": q.get("hint", "")})
+    return rows
+
+
+async def _grade_and_store(test: dict, student_id: str, student_name: str, display_answers: list,
+                           display_times: list, tab_switches: int, start: Optional[dict], now: datetime,
+                           status: str, late_by_s: int = 0) -> dict:
+    """Grade an attempt given in display order, store it canonically, and return the submission doc.
+    Raises 403 if a class test already has a submission from this student (unique index)."""
+    questions = test["questions"]
+    total = len(questions)
+    display = _question_order(test, student_id)
+    d_answers = (list(display_answers or []) + [-1] * total)[:total]
+    d_times = ([round(float(t), 2) for t in (display_times or [])] + [0.0] * total)[:total]
+    answers, times = [-1] * total, [0.0] * total
+    for pos, i in enumerate(display):
+        answers[i], times[i] = d_answers[pos], d_times[pos]
+
+    correct, results = 0, []
+    for i, q in enumerate(questions):
+        order = _shuffled_order(_option_seed(test["id"], student_id, i), len(q["options"]))
+        chosen = answers[i]
+        is_ok = chosen == order.index(q["correct_index"])
+        correct += 1 if is_ok else 0
+        # Resolve and normalize taxonomy tags so results inherit subject/chapter reliably
+        _, norm_subj, norm_chap, norm_top, norm_tops = normalize_taxonomy(
+            q.get("class_level") or test.get("class_level") or "", q.get("subject") or test.get("subject") or "",
+            q.get("chapter") or test.get("chapter") or "", q.get("topic") or test.get("topic") or "",
+            q.get("topics") or ([q.get("topic") or test.get("topic")] if (q.get("topic") or test.get("topic")) else []))
+        # question_id + kind on each result: lets a later "count a practice question only on its first attempt"
+        # rule work without reprocessing old submissions
+        results.append({"q": i, "question_id": q.get("id"), "kind": test["kind"], "subject": norm_subj,
+                        "chapter": norm_chap, "topic": norm_top, "topics": norm_tops,
+                        "difficulty": q.get("difficulty", "medium"),
+                        "is_correct": is_ok, "answered": chosen >= 0, "time_s": times[i]})
+
+    sub = {"id": str(uuid.uuid4()), "test_id": test["id"], "kind": test["kind"], "title": test["title"],
+           "student_id": student_id, "student_name": student_name, "batch_id": test.get("batch_id"),
+           "answers": answers, "times": times, "tab_switches": tab_switches,
+           "results": results, "topic_summary": summarize_submission_topics(results),
+           "score": round_half_up(correct / total * 100) if total else 0, "correct": correct, "total": total,
+           "status": status, "is_makeup": bool(_student_makeup(test, student_id)),
+           "started_at": (start or {}).get("started_at"), "late_by_seconds": late_by_s,
+           "created_at": now.isoformat()}
+    try:
+        await db.submissions.insert_one(dict(sub))
+    except DuplicateKeyError:
+        raise HTTPException(status_code=403, detail="Already submitted")
+    # Attempt is over; a practice test re-opened later starts a fresh clock
+    await db.test_starts.delete_one({"test_id": test["id"], "student_id": student_id})
+    return sub
+
+
+async def _finalize_expired_attempts(test_ids: Optional[list] = None, student_id: Optional[str] = None) -> int:
+    """Auto-submit class-test attempts whose deadline (+grace) has passed without a submission, using the
+    student's autosaved answers. Without this, closing the tab lost the work and the student looked absent."""
+    q = {}
+    if test_ids is not None:
+        q["test_id"] = {"$in": test_ids}
+    if student_id:
+        q["student_id"] = student_id
+    now = datetime.now(timezone.utc)
+    done = 0
+    starts = await db.test_starts.find(q, {"_id": 0}).to_list(2000)
+    tests = {t["id"]: t async for t in db.tests.find(
+        {"id": {"$in": list({s["test_id"] for s in starts})}, "kind": "test"}, {"_id": 0})}
+    for s in starts:
+        test = tests.get(s["test_id"])
+        if not test:
+            continue
+        deadline = _attempt_deadline(test, s, s["student_id"])
+        if not deadline or now <= deadline + timedelta(seconds=SUBMIT_GRACE_SECONDS):
+            continue
+        student = await db.users.find_one({"_id": ObjectId(s["student_id"])}, {"name": 1}) if ObjectId.is_valid(s["student_id"]) else None
+        try:
+            await _grade_and_store(test, s["student_id"], (student or {}).get("name", "Student"),
+                                   s.get("draft_answers") or [], s.get("draft_times") or [], 0, s, now, "auto_submitted")
+            done += 1
+        except HTTPException:
+            await db.test_starts.delete_one({"test_id": s["test_id"], "student_id": s["student_id"]})
+    return done
+
+
+async def _auto_submit_loop():
+    while True:
+        try:
+            n = await _finalize_expired_attempts()
+            if n:
+                logger.info(f"auto-submitted {n} expired class-test attempts")
+        except Exception as e:
+            logger.error(f"auto-submit sweep failed: {e}")
+        await asyncio.sleep(120)
+
+
+class DraftInput(BaseModel):
+    answers: List[int]
+    times: Optional[List[float]] = None
+
+
+@api_router.put("/tests/{test_id}/draft")
+async def save_draft(test_id: str, body: DraftInput, user: dict = Depends(require_role("student"))):
+    """Autosave in-progress answers (display order) to the open attempt, so they survive a closed tab."""
+    start = await db.test_starts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+    if not start:
+        raise HTTPException(status_code=404, detail="No attempt in progress")
+    await db.test_starts.update_one({"test_id": test_id, "student_id": user["id"]}, {"$set": {
+        "draft_answers": [int(a) for a in body.answers][:MAX_TEST_QUESTIONS],
+        "draft_times": [round(float(t), 2) for t in (body.times or [])][:MAX_TEST_QUESTIONS],
+        "draft_saved_at": datetime.now(timezone.utc).isoformat()}})
+    return {"ok": True}
 
 
 @api_router.post("/tests/{test_id}/submit")
@@ -2527,88 +2728,47 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
 
     now = datetime.now(timezone.utc)
     start = await db.test_starts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
-    deadline = _attempt_deadline(test, start)
+    deadline = _attempt_deadline(test, start, user["id"])
     late_by_s = 0
     if deadline and now > deadline + timedelta(seconds=SUBMIT_GRACE_SECONDS):
         if not start:
             raise HTTPException(status_code=403, detail="This test has closed.")
         # Opened in time but submitted after the deadline: keep the answers, but flag it for the teacher
         late_by_s = int((now - deadline).total_seconds())
-    questions = test["questions"]
-    total = len(questions)
-
-    # Normalize answers to length == total (backward compatible with short/empty lists)
-    answers = list(body.answers)
-    answers = (answers + [-1] * total)[:total]
-
-    # Normalize per-question times (seconds); default 0.0 for missing entries
-    times = [round(float(t), 2) for t in (body.times or [])]
-    times = (times + [0.0] * total)[:total]
-
     tab_switches = max(0, int(body.tab_switches or 0))
-
-    correct = 0
-    review = []
-    results = []
-    for i, q in enumerate(questions):
-        # Reconstruct the same per-student option order the student saw.
-        order = _shuffled_order(_option_seed(test_id, user["id"], i), len(q["options"]))
-        shuffled_options = [q["options"][j] for j in order]
-        chosen = answers[i]                                # index into shuffled options
-        correct_display = order.index(q["correct_index"])  # index into shuffled options
-        is_ok = chosen == correct_display
-        if is_ok:
-            correct += 1
-        # Resolve and normalize taxonomy tags so results inherit subject/chapter reliably
-        q_cl = q.get("class_level") or test.get("class_level") or ""
-        q_subj = q.get("subject") or test.get("subject") or ""
-        q_chap = q.get("chapter") or test.get("chapter") or ""
-        q_top = q.get("topic") or test.get("topic") or ""
-        q_tops = q.get("topics") or ([q_top] if q_top else [])
-        _, norm_subj, norm_chap, norm_top, norm_tops = normalize_taxonomy(
-            q_cl, q_subj, q_chap, q_top, q_tops
-        )
-        review.append({"question": q["question"], "options": shuffled_options, "chosen": chosen,
-                       "correct_index": correct_display, "explanation": q.get("explanation", ""),
-                       "is_correct": is_ok, "time_s": times[i],
-                       "subject": norm_subj,
-                       "chapter": norm_chap,
-                       "topic": norm_top,
-                       "topics": norm_tops,
-                       "difficulty": q.get("difficulty", "medium"),
-                       "marks": q.get("marks", 1.0),
-                       "negative_marks": q.get("negative_marks", 0.0),
-                       "hint": q.get("hint", "")})
-        # Per-question result for the mastery engine.
-        # question_id + kind on each result: lets a later "count a practice question only on its first attempt"
-        # rule work without reprocessing old submissions
-        results.append({"q": i, "question_id": q.get("id"), "kind": test["kind"], "subject": norm_subj,
-                        "chapter": norm_chap,
-                        "topic": norm_top,
-                        "topics": norm_tops,
-                        "difficulty": q.get("difficulty", "medium"),
-                        "is_correct": is_ok, "answered": chosen >= 0, "time_s": times[i]})
-
-    score = round_half_up(correct / total * 100) if total else 0
     status = "late" if late_by_s else ("flagged" if tab_switches >= 3 else "submitted")
+    sub = await _grade_and_store(test, user["id"], user["name"], body.answers, body.times, tab_switches,
+                                 start, now, status, late_by_s)
 
-    # Chapter topic breakdown: accuracy over answered questions, skips counted separately
-    topic_summary = summarize_submission_topics(results)
+    out = {"score": sub["score"], "correct": sub["correct"], "total": sub["total"],
+           "status": sub["status"], "topic_summary": sub["topic_summary"]}
+    if _results_released(test, now):
+        out["review"] = _review_rows(test, user["id"], sub["answers"], sub["times"])
+    else:
+        # Class test still open for classmates (or make-ups): answers would leak, so withhold them for now
+        release_at = _results_release_at(test)
+        out["review"] = None
+        out["review_available_at"] = release_at.isoformat() if release_at else None
+    return out
 
-    sub = {"id": str(uuid.uuid4()), "test_id": test_id, "kind": test["kind"], "title": test["title"],
-           "student_id": user["id"], "student_name": user["name"],
-           "batch_id": test.get("batch_id"),
-           "answers": answers, "times": times, "tab_switches": tab_switches,
-           "results": results, "topic_summary": topic_summary,
-           "score": score, "correct": correct, "total": total, "status": status,
-           "started_at": (start or {}).get("started_at"), "late_by_seconds": late_by_s,
-           "created_at": now.isoformat()}
-    # Tests store a single attempt; DPPs store every attempt for repeat history.
-    await db.submissions.insert_one(dict(sub))
-    # Attempt is over; a practice test re-opened later starts a fresh clock
-    await db.test_starts.delete_one({"test_id": test_id, "student_id": user["id"]})
-    return {"score": score, "correct": correct, "total": total, "review": review,
-            "status": status, "topic_summary": topic_summary}
+
+@api_router.get("/tests/{test_id}/my-review")
+async def my_review(test_id: str, user: dict = Depends(require_role("student"))):
+    """A student's own answers with the correct ones, once the class test's results are released."""
+    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    await _finalize_expired_attempts([test_id], user["id"])
+    sub = await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0},
+                                        sort=[("created_at", -1)])
+    if not sub:
+        raise HTTPException(status_code=404, detail="You haven't taken this test")
+    base = {"test_id": test_id, "title": test.get("title"), "score": sub["score"], "correct": sub["correct"],
+            "total": sub["total"], "status": sub.get("status"), "topic_summary": sub.get("topic_summary") or []}
+    if not _results_released(test):
+        release_at = _results_release_at(test)
+        return {**base, "review": None, "review_available_at": release_at.isoformat() if release_at else None}
+    return {**base, "review": _review_rows(test, user["id"], sub.get("answers") or [], sub.get("times") or [])}
 
 
 @api_router.get("/tests/{test_id}/leaderboard")
@@ -2714,7 +2874,10 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
             "incorrect": sub.get("total", 0) - sub.get("correct", 0),
             "total": sub.get("total", len(questions)),
             "tab_switches": sub.get("tab_switches", 0),
-            "created_at": sub.get("created_at")
+            "created_at": sub.get("created_at"),
+            "status": sub.get("status"),
+            "is_makeup": bool(sub.get("is_makeup")),
+            "late_by_seconds": sub.get("late_by_seconds", 0),
         },
         "questions": review_questions,
         "topic_summary": topic_summary
@@ -2754,6 +2917,7 @@ async def get_test_missed_students(test_id: str, user: dict = Depends(require_ro
         raise HTTPException(status_code=404, detail="Test not found")
     # Returns names, emails and phone numbers: only the test's own teacher (or admin)
     _ensure_teacher_owns_test(test, user)
+    await _finalize_expired_attempts([test_id])  # closed tabs count as auto-submitted, not missed
 
     batch_id = test.get("batch_id")
     if not batch_id or batch_id in ("Saved / Unassigned", ""):
@@ -2781,17 +2945,25 @@ async def get_test_missed_students(test_id: str, user: dict = Depends(require_ro
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0, "student_id": 1, "student_name": 1}).to_list(1000)
     submitted_ids = {str(s.get("student_id")) for s in subs if s.get("student_id")}
 
+    excused = set(test.get("excused_student_ids") or [])
+    makeups = {m["student_id"]: m for m in (test.get("makeups") or [])}
     missed = []
     for st in students:
         sid = str(st.get("id") or st.get("_id"))
         if sid not in submitted_ids:
+            mk = makeups.get(sid)
             missed.append({
                 "id": sid,
                 "name": st.get("name", "Student"),
                 "email": st.get("email", ""),
                 "phone": st.get("phone", ""),
+                # Teacher actions per absentee: give a make-up window, or excuse from attendance
+                "excused": sid in excused,
+                "makeup": {"opens_at": mk["opens_at"], "closes_at": mk["closes_at"]} if mk else None,
             })
 
+    window_end = _parse_utc(test.get("valid_until"))
+    release_at = _results_release_at(test)
     return {
         "test_id": test_id,
         "has_batch": True,
@@ -2801,7 +2973,77 @@ async def get_test_missed_students(test_id: str, user: dict = Depends(require_ro
         "submitted_count": len(submitted_ids),
         "missed_count": len(missed),
         "missed_students": missed,
+        "kind": test.get("kind"),
+        "window_closed": bool(window_end and datetime.now(timezone.utc) > window_end),
+        "results_released": _results_released(test),
+        "results_release_at": release_at.isoformat() if release_at else None,
     }
+
+
+class MakeupInput(BaseModel):
+    student_ids: List[str]
+    start_at: Optional[str] = None  # default: now
+
+
+class ExcuseInput(BaseModel):
+    student_ids: List[str]
+    excused: bool = True
+
+
+async def _owned_class_test(test_id: str, user: dict) -> dict:
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED}, {"_id": 0, "questions": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    _ensure_teacher_owns_test(test, user)
+    if test.get("kind") != "test":
+        raise HTTPException(status_code=400, detail="Only class tests have make-ups, excuses and result release")
+    return test
+
+
+@api_router.post("/tests/{test_id}/makeup")
+async def grant_makeup(test_id: str, body: MakeupInput, user: dict = Depends(require_role("teacher", "admin"))):
+    """Give students with a genuine reason their own window for a test they missed. Same questions and
+    duration; it counts like a normal attempt. Class-wide answer release waits until make-ups close."""
+    test = await _owned_class_test(test_id, user)
+    now = datetime.now(timezone.utc)
+    opens = _parse_utc(body.start_at) if body.start_at else now
+    if not opens:
+        raise HTTPException(status_code=400, detail="Invalid start time")
+    opens = max(opens, now)
+    closes = opens + timedelta(minutes=int(test.get("duration_minutes") or 0) + CLASS_TEST_WINDOW_BUFFER_MIN)
+    already = set(await db.submissions.distinct("student_id", {"test_id": test_id, "student_id": {"$in": body.student_ids}}))
+    if already:
+        raise HTTPException(status_code=400, detail="Some of these students have already taken the test")
+    makeups = [m for m in (test.get("makeups") or []) if m.get("student_id") not in body.student_ids]
+    makeups += [{"student_id": sid, "opens_at": opens.isoformat(), "closes_at": closes.isoformat(),
+                 "granted_by": user["id"], "granted_at": now.isoformat()} for sid in body.student_ids]
+    excused = [s for s in (test.get("excused_student_ids") or []) if s not in body.student_ids]
+    await db.tests.update_one({"id": test_id}, {"$set": {"makeups": makeups, "excused_student_ids": excused}})
+    # A stale clock from an earlier start must not cut the make-up short
+    await db.test_starts.delete_many({"test_id": test_id, "student_id": {"$in": body.student_ids}})
+    return {"opens_at": opens.isoformat(), "closes_at": closes.isoformat(), "count": len(body.student_ids)}
+
+
+@api_router.post("/tests/{test_id}/excuse")
+async def set_excused(test_id: str, body: ExcuseInput, user: dict = Depends(require_role("teacher", "admin"))):
+    """Excused students are left out of this test's attendance count instead of showing as absent."""
+    test = await _owned_class_test(test_id, user)
+    current = set(test.get("excused_student_ids") or [])
+    current = (current | set(body.student_ids)) if body.excused else (current - set(body.student_ids))
+    update = {"excused_student_ids": sorted(current)}
+    if body.excused:
+        update["makeups"] = [m for m in (test.get("makeups") or []) if m.get("student_id") not in body.student_ids]
+    await db.tests.update_one({"id": test_id}, {"$set": update})
+    return {"excused_student_ids": update["excused_student_ids"]}
+
+
+@api_router.post("/tests/{test_id}/release-results")
+async def release_results(test_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    """Show students the correct answers now instead of waiting for the test (and make-ups) to close."""
+    await _owned_class_test(test_id, user)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.tests.update_one({"id": test_id}, {"$set": {"results_released_at": now_iso}})
+    return {"results_released_at": now_iso}
 
 
 class UpdateTestInput(BaseModel):
@@ -2858,7 +3100,11 @@ async def update_test(test_id: str, body: UpdateTestInput, user: dict = Depends(
                 vh = body.valid_hours or test.get("valid_hours") or 24
                 updates["is_draft"] = False
                 updates["valid_from"] = now.isoformat()
-                updates["valid_until"] = (now + timedelta(hours=vh)).isoformat()
+                if test.get("kind") == "test" and not body.valid_hours:
+                    # Class tests reopen for duration + 30 min, like a freshly scheduled one
+                    updates["valid_until"] = (now + timedelta(minutes=_class_test_window_minutes(test))).isoformat()
+                else:
+                    updates["valid_until"] = (now + timedelta(hours=vh)).isoformat()
                 updates["valid_hours"] = vh
     if body.is_draft is not None:
         updates["is_draft"] = body.is_draft
@@ -2916,6 +3162,8 @@ async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = De
 
     dur = body.duration_minutes if body.duration_minutes is not None else orig.get("duration_minutes", 0)
     v_hours = body.valid_hours if body.valid_hours is not None else orig.get("valid_hours", 24)
+    if orig.get("kind") == "test" and int(dur or 0) < 1:
+        raise HTTPException(status_code=400, detail="Class tests need a time limit")
     new_title = body.title.strip() if body.title and body.title.strip() else f"{orig['title']} ({batch_name or 'Copy'})"
 
     new_test_id = str(uuid.uuid4())
@@ -2933,7 +3181,12 @@ async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = De
         "duration_minutes": dur,
         "valid_hours": v_hours,
         "valid_from": now.isoformat(),
-        "valid_until": (now + timedelta(hours=v_hours)).isoformat(),
+        # Class-test copies open for duration + 30 min unless the teacher asked for a specific window
+        "valid_until": (now + (timedelta(minutes=int(dur) + CLASS_TEST_WINDOW_BUFFER_MIN)
+                               if orig.get("kind") == "test" and body.valid_hours is None
+                               else timedelta(hours=v_hours))).isoformat(),
+        "question_order": "per_student" if orig.get("kind") == "test" else "fixed",
+        "excused_student_ids": [], "makeups": [], "results_released_at": None,
         "questions": orig.get("questions", []),
         "status": "ready",
         "is_active": True,
@@ -4102,6 +4355,23 @@ async def startup():
     except Exception as e:
         logger.error(f"batches unique code index: {e}")
     try:
+        # One submission per student per class test, enforced by the database (concurrent submits used to
+        # store several). Existing duplicates are moved aside (keeping the earliest) so the index can build.
+        async for dup in db.submissions.aggregate([
+            {"$match": {"kind": "test"}},
+            {"$sort": {"created_at": 1}},
+            {"$group": {"_id": {"t": "$test_id", "s": "$student_id"}, "ids": {"$push": "$_id"}, "n": {"$sum": 1}}},
+            {"$match": {"n": {"$gt": 1}}}]):
+            extras = dup["ids"][1:]
+            async for doc in db.submissions.find({"_id": {"$in": extras}}):
+                await db.submissions_duplicates.insert_one(doc)
+            await db.submissions.delete_many({"_id": {"$in": extras}})
+            logger.warning(f"moved {len(extras)} duplicate class-test submissions to submissions_duplicates: {dup['_id']}")
+        await db.submissions.create_index([("test_id", 1), ("student_id", 1)], unique=True,
+                                          partialFilterExpression={"kind": "test"}, name="one_class_test_attempt")
+    except Exception as e:
+        logger.error(f"class-test unique submission index: {e}")
+    try:
         await db.test_starts.create_index([("test_id", 1), ("student_id", 1)], unique=True)
     except Exception as e:
         logger.error(f"test_starts index: {e}")
@@ -4133,6 +4403,8 @@ async def startup():
                                    {"$set": {"status": "failed", "error": "build interrupted"}})
     except Exception as e:
         logger.error(f"test sweep failed: {e}")
+    # Auto-submit class-test attempts whose time ran out with the tab closed (autosaved answers are kept)
+    asyncio.create_task(_auto_submit_loop())
     try:
         init_storage()
         logger.info("Storage initialized")

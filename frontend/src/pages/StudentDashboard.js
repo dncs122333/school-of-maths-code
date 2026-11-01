@@ -89,6 +89,8 @@ export default function StudentDashboard() {
     });
   }, []);
 
+  const batchKey = (user?.batch_ids || []).join(",");
+
   // Fetch all student data concurrently
   useEffect(() => {
     const fetchData = async () => {
@@ -154,7 +156,8 @@ export default function StudentDashboard() {
 
     fetchData();
     // Re-run when the student or their batches change, not on every refreshed user object
-  }, [user?.id, (user?.batch_ids || []).join(",")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, batchKey]);
 
   // Top 3 confirmed weak topics (weak across >= 2 sessions; a single wrong answer is not enough)
   const weakTopics = useMemo(() => {

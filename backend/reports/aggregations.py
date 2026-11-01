@@ -217,6 +217,11 @@ def compute_test_analytics(
         tab_switches = s.get("tab_switches", 0)
         if tab_switches >= 3:
             flag_reasons.append(f"{tab_switches} tab switches detected")
+        if s.get("status") == "late":
+            mins = round_half_up((s.get("late_by_seconds") or 0) / 60)
+            flag_reasons.append(f"Submitted {mins} min after the time limit")
+        if s.get("status") == "auto_submitted":
+            flag_reasons.append("Auto-submitted from saved answers (tab closed before submitting)")
 
         s_times = s.get("times") or []
         total_time_taken = sum(float(t) for t in s_times if t is not None)
@@ -291,6 +296,31 @@ def parse_utc_datetime(dt_val: Any) -> Optional[datetime]:
         return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
+
+
+def _attendance(sid: str, s_list: List[Dict[str, Any]], class_tests: List[Dict[str, Any]],
+                enrolled_at: Optional[str], now: Optional[datetime]) -> Dict[str, Any]:
+    """Class-test attendance for one student. A test counts once every window for this student has closed
+    (or they took it); tests given before the student joined don't count. Excused tests are left out."""
+    now = now or datetime.now(timezone.utc)
+    joined = parse_utc_datetime(enrolled_at) if enrolled_at else None
+    taken = {s.get("test_id") for s in s_list if _counts_as_class_test(s)}
+    assigned = attended = excused = 0
+    for t in class_tests:
+        opens = parse_utc_datetime(t.get("valid_from"))
+        if joined and opens and opens < joined:
+            continue
+        makeup = next((m for m in (t.get("makeups") or []) if m.get("student_id") == sid), None)
+        closes = parse_utc_datetime((makeup or {}).get("closes_at") or t.get("valid_until"))
+        if t["id"] in taken:
+            assigned += 1
+            attended += 1
+        elif sid in (t.get("excused_student_ids") or []):
+            excused += 1
+        elif closes and closes < now:
+            assigned += 1  # missed
+    return {"tests_assigned": assigned, "tests_attended": attended, "tests_excused": excused,
+            "attendance_pct": round_half_up(attended / assigned * 100) if assigned else None}
 
 
 def _counts_as_class_test(submission: Dict[str, Any]) -> bool:
@@ -458,9 +488,14 @@ def compute_term_report(
     all_submissions: List[Dict[str, Any]],
     student_map: Dict[str, str],
     term: Optional[Dict[str, Any]] = None,
-    subject: Optional[str] = None
+    subject: Optional[str] = None,
+    class_tests: Optional[List[Dict[str, Any]]] = None,
+    enrolled_at: Optional[Dict[str, str]] = None,
+    now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
-    """Computes cumulative term-wise report: coverage of curriculum, student rank matrix, and batch mastery."""
+    """Computes cumulative term-wise report: coverage of curriculum, student rank matrix, and batch mastery.
+    With `class_tests`, each student also gets attendance: class tests assigned to them (closed, or already
+    taken, and given after they joined), excused, and attended."""
     enrolled_ids = batch.get("student_ids") or []
     raw_cl = batch.get("class_level", "9")
     cl = normalize_class_level(raw_cl)
@@ -635,7 +670,7 @@ def compute_term_report(
         weak_count = sum(1 for t in active_mastery if is_confirmed_weak(t))
         strong_count = sum(1 for t in active_mastery if is_confirmed_strong(t))
 
-        student_summaries.append({
+        row = {
             "student_id": sid,
             "name": name,
             "tests_taken": tests_taken,
@@ -643,7 +678,10 @@ def compute_term_report(
             "overall_band": band(avg_score, total_q),
             "weak_topics_count": weak_count,
             "strong_topics_count": strong_count
-        })
+        }
+        if class_tests is not None:
+            row.update(_attendance(sid, s_list, class_tests, (enrolled_at or {}).get(sid), now))
+        student_summaries.append(row)
 
     # Sort students by avg_score descending
     student_summaries.sort(key=lambda s: s["avg_score"], reverse=True)
