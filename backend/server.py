@@ -12,6 +12,7 @@ import random
 import re
 import time
 import copy
+import math
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any, Union
@@ -440,6 +441,23 @@ def _fee_ledger_entries(old_payments: list, new_payments: list, old_total: float
     return entries
 
 
+def _latest_payment_date(payments: list) -> Optional[str]:
+    """Most recent date among the payments still on record (a reversal can remove the latest one)."""
+    best, best_dt = None, None
+    for p in payments or []:
+        d = p.get("date")
+        if not d:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(d).replace("Z", "+00:00"))
+            dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if best_dt is None or dt > best_dt:
+            best, best_dt = d, dt
+    return best
+
+
 def _derive_paid_months(payments: list, schedule: list, unmarked_months: list = None) -> list:
     return _derive_fee_allocation(payments, schedule, unmarked_months=unmarked_months)["paid_months"]
 
@@ -811,17 +829,24 @@ async def list_batches(user: dict = Depends(get_current_user)):
     if not batches:
         return []
     batch_ids = [b["id"] for b in batches]
-    counts = {}
+    counts, active_counts = {}, {}
+    inactive_here = {"$or": [
+        {"$in": ["$batch_ids", {"$ifNull": ["$disabled_batch_ids", []]}]},
+        {"$in": ["$batch_ids", {"$ifNull": ["$blocked_batch_ids", []]}]},
+    ]}
     pipeline = [
-        {"$match": {"batch_ids": {"$in": batch_ids}}},
+        {"$match": {"role": "student", "batch_ids": {"$in": batch_ids}}},
         {"$unwind": "$batch_ids"},
         {"$match": {"batch_ids": {"$in": batch_ids}}},
-        {"$group": {"_id": "$batch_ids", "count": {"$sum": 1}}},
+        {"$group": {"_id": "$batch_ids", "count": {"$sum": 1},
+                    "active": {"$sum": {"$cond": [inactive_here, 0, 1]}}}},
     ]
     async for doc in db.users.aggregate(pipeline):
         counts[doc["_id"]] = doc["count"]
+        active_counts[doc["_id"]] = doc["active"]
     for b in batches:
         b["student_count"] = counts.get(b["id"], 0)
+        b["active_student_count"] = active_counts.get(b["id"], 0)
     if user["role"] == "student":
         return [_sanitize_batch_for_student(b) for b in batches]
     return batches
@@ -975,6 +1000,7 @@ class RecordPaymentInput(BaseModel):
     partial_amount: Optional[float] = None
     idempotency_key: Optional[str] = None
     reason: Optional[str] = None
+    reset_to_batch_fee: Optional[bool] = False
 
 
 @api_router.get("/batches/{batch_id}/students")
@@ -1003,6 +1029,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
     total_dues_paise = 0
     total_overdue_paise = 0
     total_upcoming_paise = 0
+    total_credit_paise = 0
 
     for s in students:
         sid = str(s["_id"])
@@ -1037,7 +1064,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             status = "paid" if d_fee_paise == 0 and t_fee_paise > 0 else "partial" if p_fee_paise > 0 else "due"
             if t_fee_paise == 0 and p_fee_paise == 0:
                 status = "paid"
-            last_date = payments[-1].get("date") if payments else fee.get("last_payment_date")
+            last_date = _latest_payment_date(payments)
         else:
             t_fee = own_default_fee
             t_fee_paise = to_paise(t_fee)
@@ -1052,6 +1079,9 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
 
         total_collected_paise += p_fee_paise
         total_dues_paise += d_fee_paise
+        # Paid more than the (lowered) fee: surface it as credit instead of silently showing ₹0 due
+        credit_paise = max(0, p_fee_paise - t_fee_paise)
+        total_credit_paise += credit_paise
 
         # Resolve student-specific schedule proportionally or from custom schedule
         if custom_student_schedule and len(custom_student_schedule) > 0:
@@ -1087,6 +1117,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "paid_fee": p_fee,
             "due_fee": d_fee,
             "overdue_fee": from_paise(overdue_paise),
+            "credit_fee": from_paise(credit_paise),
+            "is_custom_fee": bool(fee and fee.get("is_custom_fee")),
             "upcoming_fee": from_paise(upcoming_paise),
             "status": status,
             "fee_schedule": student_schedule,
@@ -1114,6 +1146,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "total_collected": from_paise(total_collected_paise),
             "total_dues": from_paise(total_dues_paise),
             "total_overdue": from_paise(total_overdue_paise),
+            "total_credit": from_paise(total_credit_paise),
             "total_upcoming": from_paise(total_upcoming_paise),
             "paid_count": sum(1 for r in results if r["status"] == "paid"),
             "partial_count": sum(1 for r in results if r["status"] == "partial"),
@@ -1160,6 +1193,12 @@ async def record_student_fee(
     if batch_id not in student_batch_ids:
         raise HTTPException(status_code=400, detail="Student is not enrolled in this batch")
 
+    # NaN/Infinity would otherwise become ₹0 inside to_paise and record a silent no-op payment
+    for field in ("amount", "partial_amount", "total_fee", "paid_fee", "due_fee"):
+        val = getattr(body, field)
+        if val is not None and not math.isfinite(float(val)):
+            raise HTTPException(status_code=400, detail=f"Invalid {field}")
+
     # Amount validation & negative fee checks
     if body.amount is not None and float(body.amount) < 0:
         raise HTTPException(status_code=400, detail="Payment amount cannot be negative")
@@ -1190,9 +1229,12 @@ async def record_student_fee(
     if body.payment_date:
         try:
             cleaned_date = body.payment_date.replace("Z", "+00:00")
-            datetime.fromisoformat(cleaned_date)
+            parsed_date = datetime.fromisoformat(cleaned_date)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid payment_date format. Expected ISO 8601 format.")
+        parsed_date = parsed_date if parsed_date.tzinfo else parsed_date.replace(tzinfo=APP_TIMEZONE)
+        if parsed_date.astimezone(APP_TIMEZONE).date() > datetime.now(APP_TIMEZONE).date():
+            raise HTTPException(status_code=400, detail="Payment date can't be in the future.")
 
     # Validate fee_schedule if provided; the normalized copy (rounded amounts, years filled in) is what gets stored
     validated_schedule = None
@@ -1267,7 +1309,12 @@ async def record_student_fee(
             }
 
         # Resolve student schedule (custom or batch default) and total_fee
-        if validated_schedule:
+        if body.reset_to_batch_fee:
+            # Back onto batch pricing, so future batch fee edits apply to this student again
+            total_fee = batch_default_fee
+            student_schedule = schedule
+            is_custom_fee = False
+        elif validated_schedule:
             student_schedule = validated_schedule
             total_fee = float(body.total_fee) if body.total_fee is not None else from_paise(sum(to_paise(it.get("amount", 0.0) or 0.0) for it in student_schedule))
             is_custom_fee = True
@@ -1549,6 +1596,8 @@ async def record_student_fee(
         # Payment rows carry their own key; this list only needs recent keys (retries arrive within seconds)
         idempotency_keys = idempotency_keys[-200:]
 
+        last_date = _latest_payment_date(payments) or (last_date if payments else None)
+
         # Invariant: paid_fee == sum(p.amount for p in payments) using paise
         current_paid_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
         current_paid = from_paise(current_paid_paise)
@@ -1581,7 +1630,9 @@ async def record_student_fee(
             "is_custom_fee": is_custom_fee
         }
 
-        if body.unmark_month:
+        if body.reset_to_batch_fee:
+            action = "reset_to_batch_fee"
+        elif body.unmark_month:
             action = "unmark_month"
         elif body.mark_as_paid:
             action = "mark_as_paid"

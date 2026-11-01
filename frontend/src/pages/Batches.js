@@ -65,6 +65,9 @@ const scheduleSum = (schedule) => (schedule || []).reduce((acc, it) => acc + (Nu
 
 const sameAmount = (a, b) => Math.round((Number(a) || 0) * 100) === Math.round((Number(b) || 0) * 100);
 
+// Matches the backend's accepted range (validate_class_level)
+const CLASS_LEVELS = Array.from({ length: 12 }, (_, i) => String(i + 1));
+
 // New batches require approval so a shared/leaked code only lets someone ask to join
 const DEFAULT_JOIN_SETTINGS = { join_requires_approval: true, joining_closed: false, max_students: "" };
 
@@ -126,6 +129,8 @@ export default function Batches() {
   const [studentsError, setStudentsError] = useState("");
   const [joinRequests, setJoinRequests] = useState([]);
   const [joinRequestBusy, setJoinRequestBusy] = useState(null);
+  const [creatingBatch, setCreatingBatch] = useState(false);
+  const createInFlight = useRef(false);
   const [activeTab, setActiveTab] = useState("roster"); // "roster" (Students & Fees) or "leaderboard"
   const [feeModal, setFeeModal] = useState({
     open: false,
@@ -557,6 +562,23 @@ export default function Batches() {
   };
 
   // Accepts one month or every selected month; totals cover all of them so the amount matches the banner
+  const handleResetToBatchFee = async () => {
+    const student = feeModal.student;
+    if (!student) return;
+    if (!window.confirm(`Switch ${student.name} back to the batch fee? Their custom fee and schedule are replaced; payments are kept.`)) return;
+    setFeeModal((prev) => ({ ...prev, saving: true }));
+    try {
+      const res = await postFee(student.id, { reset_to_batch_fee: true });
+      if (!res) return;
+      toast.success(`${student.name} now follows the batch fee.`);
+      setFeeModal((prev) => ({ ...prev, open: false, saving: false }));
+      await loadBatchStudents(selectedBatchId);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not reset the fee");
+      setFeeModal((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
   const handleOpenPartialModal = (student, monthOrMonths) => {
     const months = (Array.isArray(monthOrMonths) ? monthOrMonths : [monthOrMonths]).filter(Boolean);
     let schAmt = 0;
@@ -672,6 +694,11 @@ export default function Batches() {
     if (!selectedBatchId || !student) return;
     const monthsToPay = selectedMonthsMap[student.id] || [];
     if (monthsToPay.length === 0) return;
+    const amountDue = monthsToPay.reduce((sum, m) => {
+      const ms = student.monthly_status?.find((x) => x.month === m);
+      return sum + Number(ms?.due_amount ?? ms?.amount ?? 0);
+    }, 0);
+    if (!window.confirm(`Record ₹${amountDue.toLocaleString()} received from ${student.name} for ${monthsToPay.join(", ")}?`)) return;
 
     try {
       const res = await postFee(student.id, { months_paid: monthsToPay });
@@ -709,6 +736,10 @@ export default function Batches() {
       toast.error("Monthly amounts must add up to the annual fee.");
       return;
     }
+    // Ref guard: the disabled state lands a render late, and a double-click would create two batches
+    if (createInFlight.current) return;
+    createInFlight.current = true;
+    setCreatingBatch(true);
     try {
       const payload = {
         name: form.name.trim(),
@@ -737,6 +768,9 @@ export default function Batches() {
       setSelectedBatchId(res.data.id);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    } finally {
+      createInFlight.current = false;
+      setCreatingBatch(false);
     }
   };
 
@@ -1220,8 +1254,9 @@ export default function Batches() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-white border-2 border-[#1E293B] text-[#1E293B] shadow-[4px_4px_0_#1E293B]">
-                    <SelectItem value="9">Class 9</SelectItem>
-                    <SelectItem value="10">Class 10</SelectItem>
+                    {CLASS_LEVELS.map((c) => (
+                      <SelectItem key={c} value={c}>Class {c}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1232,9 +1267,10 @@ export default function Batches() {
             <DialogFooter>
               <Button
                 onClick={handleCreateBatch}
+                disabled={creatingBatch}
                 className="rounded-full bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] border-2 border-[#1E293B] font-black w-full h-11 shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
               >
-                Create Batch &amp; Generate Code
+                {creatingBatch ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Create Batch &amp; Generate Code</>}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1681,7 +1717,11 @@ export default function Batches() {
 
                             {/* Fee Status Pill */}
                             <div className="shrink-0">
-                              {isPaid ? (
+                              {Number(st.total_fee || 0) === 0 && Number(st.paid_fee || 0) === 0 ? (
+                                <Badge className="bg-[#1E293B]/5 text-[#1E293B]/60 border-2 border-[#1E293B] text-xs font-mono font-bold px-3 py-1 shadow-[1px_1px_0_#1E293B]">
+                                  No fee set
+                                </Badge>
+                              ) : isPaid ? (
                                 <Badge className="bg-[#2F8A5F]/15 text-[#2F8A5F] border-2 border-[#1E293B] text-xs font-mono font-bold px-3 py-1 flex items-center gap-1 shadow-[1px_1px_0_#1E293B]">
                                   <CheckCircle2 className="h-3.5 w-3.5" /> Fees Paid
                                 </Badge>
@@ -1692,6 +1732,16 @@ export default function Batches() {
                               ) : (
                                 <Badge className="bg-[#E04A3C]/15 text-[#E04A3C] border-2 border-[#1E293B] text-xs font-mono font-bold px-3 py-1 flex items-center gap-1 shadow-[1px_1px_0_#1E293B]">
                                   <AlertCircle className="h-3.5 w-3.5" /> Fees Due
+                                </Badge>
+                              )}
+                              {st.is_custom_fee && (
+                                <Badge className="mt-1 bg-[#3E7CB1]/10 text-[#3E7CB1] border border-[#3E7CB1] text-[10px] font-mono" title="This student's fee is set individually; batch fee changes don't apply">
+                                  Custom fee
+                                </Badge>
+                              )}
+                              {Number(st.credit_fee || 0) > 0 && (
+                                <Badge className="mt-1 bg-[#2F8A5F]/10 text-[#2F8A5F] border border-[#2F8A5F] text-[10px] font-mono" title="Paid more than the current fee; refund or adjust">
+                                  Credit ₹{Number(st.credit_fee).toLocaleString()}
                                 </Badge>
                               )}
                             </div>
@@ -2392,7 +2442,18 @@ export default function Batches() {
                     <Label className="text-xs font-bold text-[#1E293B] uppercase tracking-wider flex items-center gap-1.5">
                       <span>Total Annual Fee for this Student</span>
                     </Label>
-                    {batchTotal > 0 && studentTotal !== batchTotal && (
+                    {feeModal.student?.is_custom_fee ? (
+                      // Filling in the batch amount and saving would keep the fee custom; this truly re-links it
+                      <button
+                        type="button"
+                        disabled={feeModal.saving}
+                        onClick={handleResetToBatchFee}
+                        className="text-[11px] text-[#3E7CB1] hover:underline font-mono font-bold"
+                        title="Drop this student's custom fee and follow the batch fee again"
+                      >
+                        Use batch fee again
+                      </button>
+                    ) : batchTotal > 0 && studentTotal !== batchTotal && (
                       <button
                         type="button"
                         onClick={() => handleStudentTotalFeeChange(String(batchTotal))}
@@ -2619,8 +2680,9 @@ export default function Batches() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-white border-2 border-[#1E293B] text-[#1E293B] shadow-[4px_4px_0_#1E293B]">
-                  <SelectItem value="9">Class 9</SelectItem>
-                  <SelectItem value="10">Class 10</SelectItem>
+                  {CLASS_LEVELS.map((c) => (
+                    <SelectItem key={c} value={c}>Class {c}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

@@ -900,3 +900,67 @@ def test_batch_class_level_and_academic_year_are_validated():
     assert all(it["academic_year"] == "2027-2028" for it in sched.values())
     assert sum(it["amount"] for it in sched.values()) == 12000
     assert requests.put(f"{API}/batches/{b['id']}", json={"class_level": "0"}, headers=teacher["headers"], timeout=15).status_code == 400
+
+
+class TestFeeCleanups:
+    @classmethod
+    def setup_class(cls):
+        cls.teacher = _register_user("Cleanup Teacher", "teacher")
+        cls.batch = requests.post(f"{API}/batches", json={"name": "Cleanup Batch", "class_level": "10",
+                                                         "academic_year": FULL_YEAR_AY, "fee_amount": 60000},
+                                  headers=cls.teacher["headers"], timeout=15).json()
+
+    def _student(self, name):
+        s = _register_user(name, "student")
+        requests.post(f"{API}/batches/join", json={"code": self.batch["code"]}, headers=s["headers"], timeout=15)
+        return s
+
+    def _fee(self, sid, body):
+        return requests.post(f"{API}/batches/{self.batch['id']}/students/{sid}/fee", json=body,
+                             headers=self.teacher["headers"], timeout=15)
+
+    def _row(self, sid):
+        r = requests.get(f"{API}/batches/{self.batch['id']}/students", headers=self.teacher["headers"], timeout=15)
+        return r.json(), next(s for s in r.json()["students"] if s["id"] == sid)
+
+    def test_lowered_fee_shows_credit_and_reset_to_batch_fee(self):
+        s = self._student("Credit Student")
+        assert self._fee(s["id"], {"mark_as_paid": True}).status_code == 200
+        assert self._fee(s["id"], {"total_fee": 50000}).status_code == 200
+
+        data, row = self._row(s["id"])
+        assert row["is_custom_fee"] is True
+        assert row["credit_fee"] == 10000
+        assert row["due_fee"] == 0
+        assert data["summary"]["total_credit"] >= 10000
+
+        r = self._fee(s["id"], {"reset_to_batch_fee": True})
+        assert r.status_code == 200, r.text
+        _, row = self._row(s["id"])
+        assert row["is_custom_fee"] is False
+        assert row["total_fee"] == 60000
+        assert row["credit_fee"] == 0
+
+    def test_future_date_and_non_finite_amounts_rejected(self):
+        s = self._student("Validation Student")
+        assert self._fee(s["id"], {"month": self.batch["fee_schedule"][0]["month"], "amount": 5000,
+                                   "payment_date": "2999-01-01T12:00:00Z"}).status_code == 400
+        r = requests.post(f"{API}/batches/{self.batch['id']}/students/{s['id']}/fee", data='{"amount": NaN}',
+                          headers={**self.teacher["headers"], "Content-Type": "application/json"}, timeout=15)
+        assert r.status_code in (400, 422), r.text
+
+    def test_last_payment_date_follows_reversals(self):
+        s = self._student("Dates Student")
+        self._fee(s["id"], {"month": "April", "amount": 5000, "payment_date": "2026-01-05T12:00:00+05:30"})
+        self._fee(s["id"], {"month": "May", "amount": 5000, "payment_date": "2026-02-05T12:00:00+05:30"})
+        r = self._fee(s["id"], {"unmark_month": "May"})
+        assert r.status_code == 200, r.text
+        assert r.json()["last_payment_date"].startswith("2026-01-05")
+
+    def test_batch_card_counts_active_students(self):
+        s = self._student("Counted Student")
+        requests.post(f"{API}/batches/{self.batch['id']}/students/{s['id']}/status", json={"action": "disable"},
+                      headers=self.teacher["headers"], timeout=15)
+        card = next(b for b in requests.get(f"{API}/batches", headers=self.teacher["headers"], timeout=15).json()
+                    if b["id"] == self.batch["id"])
+        assert card["active_student_count"] == card["student_count"] - 1
