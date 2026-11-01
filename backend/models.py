@@ -21,6 +21,10 @@ class BatchInput(BaseModel):
     monthly_fee: Optional[float] = None
     fee_schedule: Optional[List[dict]] = None
     academic_year: Optional[str] = None
+    # Joining controls; API default is open joining so existing integrations keep working (UI defaults approval on)
+    join_requires_approval: Optional[bool] = False
+    joining_closed: Optional[bool] = False
+    max_students: Optional[int] = None
 
 
 class BatchUpdateInput(BaseModel):
@@ -30,6 +34,9 @@ class BatchUpdateInput(BaseModel):
     monthly_fee: Optional[float] = None
     fee_schedule: Optional[List[dict]] = None
     academic_year: Optional[str] = None
+    join_requires_approval: Optional[bool] = None
+    joining_closed: Optional[bool] = None
+    max_students: Optional[int] = None  # 0 clears the limit
 
 
 class JoinInput(BaseModel):

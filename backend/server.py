@@ -41,7 +41,8 @@ from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirme
                          summarize_submission_topics)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
-                        normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter)
+                        normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter,
+                        normalize_class_level)
 from reports.router import router as reports_router
 
 app = FastAPI()
@@ -152,6 +153,31 @@ def get_current_academic_year(dt: datetime = None) -> str:
         return f"{dt.year}-{dt.year + 1}"
     else:
         return f"{dt.year - 1}-{dt.year}"
+
+
+def validate_class_level(class_level: Any) -> str:
+    """Accepts '10', 10, 'Class 10' or '10th' and stores '10'; batches are school classes 1-12."""
+    normalized = normalize_class_level(class_level)
+    if not normalized.isdigit() or not 1 <= int(normalized) <= 12:
+        raise HTTPException(status_code=400, detail=f"Invalid class level '{class_level}'. Use a class from 1 to 12.")
+    return normalized
+
+
+def validate_max_students(max_students: Optional[int]) -> Optional[int]:
+    """None/0 = no limit."""
+    if not max_students:
+        return None
+    if max_students < 0 or max_students > 10000:
+        raise HTTPException(status_code=400, detail="Max students must be between 1 and 10000, or 0 for no limit.")
+    return int(max_students)
+
+
+def validate_academic_year(academic_year: str) -> str:
+    """Schedules derive month years from the first year, so a malformed value silently shifted every due date."""
+    m = re.fullmatch(r"\s*(\d{4})\s*-\s*(\d{4})\s*", academic_year or "")
+    if not m or int(m.group(2)) != int(m.group(1)) + 1 or not 2000 <= int(m.group(1)) <= 2100:
+        raise HTTPException(status_code=400, detail=f"Invalid academic year '{academic_year}'. Use the form 2026-2027.")
+    return f"{m.group(1)}-{m.group(2)}"
 
 
 def get_batch_default_schedule(fee_amount: float = 0.0, monthly_fee: float = 0.0, academic_year: str = None):
@@ -570,7 +596,8 @@ async def create_batch(body: BatchInput, user: dict = Depends(require_role("teac
     if body.monthly_fee is not None and float(body.monthly_fee) < 0:
         raise HTTPException(status_code=400, detail="Monthly fee cannot be negative")
 
-    academic_year = body.academic_year or get_current_academic_year()
+    academic_year = validate_academic_year(body.academic_year) if body.academic_year else get_current_academic_year()
+    class_level = validate_class_level(body.class_level)
 
     if body.fee_schedule is not None and len(body.fee_schedule) > 0:
         fee_schedule = validate_fee_schedule(body.fee_schedule, academic_year)
@@ -592,11 +619,14 @@ async def create_batch(body: BatchInput, user: dict = Depends(require_role("teac
         doc = {
             "id": str(uuid.uuid4()),
             "name": name,
-            "class_level": body.class_level,
+            "class_level": class_level,
             "fee_amount": fee_amount,
             "monthly_fee": monthly_fee,
             "fee_schedule": fee_schedule,
             "academic_year": academic_year,
+            "join_requires_approval": bool(body.join_requires_approval),
+            "joining_closed": bool(body.joining_closed),
+            "max_students": validate_max_students(body.max_students),
             "code": code,
             "teacher_id": user["id"],
             "teacher_name": user["name"],
@@ -625,16 +655,22 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
             raise HTTPException(status_code=400, detail="Batch name cannot be empty")
         update_fields["name"] = body.name.strip()
     if body.class_level is not None:
-        update_fields["class_level"] = body.class_level
+        update_fields["class_level"] = validate_class_level(body.class_level)
+    if body.join_requires_approval is not None:
+        update_fields["join_requires_approval"] = body.join_requires_approval
+    if body.joining_closed is not None:
+        update_fields["joining_closed"] = body.joining_closed
+    if body.max_students is not None:
+        update_fields["max_students"] = validate_max_students(body.max_students)
 
     if body.fee_amount is not None and float(body.fee_amount) < 0:
         raise HTTPException(status_code=400, detail="Fee amount cannot be negative")
     if body.monthly_fee is not None and float(body.monthly_fee) < 0:
         raise HTTPException(status_code=400, detail="Monthly fee cannot be negative")
 
-    academic_year = body.academic_year or batch.get("academic_year") or get_current_academic_year()
     if body.academic_year:
-        update_fields["academic_year"] = body.academic_year
+        update_fields["academic_year"] = validate_academic_year(body.academic_year)
+    academic_year = update_fields.get("academic_year") or batch.get("academic_year") or get_current_academic_year()
 
     fee_changed = False
     if body.fee_schedule is not None and len(body.fee_schedule) > 0:
@@ -660,6 +696,16 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
         update_fields["fee_amount"] = f_amt
         update_fields["monthly_fee"] = m_amt
         update_fields["fee_schedule"] = get_batch_default_schedule(f_amt, m_amt, academic_year)
+        fee_changed = True
+
+    # A year change alone must still move every month's year, or due dates stay on the old year
+    if not fee_changed and update_fields.get("academic_year") and update_fields["academic_year"] != batch.get("academic_year"):
+        old_schedule = batch.get("fee_schedule") or get_batch_default_schedule(
+            float(batch.get("fee_amount", 0) or 0), float(batch.get("monthly_fee", 0) or 0), academic_year)
+        update_fields["fee_schedule"] = validate_fee_schedule(
+            [{"month": it["month"], "amount": it.get("amount", 0)} for it in old_schedule], academic_year)
+        update_fields["fee_amount"] = float(batch.get("fee_amount", 0) or 0)
+        update_fields["monthly_fee"] = float(batch.get("monthly_fee", 0) or 0)
         fee_changed = True
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -793,19 +839,124 @@ async def join_batch(body: JoinInput, request: Request, user: dict = Depends(req
         raise HTTPException(status_code=404, detail="Invalid batch code")
     if batch["id"] in user.get("blocked_batch_ids", []):
         raise HTTPException(status_code=403, detail="You are blocked from joining this batch")
-    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$addToSet": {"batch_ids": batch["id"]}})
+    if batch["id"] in (user.get("batch_ids") or []):
+        return {**_sanitize_batch_for_student(batch), "join_status": "joined"}
+    if batch.get("joining_closed"):
+        raise HTTPException(status_code=403, detail="Joining is closed for this batch. Ask your teacher.")
+    await _ensure_batch_has_seat(batch)
+
+    if batch.get("join_requires_approval"):
+        # A leaked code only lets someone ask to join; the teacher sees who they are and decides
+        existing = await db.join_requests.find_one({"batch_id": batch["id"], "student_id": user["id"]}, {"_id": 0})
+        if existing and existing.get("status") == "rejected":
+            raise HTTPException(status_code=403, detail="Your request to join this batch was declined by the teacher.")
+        if not existing or existing.get("status") != "pending":
+            await db.join_requests.update_one(
+                {"batch_id": batch["id"], "student_id": user["id"]},
+                {"$set": {"status": "pending", "student_name": user.get("name"), "student_email": user.get("email"),
+                          "requested_at": datetime.now(timezone.utc).isoformat()},
+                 "$setOnInsert": {"id": str(uuid.uuid4())}},
+                upsert=True
+            )
+        return {**_sanitize_batch_for_student(batch), "join_status": "pending"}
+
+    await _enroll_student(user["id"], batch["id"])
+    return {**_sanitize_batch_for_student(batch), "join_status": "joined"}
+
+
+async def _ensure_batch_has_seat(batch: dict) -> None:
+    max_students = batch.get("max_students")
+    if max_students:
+        enrolled = await db.users.count_documents({"role": "student", "batch_ids": batch["id"]})
+        if enrolled >= int(max_students):
+            raise HTTPException(status_code=403, detail="This batch is full.")
+
+
+async def _enroll_student(student_id: str, batch_id: str) -> None:
+    await db.users.update_one({"_id": ObjectId(student_id)}, {"$addToSet": {"batch_ids": batch_id}})
     # First join date only: a rejoin keeps the original so restored fee history lines up with the schedule
-    enrolled_field = f"batch_enrolled_at.{batch['id']}"
+    enrolled_field = f"batch_enrolled_at.{batch_id}"
     await db.users.update_one(
-        {"_id": ObjectId(user["id"]), enrolled_field: {"$exists": False}},
+        {"_id": ObjectId(student_id), enrolled_field: {"$exists": False}},
         {"$set": {enrolled_field: datetime.now(timezone.utc).isoformat()}}
     )
     # A returning student keeps the payments recorded before they were removed
     await db.batch_fees.update_one(
-        {"batch_id": batch["id"], "student_id": user["id"], "archived_reason": "student_removed"},
+        {"batch_id": batch_id, "student_id": student_id, "archived_reason": "student_removed"},
         {"$unset": {"archived_at": "", "archived_reason": "", "archived_by": ""}}
     )
-    return _sanitize_batch_for_student(batch)
+
+
+async def _owned_batch(batch_id: str, user: dict) -> dict:
+    batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+    return batch
+
+
+@api_router.get("/batches/join-requests/mine")
+async def my_join_requests(user: dict = Depends(require_role("student"))):
+    reqs = [r async for r in db.join_requests.find({"student_id": user["id"], "status": "pending"}, {"_id": 0})]
+    names = {b["id"]: b.get("name") async for b in db.batches.find(
+        {"id": {"$in": [r["batch_id"] for r in reqs]}, **NOT_ARCHIVED}, {"_id": 0, "id": 1, "name": 1})}
+    return [{"batch_id": r["batch_id"], "batch_name": names[r["batch_id"]], "requested_at": r.get("requested_at")}
+            for r in reqs if r["batch_id"] in names]
+
+
+@api_router.get("/batches/{batch_id}/join-requests")
+async def list_join_requests(batch_id: str, status: str = "pending", user: dict = Depends(require_role("teacher", "admin"))):
+    await _owned_batch(batch_id, user)
+    return [r async for r in db.join_requests.find({"batch_id": batch_id, "status": status}, {"_id": 0}).sort("requested_at", 1)]
+
+
+async def _decide_join_request(batch: dict, req: dict, approve: bool, user: dict) -> None:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if approve:
+        await _ensure_batch_has_seat(batch)
+        await _enroll_student(req["student_id"], batch["id"])
+    await db.join_requests.update_one(
+        {"batch_id": batch["id"], "student_id": req["student_id"]},
+        {"$set": {"status": "approved" if approve else "rejected", "decided_at": now_iso, "decided_by": user["id"]}}
+    )
+
+
+@api_router.post("/batches/{batch_id}/join-requests/{request_id}/{decision}")
+async def decide_join_request(batch_id: str, request_id: str, decision: str,
+                              user: dict = Depends(require_role("teacher", "admin"))):
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=404, detail="Unknown action")
+    batch = await _owned_batch(batch_id, user)
+    req = await db.join_requests.find_one({"batch_id": batch_id, "id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Join request not found")
+    if req.get("status") != "pending" and not (decision == "approve" and req.get("status") == "rejected"):
+        raise HTTPException(status_code=400, detail=f"Request is already {req.get('status')}")
+    await _decide_join_request(batch, req, decision == "approve", user)
+    return {"success": True, "status": "approved" if decision == "approve" else "rejected"}
+
+
+@api_router.post("/batches/{batch_id}/join-requests-approve-all")
+async def approve_all_join_requests(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    batch = await _owned_batch(batch_id, user)
+    approved = 0
+    async for req in db.join_requests.find({"batch_id": batch_id, "status": "pending"}, {"_id": 0}).sort("requested_at", 1):
+        try:
+            await _decide_join_request(batch, req, True, user)
+            approved += 1
+        except HTTPException:
+            break  # batch is full; leave the rest pending
+    remaining = await db.join_requests.count_documents({"batch_id": batch_id, "status": "pending"})
+    return {"approved": approved, "remaining": remaining}
+
+
+@api_router.post("/batches/{batch_id}/rotate-code")
+async def rotate_batch_code(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _owned_batch(batch_id, user)
+    new_code = await generate_unique_batch_code()
+    await db.batches.update_one({"id": batch_id}, {"$set": {"code": new_code, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"batch_id": batch_id, "code": new_code}
 
 
 class RecordPaymentInput(BaseModel):
@@ -1542,9 +1693,6 @@ async def update_student_status(
         new_disabled = bool(body.is_disabled) if body.is_disabled is not None else curr_disabled_in_batch
         new_blocked = bool(body.is_blocked) if body.is_blocked is not None else curr_blocked_in_batch
 
-    # Only regenerate code if student is transitioning to blocked and was NOT already blocked in this batch
-    regenerate_batch_code = (new_blocked and not curr_blocked_in_batch)
-
     if new_disabled:
         disabled_batch_ids.add(batch_id)
     else:
@@ -1559,28 +1707,8 @@ async def update_student_status(
     new_batch_code = None
     updated_batches = []
 
-    if regenerate_batch_code:
-        new_batch_code = await generate_unique_batch_code()
-        await db.batches.update_one(
-            {"id": batch_id},
-            {"$set": {"code": new_batch_code, "updated_at": now_iso}}
-        )
-        updated_batches.append({"batch_id": batch_id, "new_code": new_batch_code})
-
-        # Also regenerate any other batches of THIS teacher that the student was enrolled in.
-        # MUST filter by this teacher's teacher_id so other teachers' batch codes are never touched!
-        teacher_id = batch.get("teacher_id")
-        other_batches = await db.batches.find(
-            {"id": {"$in": student_batch_ids, "$ne": batch_id}, "teacher_id": teacher_id},
-            {"_id": 0}
-        ).to_list(100)
-        for ob in other_batches:
-            ob_code = await generate_unique_batch_code()
-            await db.batches.update_one(
-                {"id": ob["id"]},
-                {"$set": {"code": ob_code, "updated_at": now_iso}}
-            )
-            updated_batches.append({"batch_id": ob["id"], "new_code": ob_code})
+    # Blocking no longer rotates join codes: a blocked student is refused at join, and rotating broke the
+    # code for everyone else. Teachers rotate explicitly via POST /batches/{id}/rotate-code.
 
     await db.users.update_one({"_id": ObjectId(student_id)}, {"$set": {
         "disabled_batch_ids": list(disabled_batch_ids),
@@ -3880,6 +4008,11 @@ async def startup():
         await db.batches.create_index("code", unique=True)
     except Exception as e:
         logger.error(f"batches unique code index: {e}")
+    try:
+        await db.join_requests.create_index([("batch_id", 1), ("student_id", 1)], unique=True)
+        await db.join_requests.create_index([("student_id", 1), ("status", 1)])
+    except Exception as e:
+        logger.error(f"join_requests indexes: {e}")
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@vidya.com").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

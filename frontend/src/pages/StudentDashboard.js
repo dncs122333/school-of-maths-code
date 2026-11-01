@@ -42,6 +42,16 @@ export default function StudentDashboard() {
   const [materials, setMaterials] = useState([]);
   const [topper, setTopper] = useState(null);
   const [joinCode, setJoinCode] = useState("");
+  const [pendingJoins, setPendingJoins] = useState([]);
+
+  const loadPendingJoins = () =>
+    api.get("/batches/join-requests/mine")
+      .then((res) => setPendingJoins(res.data || []))
+      .catch(() => setPendingJoins([]));
+
+  useEffect(() => {
+    loadPendingJoins();
+  }, []);
   const [, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
@@ -156,9 +166,14 @@ export default function StudentDashboard() {
     setJoining(true);
     try {
       const res = await api.post("/batches/join", { code: joinCode.trim() });
+      setJoinCode("");
+      if (res.data.join_status === "pending") {
+        toast.success(`Request sent to join ${res.data.name}. Your teacher will approve it.`);
+        await loadPendingJoins();
+        return;
+      }
       await refreshUser();
       toast.success(`Successfully joined ${res.data.name}!`);
-      setJoinCode("");
       const statsRes = await api.get("/stats");
       setStats(statsRes.data || {});
     } catch (err) {
@@ -805,6 +820,15 @@ export default function StudentDashboard() {
                 {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : "Join"}
               </Button>
             </form>
+            {pendingJoins.length > 0 && (
+              <div className="space-y-1">
+                {pendingJoins.map((p) => (
+                  <div key={p.batch_id} className="text-xs font-mono text-[#B45309] bg-[#F5C842]/20 border border-[#1E293B]/30 rounded-lg px-2.5 py-1.5">
+                    Waiting for your teacher to approve: <span className="font-bold">{p.batch_name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

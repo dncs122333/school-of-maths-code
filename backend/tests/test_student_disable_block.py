@@ -142,7 +142,9 @@ class TestStudentDisableBlock:
         self.student1["token"] = r_login.json()["token"]
         self.student1["headers"] = {"Authorization": f"Bearer {self.student1['token']}"}
 
-    def test_teacher_blocks_student_regenerates_batch_code(self):
+    def test_block_keeps_code_and_rotation_is_explicit(self):
+        """Blocking no longer rotates the join code (the blocked student is refused at join anyway);
+        the teacher rotates it on purpose when a code leaks."""
         batch_id = self.batch["id"]
         student_id = self.student1["id"]
         old_code = self.batch["code"]
@@ -156,16 +158,18 @@ class TestStudentDisableBlock:
         assert r.status_code == 200, r.text
         data = r.json()
         assert data["is_blocked"] is True
-        new_code = data["new_batch_code"]
-        assert new_code is not None
-        assert new_code != old_code
+        assert data["new_batch_code"] is None
 
-        # Verify batch code is updated in database
-        r_batches = requests.get(f"{API}/batches", headers=self.teacher["headers"], timeout=15)
-        assert r_batches.status_code == 200
-        curr_batch = next((b for b in r_batches.json() if b["id"] == batch_id), None)
-        assert curr_batch is not None
-        assert curr_batch["code"] == new_code
+        listed = lambda: next(b for b in requests.get(f"{API}/batches", headers=self.teacher["headers"], timeout=15).json()
+                              if b["id"] == batch_id)
+        assert listed()["code"] == old_code
+
+        r_rot = requests.post(f"{API}/batches/{batch_id}/rotate-code", headers=self.teacher["headers"], timeout=15)
+        assert r_rot.status_code == 200, r_rot.text
+        new_code = r_rot.json()["code"]
+        assert new_code != old_code
+        assert listed()["code"] == new_code
+        assert requests.post(f"{API}/batches/{batch_id}/rotate-code", headers=self.teacher2["headers"], timeout=15).status_code == 403
         self.batch["code"] = new_code
 
     def test_blocked_student_cannot_login(self):

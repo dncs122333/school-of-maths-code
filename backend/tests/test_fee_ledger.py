@@ -880,3 +880,23 @@ def test_concurrent_writes_across_processes_lose_nothing():
     row = next(s for s in requests.get(f"{API}/batches/{batch['id']}/students", headers=teacher["headers"], timeout=15).json()["students"]
                if s["id"] == student["id"])
     assert row["paid_fee"] == 100 * codes.count(200), (codes.count(200), codes.count(409), row["paid_fee"])
+
+
+def test_batch_class_level_and_academic_year_are_validated():
+    teacher = _register_user("Validation Teacher", "teacher")
+    post = lambda body: requests.post(f"{API}/batches", json={"name": "V Batch", **body}, headers=teacher["headers"], timeout=15)
+
+    assert post({"class_level": "Class 10"}).json()["class_level"] == "10"
+    assert post({"class_level": "abc"}).status_code == 400
+    assert post({"class_level": "13"}).status_code == 400
+    assert post({"class_level": "10", "academic_year": "abc"}).status_code == 400
+    assert post({"class_level": "10", "academic_year": "2026-2028"}).status_code == 400
+
+    b = post({"class_level": "10", "academic_year": "2026-2027", "fee_amount": 12000}).json()
+    r = requests.put(f"{API}/batches/{b['id']}", json={"academic_year": "2027-2028"}, headers=teacher["headers"], timeout=15)
+    assert r.status_code == 200, r.text
+    sched = {it["month"]: it for it in r.json()["fee_schedule"]}
+    assert sched["April"]["year"] == 2027 and sched["March"]["year"] == 2028
+    assert all(it["academic_year"] == "2027-2028" for it in sched.values())
+    assert sum(it["amount"] for it in sched.values()) == 12000
+    assert requests.put(f"{API}/batches/{b['id']}", json={"class_level": "0"}, headers=teacher["headers"], timeout=15).status_code == 400

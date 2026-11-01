@@ -65,6 +65,15 @@ const scheduleSum = (schedule) => (schedule || []).reduce((acc, it) => acc + (Nu
 
 const sameAmount = (a, b) => Math.round((Number(a) || 0) * 100) === Math.round((Number(b) || 0) * 100);
 
+// New batches require approval so a shared/leaked code only lets someone ask to join
+const DEFAULT_JOIN_SETTINGS = { join_requires_approval: true, joining_closed: false, max_students: "" };
+
+const joinSettingsPayload = (data) => ({
+  join_requires_approval: Boolean(data.join_requires_approval),
+  joining_closed: Boolean(data.joining_closed),
+  max_students: Number(data.max_students) || 0,
+});
+
 // The teacher's local calendar date; toISOString().slice(0, 10) gives the UTC date (yesterday in IST before 05:30)
 const todayLocalISODate = () => {
   const d = new Date();
@@ -93,6 +102,7 @@ export default function Batches() {
     monthly_fee: "",
     show_advance: false,
     fee_schedule: makeDefaultSchedule(0),
+    ...DEFAULT_JOIN_SETTINGS,
   });
   const [editModal, setEditModal] = useState({
     open: false,
@@ -114,6 +124,8 @@ export default function Batches() {
   const [batchStudentsData, setBatchStudentsData] = useState(null);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [studentsError, setStudentsError] = useState("");
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [joinRequestBusy, setJoinRequestBusy] = useState(null);
   const [activeTab, setActiveTab] = useState("roster"); // "roster" (Students & Fees) or "leaderboard"
   const [feeModal, setFeeModal] = useState({
     open: false,
@@ -229,8 +241,10 @@ export default function Batches() {
     setBatchDetails(null);
     setSelectedMonthsMap({});
     setStudentSearch("");
+    setJoinRequests([]);
     if (!selectedBatchId) return;
     const bid = selectedBatchId;
+    loadJoinRequests(bid);
     setLoadingDetails(true);
     api.get("/mastery/teacher", { params: { batch_id: bid } })
       .then((res) => {
@@ -264,6 +278,9 @@ export default function Batches() {
       monthly_fee: mAmt,
       show_advance: false,
       fee_schedule: existingSched,
+      join_requires_approval: Boolean(b.join_requires_approval),
+      joining_closed: Boolean(b.joining_closed),
+      max_students: b.max_students ? String(b.max_students) : "",
       saving: false,
     });
   };
@@ -288,6 +305,7 @@ export default function Batches() {
           month: s.month,
           amount: Number(s.amount) || 0,
         })),
+        ...joinSettingsPayload(editModal),
       };
       await api.put(`/batches/${editModal.batchId}`, payload);
       toast.success("Batch details updated successfully!");
@@ -701,6 +719,7 @@ export default function Batches() {
           month: s.month,
           amount: Number(s.amount) || 0,
         })),
+        ...joinSettingsPayload(form),
       };
       const res = await api.post("/batches", payload);
       toast.success(`Batch "${res.data.name}" created!`);
@@ -712,6 +731,7 @@ export default function Batches() {
         monthly_fee: "",
         show_advance: false,
         fee_schedule: makeDefaultSchedule(0),
+        ...DEFAULT_JOIN_SETTINGS,
       });
       await loadBatches();
       setSelectedBatchId(res.data.id);
@@ -760,6 +780,55 @@ export default function Batches() {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to remove student");
     } finally {
       setStatusBusyId(null);
+    }
+  };
+
+  const loadJoinRequests = async (bid) => {
+    if (!bid) return;
+    try {
+      const res = await api.get(`/batches/${bid}/join-requests`);
+      if (currentBatchRef.current === bid) setJoinRequests(res.data || []);
+    } catch {
+      if (currentBatchRef.current === bid) setJoinRequests([]);
+    }
+  };
+
+  const handleJoinRequest = async (req, decision) => {
+    setJoinRequestBusy(req.id);
+    try {
+      await api.post(`/batches/${selectedBatchId}/join-requests/${req.id}/${decision}`);
+      toast.success(decision === "approve" ? `${req.student_name} added to the batch.` : `Declined ${req.student_name}.`);
+      await Promise.all([loadJoinRequests(selectedBatchId), decision === "approve" && loadBatchStudents(selectedBatchId), loadBatches()]);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not update the request");
+    } finally {
+      setJoinRequestBusy(null);
+    }
+  };
+
+  const handleApproveAllRequests = async () => {
+    if (!window.confirm(`Add all ${joinRequests.length} students waiting to join this batch?`)) return;
+    setJoinRequestBusy("all");
+    try {
+      const res = await api.post(`/batches/${selectedBatchId}/join-requests-approve-all`);
+      const { approved, remaining } = res.data || {};
+      toast.success(remaining ? `Added ${approved}; ${remaining} still waiting (batch is full).` : `Added ${approved} students.`);
+      await Promise.all([loadJoinRequests(selectedBatchId), loadBatchStudents(selectedBatchId), loadBatches()]);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not approve requests");
+    } finally {
+      setJoinRequestBusy(null);
+    }
+  };
+
+  const handleRotateCode = async (batch) => {
+    if (!window.confirm(`Issue a new join code for "${batch.name}"? The current code ${batch.code} will stop working; enrolled students are not affected.`)) return;
+    try {
+      const res = await api.post(`/batches/${batch.id}/rotate-code`);
+      setBatches((prev) => prev.map((b) => (b.id === batch.id ? { ...b, code: res.data.code } : b)));
+      toast.success(`New join code: ${res.data.code}`);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not change the code");
     }
   };
 
@@ -930,6 +999,47 @@ export default function Batches() {
   }, [batchStudentsData, studentSearch]);
 
   const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] font-semibold focus:ring-2 focus:ring-[#F5C842]";
+
+  const renderJoinSettings = (data, setter) => (
+    <div className="space-y-2.5 rounded-2xl border-2 border-[#1E293B] bg-[#FFF9E8] p-3.5 shadow-[2px_2px_0_#1E293B]">
+      <div className="font-mono uppercase tracking-wider text-[10px] font-bold text-[#1E293B]/70">Who can join</div>
+      <label className="flex items-start gap-2.5 text-sm text-[#1E293B] cursor-pointer">
+        <input
+          type="checkbox"
+          className="mt-1 h-4 w-4 accent-[#1E293B]"
+          checked={Boolean(data.join_requires_approval)}
+          onChange={(e) => setter((prev) => ({ ...prev, join_requires_approval: e.target.checked }))}
+        />
+        <span>
+          <span className="font-bold">Approve each student before they join</span>
+          <span className="block text-xs text-[#1E293B]/60">A shared code only sends you a request; you see their name and email.</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2.5 text-sm text-[#1E293B] cursor-pointer">
+        <input
+          type="checkbox"
+          className="mt-1 h-4 w-4 accent-[#1E293B]"
+          checked={Boolean(data.joining_closed)}
+          onChange={(e) => setter((prev) => ({ ...prev, joining_closed: e.target.checked }))}
+        />
+        <span>
+          <span className="font-bold">Close joining</span>
+          <span className="block text-xs text-[#1E293B]/60">The code stops working until you reopen it.</span>
+        </span>
+      </label>
+      <div className="flex items-center gap-2.5 text-sm text-[#1E293B]">
+        <Label className="text-xs font-bold">Max students</Label>
+        <Input
+          type="number"
+          min={0}
+          value={data.max_students}
+          onChange={(e) => setter((prev) => ({ ...prev, max_students: e.target.value }))}
+          placeholder="No limit"
+          className="h-8 w-28 rounded-lg bg-white border-2 border-[#1E293B] font-mono text-sm"
+        />
+      </div>
+    </div>
+  );
 
   const renderBatchFeeFields = (data, setter, isEdit = false) => {
     const scheduleTotal = scheduleSum(data.fee_schedule);
@@ -1117,6 +1227,7 @@ export default function Batches() {
               </div>
 
               {renderBatchFeeFields(form, setForm, false)}
+              {renderJoinSettings(form, setForm)}
             </div>
             <DialogFooter>
               <Button
@@ -1241,8 +1352,22 @@ export default function Batches() {
                   Class {currentBatch.class_level} Batch
                 </Badge>
                 <span className="text-xs text-[#1E293B]/70 font-mono">
-                  Join Code: <span className="text-[#1E293B] font-black">{currentBatch.code}</span>
+                  Join Code: <span className={`font-black ${currentBatch.joining_closed ? "line-through text-[#1E293B]/40" : "text-[#1E293B]"}`}>{currentBatch.code}</span>
                 </span>
+                <button
+                  type="button"
+                  onClick={() => handleRotateCode(currentBatch)}
+                  className="text-[11px] font-mono font-bold text-[#3E7CB1] hover:underline inline-flex items-center gap-1"
+                  title="Issue a new join code; the old one stops working"
+                >
+                  <RotateCcw className="h-3 w-3" /> New code
+                </button>
+                {currentBatch.joining_closed && (
+                  <Badge className="bg-[#1E293B]/10 text-[#1E293B] border border-[#1E293B] text-[10px] font-mono">Joining closed</Badge>
+                )}
+                {currentBatch.join_requires_approval && !currentBatch.joining_closed && (
+                  <Badge className="bg-[#F5C842]/30 text-[#B45309] border border-[#1E293B] text-[10px] font-mono">Approval required</Badge>
+                )}
                 <span className="text-[#1E293B]/40">•</span>
                 <span className="text-xs text-[#2F8A5F] font-mono font-bold">
                   Annual: ₹{Number(currentBatch.fee_amount || 0).toLocaleString()}
@@ -1384,6 +1509,47 @@ export default function Batches() {
               </span>
             </button>
           </div>
+
+          {/* Students waiting for approval to join */}
+          {activeTab === "roster" && joinRequests.length > 0 && (
+            <div className="rounded-2xl border-2 border-[#B45309] bg-[#F5C842]/15 p-4 space-y-3 shadow-[3px_3px_0_#1E293B]">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="font-head font-black text-[#1E293B]">
+                  {joinRequests.length} {joinRequests.length === 1 ? "student" : "students"} waiting to join
+                </div>
+                {joinRequests.length > 1 && (
+                  <Button size="sm" onClick={handleApproveAllRequests} disabled={joinRequestBusy !== null}
+                    className="rounded-full bg-[#2F8A5F] hover:bg-[#2F8A5F]/90 text-white text-xs font-bold">
+                    Approve all
+                  </Button>
+                )}
+              </div>
+              <div className="divide-y divide-[#1E293B]/10">
+                {joinRequests.map((req) => (
+                  <div key={req.id} className="flex items-center justify-between gap-3 py-2 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm text-[#1E293B] truncate">{req.student_name || "Student"}</div>
+                      <div className="text-xs text-[#1E293B]/60 font-mono truncate">
+                        {req.student_email} · asked {req.requested_at ? new Date(req.requested_at).toLocaleDateString() : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" disabled={joinRequestBusy !== null}
+                        onClick={() => handleJoinRequest(req, "reject")}
+                        className="rounded-full border-2 border-[#E04A3C] text-[#E04A3C] text-xs font-bold h-8">
+                        Decline
+                      </Button>
+                      <Button size="sm" disabled={joinRequestBusy !== null}
+                        onClick={() => handleJoinRequest(req, "approve")}
+                        className="rounded-full bg-[#1E293B] text-white text-xs font-bold h-8">
+                        <Check className="h-3.5 w-3.5 mr-1" /> Approve
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* VIEW 1: STUDENTS & FEE ROSTER */}
           {activeTab === "roster" && (
@@ -2460,6 +2626,7 @@ export default function Batches() {
             </div>
 
             {renderBatchFeeFields(editModal, setEditModal, true)}
+            {renderJoinSettings(editModal, setEditModal)}
           </div>
 
           <DialogFooter className="gap-2 pt-2 border-t-2 border-[#1E293B]/20">
