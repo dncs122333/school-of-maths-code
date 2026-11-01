@@ -65,6 +65,15 @@ const scheduleSum = (schedule) => (schedule || []).reduce((acc, it) => acc + (Nu
 
 const sameAmount = (a, b) => Math.round((Number(a) || 0) * 100) === Math.round((Number(b) || 0) * 100);
 
+// The teacher's local calendar date; toISOString().slice(0, 10) gives the UTC date (yesterday in IST before 05:30)
+const todayLocalISODate = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// Local noon keeps the same calendar date after UTC conversion in any timezone within ±12h
+const paymentDateToISO = (yyyyMmDd) => (yyyyMmDd ? new Date(`${yyyyMmDd}T12:00:00`).toISOString() : undefined);
+
 const newIdempotencyKey = () =>
   (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -104,6 +113,7 @@ export default function Batches() {
   // Batch Students & Fees State
   const [batchStudentsData, setBatchStudentsData] = useState(null);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentsError, setStudentsError] = useState("");
   const [activeTab, setActiveTab] = useState("roster"); // "roster" (Students & Fees) or "leaderboard"
   const [feeModal, setFeeModal] = useState({
     open: false,
@@ -127,7 +137,7 @@ export default function Batches() {
     remainingDue: 0,
     partialAmount: "",
     notes: "",
-    payment_date: new Date().toISOString().slice(0, 10),
+    payment_date: todayLocalISODate(),
     saving: false,
   });
   const [selectedMonthsMap, setSelectedMonthsMap] = useState({}); // { [studentId]: string[] }
@@ -169,7 +179,7 @@ export default function Batches() {
       const res = await api.get("/batches");
       const list = res.data || [];
       setBatches(list);
-      if (!selectedBatchId && list.length > 0) {
+      if (!currentBatchRef.current && list.length > 0) {
         // Default to first batch or initial query param
         const targetId = initialBatchId && list.some((b) => b.id === initialBatchId) ? initialBatchId : list[0].id;
         setSelectedBatchId(targetId);
@@ -184,41 +194,54 @@ export default function Batches() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Responses for a batch the teacher has already switched away from must be dropped, or a slow
+  // response would show batch A's roster under batch B (and fee actions would post to B)
+  const currentBatchRef = useRef(selectedBatchId);
+  currentBatchRef.current = selectedBatchId;
+
   const loadBatchStudents = async (bid) => {
     if (!bid) {
       setBatchStudentsData(null);
       return;
     }
     setLoadingStudents(true);
+    setStudentsError("");
     try {
       const res = await api.get(`/batches/${bid}/students`);
+      if (currentBatchRef.current !== bid) return;
       setBatchStudentsData(res.data);
     } catch (err) {
-      // ignore
+      if (currentBatchRef.current !== bid) return;
+      setStudentsError(formatApiErrorDetail(err.response?.data?.detail) || "Could not load students and fee records.");
     } finally {
-      setLoadingStudents(false);
+      if (currentBatchRef.current === bid) setLoadingStudents(false);
     }
   };
 
   // Fetch student roster and mastery data for the selected batch
   useEffect(() => {
-    if (!selectedBatchId) {
-      setBatchDetails(null);
-      setBatchStudentsData(null);
-      return;
-    }
+    // Per-batch UI state from the previous batch must not leak into this one
+    setBatchStudentsData(null);
+    setBatchDetails(null);
+    setSelectedMonthsMap({});
+    setStudentSearch("");
+    if (!selectedBatchId) return;
+    const bid = selectedBatchId;
     setLoadingDetails(true);
-    api.get("/mastery/teacher", { params: { batch_id: selectedBatchId } })
+    api.get("/mastery/teacher", { params: { batch_id: bid } })
       .then((res) => {
-        setBatchDetails(res.data);
+        if (currentBatchRef.current === bid) setBatchDetails(res.data);
       })
       .catch((err) => {
+        if (currentBatchRef.current !== bid) return;
         toast.error(formatApiErrorDetail(err.response?.data?.detail));
         setBatchDetails(null);
       })
-      .finally(() => setLoadingDetails(false));
+      .finally(() => {
+        if (currentBatchRef.current === bid) setLoadingDetails(false);
+      });
 
-    loadBatchStudents(selectedBatchId);
+    loadBatchStudents(bid);
   }, [selectedBatchId]);
 
   const handleOpenEditBatch = (b) => {
@@ -511,23 +534,34 @@ export default function Batches() {
     }
   };
 
-  const handleOpenPartialModal = (student, monthName) => {
-    const schItem = student.monthly_status?.find((m) => m.month === monthName) ||
-                    student.due_months?.find((m) => m.month === monthName);
-    const schAmt = schItem ? Number(schItem.amount || 0) : 0;
-    const paidAmt = schItem ? Number(schItem.paid_amount || 0) : 0;
-    const remDue = schItem ? (schItem.due_amount !== undefined ? Number(schItem.due_amount) : Math.max(0, schAmt - paidAmt)) : schAmt;
+  // Accepts one month or every selected month; totals cover all of them so the amount matches the banner
+  const handleOpenPartialModal = (student, monthOrMonths) => {
+    const months = (Array.isArray(monthOrMonths) ? monthOrMonths : [monthOrMonths]).filter(Boolean);
+    let schAmt = 0;
+    let paidAmt = 0;
+    let remDue = 0;
+    months.forEach((monthName) => {
+      const schItem = student.monthly_status?.find((m) => m.month === monthName) ||
+                      student.due_months?.find((m) => m.month === monthName);
+      const amount = schItem ? Number(schItem.amount || 0) : 0;
+      const paid = schItem ? Number(schItem.paid_amount || 0) : 0;
+      schAmt += amount;
+      paidAmt += paid;
+      remDue += schItem && schItem.due_amount !== undefined ? Number(schItem.due_amount || 0) : Math.max(0, amount - paid);
+    });
+    const label = months.join(", ");
 
     setPartialModal({
       open: true,
       student,
-      month: monthName,
+      month: label,
+      months,
       scheduledAmount: schAmt,
       paidSoFar: paidAmt,
       remainingDue: remDue,
-      partialAmount: String(remDue > 0 ? Math.round(remDue / 2) : schAmt),
-      notes: `Partial payment for ${monthName}`,
-      payment_date: new Date().toISOString().slice(0, 10),
+      partialAmount: String(remDue > 0 ? Math.round(remDue / 2) : ""),
+      notes: `Partial payment for ${label}`,
+      payment_date: todayLocalISODate(),
       saving: false,
     });
   };
@@ -539,14 +573,22 @@ export default function Batches() {
       toast.error("Please enter a valid partial payment amount.");
       return;
     }
+    if (amt > Number(partialModal.remainingDue || 0)) {
+      toast.error(`Amount is more than the ₹${Number(partialModal.remainingDue || 0).toLocaleString()} due for ${partialModal.month}.`);
+      return;
+    }
+    if (partialModal.payment_date && partialModal.payment_date > todayLocalISODate()) {
+      toast.error("Payment date can't be in the future.");
+      return;
+    }
     setPartialModal((prev) => ({ ...prev, saving: true }));
     try {
       const res = await postFee(partialModal.student.id, {
-        month: partialModal.month,
+        months_paid: partialModal.months?.length ? partialModal.months : [partialModal.month],
         amount: amt,
         is_partial: true,
         notes: partialModal.notes.trim(),
-        payment_date: partialModal.payment_date ? new Date(partialModal.payment_date).toISOString() : undefined,
+        payment_date: paymentDateToISO(partialModal.payment_date),
       });
       if (!res) return;
       toast.success(`Recorded partial payment of ₹${amt.toLocaleString()} for ${partialModal.month}!`);
@@ -559,7 +601,7 @@ export default function Batches() {
         remainingDue: 0,
         partialAmount: "",
         notes: "",
-        payment_date: new Date().toISOString().slice(0, 10),
+        payment_date: todayLocalISODate(),
         saving: false,
       });
       handleClearMonthSelection(partialModal.student.id);
@@ -690,6 +732,7 @@ export default function Batches() {
       }
       toast.success(`Batch "${batch.name}" deleted successfully!`);
       if (selectedBatchId === batch.id) {
+        currentBatchRef.current = "";
         setSelectedBatchId("");
       }
       await loadBatches();
@@ -771,10 +814,10 @@ export default function Batches() {
           ? `Student "${student.name}" blocked! Batch code regenerated to: ${newCode}`
           : `Student "${student.name}" blocked.`
       );
-      if (newCode) {
-        setBatches((prev) =>
-          prev.map((b) => (b.id === selectedBatchId ? { ...b, code: newCode } : b))
-        );
+      // Blocking rotates the code of every batch of this teacher the student was in, not just this one
+      const rotated = Object.fromEntries((res.data?.updated_batches || []).map((u) => [u.batch_id, u.new_code]));
+      if (Object.keys(rotated).length > 0) {
+        setBatches((prev) => prev.map((b) => (rotated[b.id] ? { ...b, code: rotated[b.id] } : b)));
       }
       setBatchStudentsData((prev) => {
         if (!prev) return prev;
@@ -1345,6 +1388,17 @@ export default function Batches() {
                 <span className="h-5 w-5 border-2 border-[#1E293B] border-t-transparent rounded-full animate-spin" />
                 <span className="font-mono text-sm font-bold">Loading enrolled students and fee records…</span>
               </div>
+            ) : studentsError ? (
+              <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#E04A3C] p-12 text-center space-y-3 text-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+                <AlertCircle className="h-9 w-9 mx-auto text-[#E04A3C]" />
+                <h4 className="font-head text-lg font-bold">Couldn&apos;t load students</h4>
+                <p className="text-xs max-w-sm mx-auto text-[#1E293B]/70">{studentsError}</p>
+                <Button variant="outline" onClick={() => loadBatchStudents(selectedBatchId)}>Try again</Button>
+              </div>
+            ) : rosterStudents.length === 0 && (batchStudentsData?.students?.length || 0) > 0 ? (
+              <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-12 text-center text-[#1E293B] shadow-[3px_3px_0_#1E293B]">
+                <h4 className="font-head text-lg font-bold">No students match &ldquo;{studentSearch}&rdquo;</h4>
+              </div>
             ) : rosterStudents.length === 0 ? (
               <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-12 text-center space-y-2 text-[#1E293B] shadow-[3px_3px_0_#1E293B]">
                 <Users className="h-9 w-9 mx-auto text-[#1E293B]/50" />
@@ -1488,7 +1542,7 @@ export default function Batches() {
                                   <Button
                                     size="sm"
                                     data-testid={`partial-selected-header-${st.id}`}
-                                    onClick={() => handleOpenPartialModal(st, selectedMonthsMap[st.id][0])}
+                                    onClick={() => handleOpenPartialModal(st, selectedMonthsMap[st.id])}
                                     className="h-8 px-3 rounded-xl bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] text-xs font-bold border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center gap-1.5 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
                                     title="Record partial payment for selected month"
                                   >
@@ -1631,7 +1685,7 @@ export default function Batches() {
                                 <Button
                                   size="sm"
                                   data-testid={`partial-selected-banner-${st.id}`}
-                                  onClick={() => handleOpenPartialModal(st, selectedMonthsMap[st.id][0])}
+                                  onClick={() => handleOpenPartialModal(st, selectedMonthsMap[st.id])}
                                   className="h-7 px-3 rounded-lg bg-[#F5C842] hover:bg-[#E6B935] text-[#1E293B] text-xs font-bold border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center gap-1.5"
                                   title="Record partial payment for selected month"
                                 >
@@ -2535,6 +2589,7 @@ export default function Batches() {
                   data-testid="partial-fee-amount-input"
                   type="number"
                   min={1}
+                  max={partialModal.remainingDue || undefined}
                   value={partialModal.partialAmount}
                   onChange={(e) => setPartialModal((prev) => ({ ...prev, partialAmount: e.target.value }))}
                   placeholder="Enter partial amount"
@@ -2568,6 +2623,7 @@ export default function Batches() {
               <Label className="text-xs font-bold text-[#1E293B]">Date of Collection</Label>
               <Input
                 type="date"
+                max={todayLocalISODate()}
                 value={partialModal.payment_date}
                 onChange={(e) => setPartialModal((prev) => ({ ...prev, payment_date: e.target.value }))}
                 className="mt-1 rounded-xl bg-white border-2 border-[#1E293B] text-[#1E293B] text-xs h-10 font-mono shadow-[1px_1px_0_#1E293B]"
@@ -2587,7 +2643,7 @@ export default function Batches() {
           </div>
 
           <DialogFooter className="gap-2 pt-2 border-t-2 border-[#1E293B]/20">
-            {partialModal.paidSoFar > 0 && (
+            {partialModal.paidSoFar > 0 && (partialModal.months?.length || 1) === 1 && (
               <Button
                 type="button"
                 variant="outline"

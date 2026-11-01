@@ -36,18 +36,24 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
   const [selectedMonth, setSelectedMonth] = useState(currentCalendarMonth);
 
   useEffect(() => {
+    // Clear the previous batch's data and ignore its late response, or it would render under this batch
+    setFeeData(null);
     if (!batchId) return;
+    let cancelled = false;
     setLoading(true);
     api.get(`/batches/${batchId}/students`)
       .then((res) => {
-        setFeeData(res.data);
+        if (!cancelled) setFeeData(res.data);
       })
       .catch((err) => {
-        toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load fee status");
+        if (!cancelled) toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load fee status");
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [batchId]);
 
   const rawStudents = useMemo(() => feeData?.students || [], [feeData]);
@@ -102,24 +108,20 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
         }
       }
 
-      // Current month figures
-      const monthAmount = Number(monthItem?.amount || (s.total_fee ? Math.round(s.total_fee / 12) : 0));
-      const monthPaid = Number(monthItem?.paid_amount || 0);
-      const monthDue = Number(
-        monthItem !== null && monthItem !== undefined
-          ? monthItem.due_amount
-          : Math.max(0, monthAmount - monthPaid)
-      );
-      const isPaid = Boolean(monthItem?.is_paid || (monthAmount > 0 && monthPaid >= monthAmount));
-      const isPartial = Boolean(monthItem?.is_partial || (monthPaid > 0 && !isPaid));
-      const monthStatus = isPaid ? "paid" : isPartial ? "partial" : "due";
+      // A month missing from the student's schedule isn't billed (e.g. before a mid-year join) — owe nothing,
+      // rather than inventing total/12. A ₹0 month in the schedule is a real ₹0 month, not a fallback.
+      const notBilled = !monthItem;
+      const monthAmount = notBilled ? 0 : Number(monthItem.amount ?? 0);
+      const monthPaid = notBilled ? 0 : Number(monthItem.paid_amount ?? 0);
+      const monthDue = notBilled ? 0 : Number(monthItem.due_amount ?? Math.max(0, monthAmount - monthPaid));
+      const isPaid = !notBilled && Boolean(monthItem.is_paid || (monthAmount > 0 && monthPaid >= monthAmount));
+      const isPartial = !notBilled && Boolean(monthItem.is_partial || (monthPaid > 0 && !isPaid));
+      const monthStatus = notBilled ? "not billed" : isPaid ? "paid" : isPartial ? "partial" : "due";
 
-      // Past arrears: previous months where due_amount > 0 or not paid
-      const overduePastList = pastMonths.filter(
-        (m) => Number(m.due_amount || 0) > 0 || (!m.is_paid && !m.is_partial && Number(m.amount || 0) > 0)
-      );
+      // Past arrears: previous months with anything still due
+      const overduePastList = pastMonths.filter((m) => Number(m.due_amount ?? m.amount ?? 0) > 0);
       const pastArrearsAmount = overduePastList.reduce(
-        (acc, m) => acc + Number(m.due_amount || m.amount || 0),
+        (acc, m) => acc + Number(m.due_amount ?? m.amount ?? 0),
         0
       );
       const pastOverdueMonths = overduePastList.map((m) => m.month);
@@ -130,6 +132,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
         monthPaid,
         monthDue,
         monthStatus,
+        notBilled,
         isPaid,
         isPartial,
         pastArrearsAmount,
@@ -188,7 +191,7 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
 
     const paidCount = processedStudents.filter((s) => s.isPaid).length;
     const partialCount = processedStudents.filter((s) => s.isPartial).length;
-    const dueCount = processedStudents.filter((s) => !s.isPaid && !s.isPartial).length;
+    const dueCount = processedStudents.filter((s) => !s.notBilled && !s.isPaid && !s.isPartial).length;
 
     const totalPastArrears = processedStudents.reduce((sum, s) => sum + s.pastArrearsAmount, 0);
     const studentsWithArrearsCount = processedStudents.filter((s) => s.pastArrearsAmount > 0).length;
@@ -487,7 +490,9 @@ export default function BatchFeeStatusTab({ batchId, activeBatch }) {
                       <td className="py-3 px-3 text-center">
                         <span
                           className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-head font-black uppercase border border-[#1E293B] shadow-[1px_1px_0_#1E293B] ${
-                            isPaid
+                            s.notBilled
+                              ? "bg-[#1E293B]/5 text-[#1E293B]/50"
+                              : isPaid
                               ? "bg-[#2F8A5F]/20 text-[#2F8A5F]"
                               : isPartial
                               ? "bg-[#F5C842]/40 text-[#B45309]"
