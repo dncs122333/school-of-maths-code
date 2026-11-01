@@ -29,7 +29,7 @@ S3_ACCESS_KEY_ID=""
 S3_SECRET_ACCESS_KEY=""
 S3_BUCKET=""
 S3_REGION="auto"
-ENABLE_WATERMARKING="false"
+ENABLE_WATERMARKING="true"   # stamps student PDF/image downloads with their name and email; "false" to disable
 ```
 
 ### frontend/.env

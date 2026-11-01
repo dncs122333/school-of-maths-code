@@ -60,6 +60,8 @@ export default function Materials() {
     releaseViewerUrl();
   }, []);
 
+  // Classes come from the curriculum catalog, since the subject/chapter pickers need its data
+  const catalogClasses = Object.keys(catalog || {}).sort((a, b) => Number(a) - Number(b));
   const subjects = catalog[f.class_level] ? Object.keys(catalog[f.class_level]) : [];
   const chapters = catalog[f.class_level]?.[f.subject] || [];
   const inp = "rounded-xl mt-1.5 bg-[#FFF9E8] border-2 border-[#1E293B] text-[#1E293B] font-semibold focus:ring-2 focus:ring-[#F5C842]";
@@ -178,10 +180,13 @@ export default function Materials() {
       toast.error("Please enter a title");
       return;
     }
+    if (!editForm.batch_id) {
+      toast.error("Choose a batch for this material");
+      return;
+    }
     setSaving(true);
     try {
       const payload = { ...editForm, title: editForm.title.trim() };
-      if (!payload.batch_id) payload.batch_id = null;
       const res = await api.patch(`/resources/${editItem.id}`, payload);
       toast.success("Material updated");
       setItems((prev) => prev.map((item) => (item.id === editItem.id ? { ...item, ...res.data } : item)));
@@ -253,7 +258,7 @@ export default function Materials() {
               <Label className="font-800 text-[#1E293B]">Class</Label>
               <Select value={f.class_level} onValueChange={(v) => setF({ ...f, class_level: v, subject: "", chapter: "" })}>
                 <SelectTrigger data-testid="material-class" className={inp}><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="9">Class 9</SelectItem><SelectItem value="10">Class 10</SelectItem></SelectContent>
+                <SelectContent>{catalogClasses.map((c) => <SelectItem key={c} value={c}>Class {c}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div>
@@ -482,8 +487,7 @@ export default function Materials() {
                 <Select value={editForm.class_level} onValueChange={(v) => setEditForm({ ...editForm, class_level: v, subject: "" })}>
                   <SelectTrigger className={inp}><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="9">Class 9</SelectItem>
-                    <SelectItem value="10">Class 10</SelectItem>
+                    {catalogClasses.map((c) => <SelectItem key={c} value={c}>Class {c}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -507,10 +511,10 @@ export default function Materials() {
             </div>
             <div>
               <Label className="font-800 text-[#1E293B]">Batch</Label>
-              <Select value={editForm.batch_id || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, batch_id: v === "__none__" ? "" : v })}>
+              {/* No "General" option: students only see materials shared with one of their batches */}
+              <Select value={editForm.batch_id || undefined} onValueChange={(v) => setEditForm({ ...editForm, batch_id: v })}>
                 <SelectTrigger className={inp}><SelectValue placeholder="Select batch" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">General / All students</SelectItem>
                   {batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                 </SelectContent>
               </Select>

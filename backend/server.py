@@ -22,7 +22,7 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from pydantic import BaseModel
 
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Request
 from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
@@ -30,12 +30,12 @@ from starlette.middleware.cors import CORSMiddleware
 from config import logger, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
-from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, CreateNoteInput, GenerateTestInput,
+from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
-                  require_claim_role, user_from_token)
-from ai import extract_text_from_file, extract_questions_from_media
-from storage import init_storage, put_object, get_object, delete_object
+                  require_claim_role)
+from ai import extract_questions_from_media
+from storage import init_storage, put_object, get_object
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
                          compute_unattempted_summary, is_answered, apply_batch_confirmation,
@@ -1833,150 +1833,8 @@ async def remove_student_from_batch(
 
 
 # ------------------------- Notes -------------------------
-@api_router.post("/extract")
-async def extract(file: UploadFile = File(...), user: dict = Depends(require_role("teacher", "admin"))):
-    data = await file.read()
-    text = extract_text_from_file(file.filename, data)
-    return {"text": text, "filename": file.filename}
-
-
-@api_router.post("/notes")
-async def create_note(body: CreateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
-    sections = [s.dict() for s in body.sections] if body.sections else []
-    if not sections:
-        if body.raw_text and body.raw_text.strip():
-            sections = [{"heading": "Overview", "content": body.raw_text.strip()}]
-        else:
-            raise HTTPException(status_code=400, detail="At least one section or content is required")
-
-    batch_id = body.batch_id if body.batch_id and body.batch_id != "all" else None
-    batch_name = None
-    if batch_id:
-        batch = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
-        if not batch:
-            raise HTTPException(status_code=400, detail="Invalid batch selected")
-        if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
-            raise HTTPException(status_code=403, detail="You do not own this batch")
-        batch_name = batch.get("name")
-
-    note_id = str(uuid.uuid4())
-    doc = {"id": note_id, "title": body.title or "Untitled",
-           "class_level": body.class_level, "subject": body.subject, "chapter": body.chapter,
-           "topic": body.topic or "", "batch_id": batch_id, "batch_name": batch_name,
-           "intro": body.intro or "", "sections": sections,
-           "quick_revision": body.quick_revision or [],
-           "key_terms": body.key_terms or [],
-           "status": "ready",
-           "teacher_id": user["id"], "teacher_name": user["name"],
-           "created_at": datetime.now(timezone.utc).isoformat()}
-    await db.notes.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
-
-
-@api_router.get("/notes")
-async def list_notes(class_level: Optional[str] = None, subject: Optional[str] = None,
-                     chapter: Optional[str] = None, batch_id: Optional[str] = None,
-                     user: dict = Depends(get_current_user)):
-    q = {}
-    if user["role"] == "teacher":
-        q["teacher_id"] = user["id"]
-        if batch_id:
-            if batch_id == "general":
-                q["$or"] = [{"batch_id": None}, {"batch_id": ""}, {"batch_id": {"$exists": False}}]
-            else:
-                q["batch_id"] = batch_id
-    elif user["role"] == "student":
-        student_batches = active_batch_ids(user)
-        # Student can only access notes scoped to their enrolled batches OR general notes
-        q["$or"] = [
-            {"batch_id": {"$in": student_batches}},
-            {"batch_id": None},
-            {"batch_id": ""},
-            {"batch_id": {"$exists": False}}
-        ]
-        if batch_id:
-            if batch_id in student_batches:
-                q["batch_id"] = batch_id
-            else:
-                raise HTTPException(status_code=403, detail="You are not enrolled in this batch")
-    else:
-        # admin
-        if batch_id:
-            q["batch_id"] = batch_id
-
-    if class_level:
-        q["class_level"] = class_level
-    if subject:
-        q["subject"] = subject
-    if chapter:
-        q["chapter"] = chapter
-    notes = await db.notes.find(q, {"_id": 0, "sections": 0}).sort("created_at", -1).to_list(500)
-    return notes
-
-
-@api_router.get("/notes/{note_id}")
-async def get_note(note_id: str, user: dict = Depends(get_current_user)):
-    note = await db.notes.find_one({"id": note_id}, {"_id": 0})
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-
-    if user["role"] == "student":
-        note_batch = note.get("batch_id")
-        if note_batch and note_batch not in active_batch_ids(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied. This note is restricted to another batch."
-            )
-    elif user["role"] == "teacher":
-        if user["role"] != "admin" and note.get("teacher_id") != user["id"]:
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-    return note
-
-
-@api_router.delete("/notes/{note_id}")
-async def delete_note(note_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    note = await db.notes.find_one({"id": note_id})
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    if user["role"] != "admin" and note.get("teacher_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    await db.notes.delete_one({"id": note_id})
-    return {"status": "deleted", "id": note_id}
-
-
-class UpdateNoteInput(BaseModel):
-    title: Optional[str] = None
-    class_level: Optional[str] = None
-    subject: Optional[str] = None
-    chapter: Optional[str] = None
-    topic: Optional[str] = None
-    batch_id: Optional[str] = None
-
-
-@api_router.patch("/notes/{note_id}")
-async def update_note(note_id: str, body: UpdateNoteInput, user: dict = Depends(require_role("teacher", "admin"))):
-    note = await db.notes.find_one({"id": note_id})
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    if user["role"] != "admin" and note.get("teacher_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    updates = {k: v for k, v in body.dict().items() if v is not None}
-    # Resolve batch_name when batch_id is being updated
-    if "batch_id" in updates:
-        if updates["batch_id"] in ("", "all", None):
-            updates["batch_id"] = None
-            updates["batch_name"] = None
-        else:
-            batch = await db.batches.find_one({"id": updates["batch_id"]}, {"_id": 0})
-            if not batch:
-                raise HTTPException(status_code=400, detail="Invalid batch")
-            updates["batch_name"] = batch.get("name")
-    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.notes.update_one({"id": note_id}, {"$set": updates})
-    updated = await db.notes.find_one({"id": note_id}, {"_id": 0, "sections": 0})
-    return updated
+# Structured notes (/notes) and their text-extraction helper (/extract) were removed: the app's
+# "Class Notes" are uploaded materials (/resources), and /notes had no screen but was reachable.
 
 
 # ------------------------- Materials (direct uploads, no AI) -------------------------
@@ -1989,6 +1847,13 @@ _MIME = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpe
 # everything else on the allowlist (docx/pptx) downloads as an attachment.
 _PREVIEW_INLINE = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "txt"}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+def _require_title(title: Optional[str]) -> str:
+    cleaned = (title or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    return cleaned[:200]
 
 
 async def _read_upload_capped(file: UploadFile) -> bytes:
@@ -2034,11 +1899,15 @@ async def create_resource(
     data = await _read_upload_capped(file)
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
+    title = _require_title(title)
+    class_level = validate_class_level(class_level)
+    if not subject.strip():
+        raise HTTPException(status_code=400, detail="Subject cannot be empty")
     ct = _MIME[ext]  # derived from the allowlisted extension; never trust the client's content_type
     path = f"{APP_NAME}/resources/{user['id']}/{uuid.uuid4()}.{ext}"
     put_object(path, data, ct)
     doc = {"id": str(uuid.uuid4()), "title": title, "batch_id": batch_id, "batch_name": batch["name"],
-           "class_level": class_level, "subject": subject, "chapter": chapter, "topic": topic,
+           "class_level": class_level, "subject": subject.strip(), "chapter": chapter.strip(), "topic": topic.strip(),
            "storage_path": path, "filename": file.filename, "content_type": ct, "size": len(data),
            "teacher_id": user["id"], "teacher_name": user["name"], "is_deleted": False,
            "created_at": datetime.now(timezone.utc).isoformat()}
@@ -2065,11 +1934,9 @@ async def delete_resource(res_id: str, user: dict = Depends(require_role("teache
         raise HTTPException(status_code=404, detail="Not found")
     if user["role"] != "admin" and res["teacher_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not your resource")
-    await db.resources.update_one({"id": res_id}, {"$set": {"is_deleted": True}})
-    try:
-        delete_object(res["storage_path"])  # best-effort; soft-delete must not fail on storage errors
-    except Exception as e:
-        logger.warning(f"storage delete failed for {res_id}: {e}")
+    # Soft delete keeps the stored file so a removal can be undone; it is hidden from every listing and download
+    await db.resources.update_one({"id": res_id}, {"$set": {
+        "is_deleted": True, "deleted_at": datetime.now(timezone.utc).isoformat(), "deleted_by": user["id"]}})
     return {"ok": True}
 
 
@@ -2089,18 +1956,27 @@ async def update_resource(res_id: str, body: UpdateResourceInput, user: dict = D
         raise HTTPException(status_code=404, detail="Resource not found")
     if user["role"] != "admin" and res.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Not your resource")
-    updates = {k: v for k, v in body.dict().items() if v is not None}
+    # exclude_unset (not "drop None"): an explicit null batch must be rejected, not silently ignored
+    updates = body.dict(exclude_unset=True)
     if "batch_id" in updates:
+        # Materials always belong to a batch: students only ever see materials of their own batches
         if updates["batch_id"] in ("", "all", None):
-            updates["batch_id"] = None
-            updates["batch_name"] = None
-        else:
-            batch = await db.batches.find_one({"id": updates["batch_id"]}, {"_id": 0})
-            if not batch:
-                raise HTTPException(status_code=400, detail="Invalid batch")
-            if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
-                raise HTTPException(status_code=403, detail="You do not own this batch")
-            updates["batch_name"] = batch.get("name")
+            raise HTTPException(status_code=400, detail="Choose a batch for this material")
+        batch = await db.batches.find_one({"id": updates["batch_id"], **NOT_ARCHIVED}, {"_id": 0})
+        if not batch:
+            raise HTTPException(status_code=400, detail="Invalid batch")
+        if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You do not own this batch")
+        updates["batch_name"] = batch.get("name")
+    if "title" in updates:
+        updates["title"] = _require_title(updates["title"])
+    if "class_level" in updates:
+        updates["class_level"] = validate_class_level(updates["class_level"])
+    for field in ("subject", "chapter", "topic"):
+        if field in updates:
+            updates[field] = (updates[field] or "").strip()
+    if updates.get("subject") == "":
+        raise HTTPException(status_code=400, detail="Subject cannot be empty")
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.resources.update_one({"id": res_id}, {"$set": updates})
     updated = await db.resources.find_one({"id": res_id}, {"_id": 0, "storage_path": 0})
@@ -2108,16 +1984,8 @@ async def update_resource(res_id: str, body: UpdateResourceInput, user: dict = D
 
 
 @api_router.get("/resources/{res_id}/file")
-async def download_resource(res_id: str, authorization: str = Header(None), auth: Optional[str] = None):
-    # Support both Bearer header and ?auth= query param (for direct links)
-    token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:]
-    elif auth:
-        token = auth
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = await user_from_token(token)
+async def download_resource(res_id: str, user: dict = Depends(get_current_user)):
+    # Header/cookie auth only: a ?auth= token in the URL leaked into server logs, history and referrers
     res = await db.resources.find_one({"id": res_id, "is_deleted": False}, {"_id": 0})
     if not res:
         raise HTTPException(status_code=404, detail="Not found")
@@ -3724,17 +3592,8 @@ async def stats(user: dict = Depends(get_current_user)):
         student_batches = active_batch_ids(user)
         batch_docs = await db.batches.find({"id": {"$in": student_batches}, **NOT_ARCHIVED}, {"_id": 0, "class_level": 1}).to_list(20)
         class_levels = sorted({b["class_level"] for b in batch_docs if b.get("class_level")}, key=lambda c: (len(str(c)), str(c)))
-        nq = {
-            "$or": [
-                {"batch_id": {"$in": student_batches}},
-                {"batch_id": None},
-                {"batch_id": ""},
-                {"batch_id": {"$exists": False}}
-            ]
-        }
-        if class_levels:
-            nq["class_level"] = {"$in": class_levels}
-        note_count = await db.notes.count_documents(nq) if class_levels else 0
+        # "Class Notes" in the app are uploaded materials; count the ones this student can open
+        note_count = await db.resources.count_documents({"is_deleted": False, "batch_id": {"$in": student_batches}})
 
         # Calculate real practice streak from submission created_at dates
         active_dates = set()
@@ -3808,7 +3667,7 @@ async def stats(user: dict = Depends(get_current_user)):
             student_count = 0
             total_enrollments = 0
 
-    return {"notes": await db.notes.count_documents(q),
+    return {"notes": await db.resources.count_documents({**q, "is_deleted": False}),
             "tests": await db.tests.count_documents({**q, "kind": "test", "is_active": {"$ne": False}}),
             "dpps": await db.tests.count_documents({**q, "kind": "dpp", "is_active": {"$ne": False}}),
             "batches": await db.batches.count_documents({**(q if user["role"] == "admin" else {"teacher_id": user["id"]}), **NOT_ARCHIVED}),

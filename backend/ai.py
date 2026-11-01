@@ -1,7 +1,6 @@
-"""Gemini question extraction (teacher-supplied key) and document text extraction."""
+"""Gemini question extraction (teacher-supplied key)."""
 import asyncio
 import base64
-import io
 import json
 import difflib
 import requests
@@ -23,24 +22,6 @@ def _strip_json(text: str) -> str:
     if end != -1:
         t = t[:end + 1]
     return t
-
-
-def extract_text_from_file(filename: str, data: bytes) -> str:
-    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
-    try:
-        if ext == "pdf":
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(data))
-            return "\n".join((p.extract_text() or "") for p in reader.pages)
-        if ext in ("docx",):
-            import docx
-            d = docx.Document(io.BytesIO(data))
-            return "\n".join(p.text for p in d.paragraphs)
-        if ext in ("txt", "md"):
-            return data.decode("utf-8", errors="ignore")
-    except Exception as e:
-        logger.error(f"extract failed: {e}")
-    return ""
 
 
 async def extract_questions_from_media(

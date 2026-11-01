@@ -161,51 +161,11 @@ class TestFullFlow:
             if b["id"] == st["batch"]["id"]:
                 assert b["student_count"] >= 1
 
-    # ----- notes (manual) -----
-    def test_20_teacher_creates_note(self):
+    # ----- structured notes API removed (Class Notes are uploaded materials) -----
+    def test_20_notes_api_is_removed(self):
         st = self.state
-        payload = {
-            "title": "TEST Gravitation", "class_level": "9", "subject": "Science",
-            "chapter": "Gravitation", "topic": "Basics",
-            "intro": "An introduction to gravity.",
-            "sections": [
-                {"heading": "What is Gravity?", "content": "Gravity is a force of attraction..."},
-                {"heading": "Newton's Law", "content": "F = Gm1m2/r^2"},
-                {"heading": "Free Fall", "content": "When only gravity acts on a body."},
-            ],
-            "quick_revision": ["Gravity pulls objects towards Earth.", "g = 9.8 m/s^2"],
-            "key_terms": ["gravity", "free fall", "G"],
-        }
-        r = st["s"].post(f"{API}/notes", headers=st["teacher"]["h"], json=payload, timeout=15)
-        assert r.status_code == 200, r.text
-        d = r.json()
-        assert "id" in d and d.get("status") == "ready", f"expected ready status, got {d}"
-        assert len(d["sections"]) == 3
-        assert d["quick_revision"] == payload["quick_revision"]
-        assert d["key_terms"] == payload["key_terms"]
-        st["note"] = d
-
-    def test_21_list_has_status_field(self):
-        st = self.state
-        r = st["s"].get(f"{API}/notes", headers=st["teacher"]["h"], timeout=15)
-        assert r.status_code == 200
-        items = r.json()
-        assert any(n["id"] == st["note"]["id"] for n in items)
-        for n in items:
-            assert "status" in n, f"note list item missing status: {n}"
-
-    def test_22_note_in_library_has_section_count(self):
-        st = self.state
-        r = st["s"].get(f"{API}/notes", headers=st["teacher"]["h"], timeout=15)
-        listed = [n for n in r.json() if n["id"] == st["note"]["id"]]
-        assert listed, "note not in list"
-        # sections are stripped from list response
-        assert "sections" not in listed[0]
-
-    def test_23_student_can_view_note(self):
-        st = self.state
-        r = st["s"].get(f"{API}/notes/{st['note']['id']}", headers=st["student"]["h"], timeout=15)
-        assert r.status_code == 200
+        assert st["s"].get(f"{API}/notes", headers=st["teacher"]["h"], timeout=15).status_code == 404
+        assert st["s"].post(f"{API}/notes", headers=st["teacher"]["h"], json={"title": "x"}, timeout=15).status_code in (404, 405)
 
     # ----- timed test (bank-driven, async) -----
     def _seed_bank(self, chapter, n=6, difficulty="medium"):

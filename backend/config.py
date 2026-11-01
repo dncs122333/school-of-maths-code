@@ -27,7 +27,7 @@ S3_REGION = (os.environ.get("S3_REGION") or "").strip() or "auto"
 
 DIFFICULTIES = ("easy", "medium", "hard")
 _VALID_STATUSES = ("active", "pending_review", "inactive")
-ENABLE_WATERMARKING = os.environ.get("ENABLE_WATERMARKING", "false").strip().lower() in ("true", "1", "yes")
+ENABLE_WATERMARKING = os.environ.get("ENABLE_WATERMARKING", "true").strip().lower() in ("true", "1", "yes")
 
 import zoneinfo
 APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Asia/Kolkata").strip() or "Asia/Kolkata"

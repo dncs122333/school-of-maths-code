@@ -149,11 +149,12 @@ class TestResources:
         r = requests.get(f"{API}/resources/{s['img']['id']}/file", timeout=15)
         assert r.status_code == 401
 
-    def test_09_download_with_query_auth_still_works(self):
+    def test_09_download_with_query_auth_is_rejected(self):
+        # Tokens in URLs leak via logs, history and referrers; only header/cookie auth is accepted
         s = self.state
         tok = s["student"]["token"]
         r = requests.get(f"{API}/resources/{s['img']['id']}/file?auth={tok}", timeout=15)
-        assert r.status_code == 200
+        assert r.status_code == 401
 
     def test_10_outsider_download_forbidden(self):
         s = self.state
@@ -224,7 +225,52 @@ class TestResources:
         r = requests.get(f"{API}/resources/{self.state['img']['id']}/file?auth=not-a-real-token", timeout=15)
         assert r.status_code == 401, r.text
 
-    def test_19_outsider_query_auth_403(self):
+    def test_19_outsider_header_auth_403(self):
         tok = self.state["outsider"]["token"]
-        r = requests.get(f"{API}/resources/{self.state['img']['id']}/file?auth={tok}", timeout=15)
+        r = requests.get(f"{API}/resources/{self.state['img']['id']}/file",
+                         headers={"Authorization": f"Bearer {tok}"}, timeout=15)
         assert r.status_code == 403, r.text
+
+
+class TestMaterialRules:
+    """Materials always belong to one of the teacher's live batches; no token-in-URL downloads."""
+
+    @staticmethod
+    def _reg(role, name):
+        import uuid as _uuid
+        r = requests.post(f"{API}/auth/register", json={"name": name, "email": f"test_{role}_{_uuid.uuid4().hex[:8]}@example.com",
+                                                       "password": "password123", "role": role}, timeout=15)
+        assert r.status_code == 200, r.text
+        return r.json()["user"]["id"], r.json()["token"], {"Authorization": f"Bearer {r.json()['token']}"}
+
+    def test_batch_rules_validation_and_download_auth(self):
+        _, _, ta = self._reg("teacher", "Rules Teacher")
+        _, _, tb = self._reg("teacher", "Other Teacher")
+        sid, stoken, sh = self._reg("student", "Rules Student")
+        batch = requests.post(f"{API}/batches", json={"name": "Rules Batch", "class_level": "10"}, headers=ta, timeout=15).json()
+        other = requests.post(f"{API}/batches", json={"name": "Other Batch", "class_level": "10"}, headers=tb, timeout=15).json()
+        doomed = requests.post(f"{API}/batches", json={"name": "Doomed Batch", "class_level": "10"}, headers=ta, timeout=15).json()
+        requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=sh, timeout=15)
+
+        def upload(**overrides):
+            data = {"title": "Doc", "batch_id": batch["id"], "class_level": "10", "subject": "Maths", **overrides}
+            return requests.post(f"{API}/resources", headers=ta, files={"file": ("n.txt", b"hello", "text/plain")}, data=data, timeout=15)
+
+        assert upload(title="   ").status_code == 400
+        assert upload(class_level="abc").status_code == 400
+        created = upload(class_level="Class 10")
+        assert created.status_code == 200 and created.json()["class_level"] == "10"
+        rid = created.json()["id"]
+
+        patch = lambda body: requests.patch(f"{API}/resources/{rid}", json=body, headers=ta, timeout=15)
+        assert patch({"batch_id": None}).status_code == 400          # "General" used to silently do nothing
+        assert patch({"batch_id": other["id"]}).status_code == 403   # another teacher's batch
+        requests.delete(f"{API}/batches/{doomed['id']}", headers=ta, timeout=15)
+        assert patch({"batch_id": doomed["id"]}).status_code == 400  # archived batch
+        assert patch({"title": ""}).status_code == 400
+
+        assert requests.get(f"{API}/resources/{rid}/file", headers=sh, timeout=15).status_code == 200
+        assert requests.get(f"{API}/resources/{rid}/file", params={"auth": stoken}, timeout=15).status_code == 401
+
+        stats = requests.get(f"{API}/stats", headers=sh, timeout=15).json()
+        assert stats["notes"] == 1  # counts materials the student can open
