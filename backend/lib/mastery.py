@@ -10,6 +10,11 @@ Formula (SPEC v3.0 §3.4):
     recency_decay    = 0.9 ^ (days_since_attempt / 7)
     difficulty_weight = easy 1.0 · medium 1.5 · hard 2.0
 Bands: < 55 weak · 55–75 developing · > 75 strong.
+
+Source weights: each attempt's weight is also multiplied by a per-kind source weight. Mastery currently
+counts class tests only (practice tests and diagnostics weigh 0 and are skipped); to bring practice back as
+weaker evidence later, raise its entry in MASTERY_SOURCE_WEIGHTS (e.g. 0.5). Practice is reported separately
+through PRACTICE_SOURCE_WEIGHTS.
 """
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -19,6 +24,20 @@ DIFFICULTY_WEIGHT = {"easy": 1.0, "medium": 1.5, "hard": 2.0}
 DEFAULT_WEIGHT = 1.0
 WEAK_BELOW = 55
 STRONG_ABOVE = 75
+
+# Which submission kinds count, and how much. "class_test" is a legacy name for "test".
+MASTERY_SOURCE_WEIGHTS = {"test": 1.0, "class_test": 1.0, "dpp": 0.0, "diagnostic": 0.0}
+CLASS_TEST_KINDS = tuple(k for k, w in MASTERY_SOURCE_WEIGHTS.items() if w > 0)
+# The separate "practice accuracy" view: practice tests and self-started diagnostics
+PRACTICE_SOURCE_WEIGHTS = {"dpp": 1.0, "diagnostic": 1.0}
+
+
+def source_weight(kind, weights=MASTERY_SOURCE_WEIGHTS) -> float:
+    """Weight for an attempt's submission kind. A missing kind (callers/tests that don't track it) counts as
+    assessed work; an unknown kind counts 0 so a new test type is never mixed into mastery by accident."""
+    if kind is None:
+        return 1.0
+    return float(weights.get(kind, 0.0))
 
 
 def round_half_up(val, decimals: int = 0):
@@ -216,7 +235,8 @@ def _extract_syllabus_topics(class_level=None, subject=None, syllabus=None):
     return topics
 
 
-def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None, include_unattempted=True, min_attempts: int = 2, use_sessions: bool = True):
+def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, subject=None, include_unattempted=True, min_attempts: int = 2, use_sessions: bool = True,
+                          source_weights=MASTERY_SOURCE_WEIGHTS):
     """Aggregate per-question attempts into per-(subject, chapter, topic) mastery,
     optionally unioned with the official syllabus topic list (marking unattempted topics as 'not_attempted').
 
@@ -263,6 +283,10 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
     for a in attempts:
         if a.get("answered") is False:
             continue
+        # Zero-weight sources (practice/diagnostics for mastery) contribute nothing: no score, attempts or sessions
+        src_w = source_weight(a.get("kind"), source_weights)
+        if src_w <= 0:
+            continue
 
         # A question tagged with several topics counts toward each of them. Its weight is split
         # evenly so a multi-topic question carries the same total influence as a single-topic one.
@@ -275,7 +299,7 @@ def compute_topic_mastery(attempts, now=None, syllabus=None, class_level=None, s
                 tops.append(t)
         if not tops:
             tops = ["General"]
-        base_w = recency_decay(a.get("created_at"), now) * difficulty_weight(a.get("difficulty")) / len(tops)
+        base_w = recency_decay(a.get("created_at"), now) * difficulty_weight(a.get("difficulty")) * src_w / len(tops)
 
         for top in tops:
             subj = (a.get("subject") or "").strip()

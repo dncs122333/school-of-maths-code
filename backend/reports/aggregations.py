@@ -4,10 +4,10 @@ import statistics
 from typing import Dict, List, Optional, Any
 
 try:
-    from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered
+    from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered, source_weight
     from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 except ImportError:
-    from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered
+    from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered, source_weight
     from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 
 # Raw per-test / per-week topic accuracies need at least this many answered questions
@@ -293,6 +293,11 @@ def parse_utc_datetime(dt_val: Any) -> Optional[datetime]:
         return None
 
 
+def _counts_as_class_test(submission: Dict[str, Any]) -> bool:
+    """Same source rule as mastery: class tests count toward averages; practice tests and diagnostics don't."""
+    return source_weight(submission.get("kind")) > 0
+
+
 def compute_weekly_digest(
     batch_id: str,
     batch: Dict[str, Any],
@@ -335,8 +340,11 @@ def compute_weekly_digest(
     student_ids = batch.get("student_ids") or []
     enrolled_count = len(student_ids)
 
-    recent_scores = [s.get("score", 0) for s in recent_submissions]
-    prior_scores = [s.get("score", 0) for s in prior_submissions]
+    # Averages and topic trends use class tests only (same rule as mastery); activity counts use everything
+    recent_assessed = [s for s in recent_submissions if _counts_as_class_test(s)]
+    prior_assessed = [s for s in prior_submissions if _counts_as_class_test(s)]
+    recent_scores = [s.get("score", 0) for s in recent_assessed]
+    prior_scores = [s.get("score", 0) for s in prior_assessed]
 
     recent_avg = round_half_up(sum(recent_scores) / len(recent_scores), 1) if recent_scores else 0.0
     prior_avg = round_half_up(sum(prior_scores) / len(prior_scores), 1) if prior_scores else None
@@ -375,8 +383,8 @@ def compute_weekly_digest(
             for k, v in t_data.items()
         }
 
-    rec_t = _t_accuracies(recent_submissions)
-    pri_t = _t_accuracies(prior_submissions)
+    rec_t = _t_accuracies(recent_assessed)
+    pri_t = _t_accuracies(prior_assessed)
 
     topic_movement = []
     # 1. Topics attempted in recent window
@@ -585,9 +593,10 @@ def compute_term_report(
     student_summaries = []
     for sid, s_list in per_student_subs.items():
         name = student_map.get(sid, "Student")
-        tests_taken = len(s_list)
+        # Average and tests_taken come from class tests only (same rule as mastery); practice doesn't count
+        tests_taken = sum(1 for s in s_list if _counts_as_class_test(s))
 
-        # 1. Question-weighted average score (weights a 50-q test higher than a 2-q DPP)
+        # 1. Question-weighted average score over class tests (weights a 50-q test higher than a 10-q one)
         total_q = 0
         total_corr = 0.0
         student_attempts = []
@@ -600,15 +609,17 @@ def compute_term_report(
                 q_corr = sum(1 for r in results if r.get("is_correct"))
                 for r_idx, r in enumerate(results):
                     student_attempts.append({**r, "created_at": sub_created, "submission_id": sub_sess, "student_id": sid,
-                                             "answered": is_answered(r, sub.get("answers"), r_idx)})
+                                             "answered": is_answered(r, sub.get("answers"), r_idx),
+                                             "kind": sub.get("kind") or "test"})
             elif sub.get("total") is not None:
                 q_cnt = int(sub.get("total") or 0)
                 q_corr = float(sub.get("correct", 0))
             else:
                 q_cnt = 1
                 q_corr = float(sub.get("score", 0)) / 100.0
-            total_q += q_cnt
-            total_corr += q_corr
+            if _counts_as_class_test(sub):
+                total_q += q_cnt
+                total_corr += q_corr
 
         avg_score = round_half_up((total_corr / total_q) * 100, 1) if total_q else 0.0
 

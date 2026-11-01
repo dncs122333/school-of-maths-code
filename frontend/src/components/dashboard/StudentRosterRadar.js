@@ -254,8 +254,11 @@ export default function StudentRosterRadar({ students = [] }) {
                 {/* Topic Breakdown */}
                 <div className="space-y-2.5">
                   <h4 className="text-xs uppercase font-head font-bold tracking-wider text-[#5B9BD5]">
-                    Topic Breakdown ({drillData.topics?.length || 0})
+                    Mastery by topic — class tests ({drillData.topics?.length || 0})
                   </h4>
+                  {(drillData.topics || []).length === 0 && (
+                    <p className="text-xs text-[#64748B] font-mono">No class test results yet.</p>
+                  )}
                   <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                     {(drillData.topics || []).map((t, idx) => (
                       <div
@@ -283,6 +286,26 @@ export default function StudentRosterRadar({ students = [] }) {
                     ))}
                   </div>
                 </div>
+
+                {/* Practice is reported apart from mastery and never sets a band */}
+                {(drillData.practice_topics || []).length > 0 && (
+                  <div className="space-y-2.5">
+                    <h4 className="text-xs uppercase font-head font-bold tracking-wider text-[#64748B]">
+                      Practice accuracy — not counted in mastery ({drillData.practice_topics.length})
+                    </h4>
+                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                      {drillData.practice_topics.map((p, idx) => (
+                        <div key={idx} className="p-2.5 rounded-2xl bg-white border-2 border-dashed border-[#1E293B]/40 flex items-center justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            <span className="text-[#1E293B] font-bold truncate block">{p.topic}</span>
+                            <span className="text-[11px] text-[#64748B] truncate block font-mono">{p.chapter} • {p.attempts} practice Qs</span>
+                          </div>
+                          <span className="font-mono font-bold text-[#1E293B] shrink-0">{p.accuracy}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : null}
           </DialogContent>

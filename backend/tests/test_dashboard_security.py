@@ -24,15 +24,15 @@ def _register(role, name):
     return {"id": r.json()["user"]["id"], "headers": {"Authorization": f"Bearer {r.json()['token']}"}}
 
 
-def _test_with_submission(teacher_id, student_id, title, batch_id=None):
+def _test_with_submission(teacher_id, student_id, title, batch_id=None, kind="test"):
     """Minimal test + submission records (no question bank / AI needed)."""
     now = datetime.now(timezone.utc).isoformat()
     tid = str(uuid.uuid4())
-    _db.tests.insert_one({"id": tid, "title": title, "kind": "test", "teacher_id": teacher_id, "batch_id": batch_id,
+    _db.tests.insert_one({"id": tid, "title": title, "kind": kind, "teacher_id": teacher_id, "batch_id": batch_id,
                           "student_id": None if teacher_id else student_id, "status": "ready", "questions": [],
                           "class_level": "10", "created_at": now})
     _db.submissions.insert_one({"id": str(uuid.uuid4()), "test_id": tid, "student_id": student_id, "title": title,
-                                "kind": "test", "score": 80, "correct": 4, "total": 5, "answers": [1, 0, 2, 3, 1],
+                                "kind": kind, "score": 80, "correct": 4, "total": 5, "answers": [1, 0, 2, 3, 1],
                                 "questions": [], "created_at": now})
     return tid
 
@@ -85,6 +85,8 @@ class TestDashboardData:
 
         _test_with_submission(self.teacher["id"], self.student["id"], "Dash test", self.batch["id"])
         _test_with_submission(None, self.student["id"], "Own diagnostic")  # self-started; not part of class average
+        # A practice test assigned to the batch doesn't count either: class average uses class tests only
+        _test_with_submission(self.teacher["id"], self.student["id"], "Dash practice", self.batch["id"], kind="dpp")
         r = requests.get(f"{API}/mastery/teacher", params={"batch_id": self.batch["id"]}, headers=self.teacher["headers"], timeout=15)
         assert r.json()["class_avg_score"] == 80
         assert r.json()["class_avg_submissions"] == 1

@@ -267,7 +267,9 @@ export default function StudentDashboard() {
             <p className="text-[#1E293B] font-medium text-sm sm:text-base max-w-xl leading-relaxed">
               {weakTopics.length > 0
                 ? `You have ${weakTopics.length} priority topics flagged for revision today. Solve chapter DPPs to solidify your board exam score!`
-                : "Your syllabus retention is looking fantastic! Keep up the daily practice sprint to secure full CBSE board marks."}
+                : masteryTopics.length === 0
+                  ? "Your mastery map fills in from class tests. Keep practising in the meantime!"
+                  : "Your syllabus retention is looking fantastic! Keep up the daily practice sprint to secure full CBSE board marks."}
             </p>
           </div>
 
@@ -731,12 +733,21 @@ export default function StudentDashboard() {
               </Link>
             </div>
 
-            {weakTopics.length === 0 ? (
+            {masteryTopics.length === 0 ? (
+              // Mastery comes from class tests only; with none yet, "no weaknesses" would be misleading
+              <div className="rounded-3xl bg-white p-8 text-center space-y-2 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
+                <Target className="h-9 w-9 text-[#3E7CB1] mx-auto" />
+                <h4 className="font-head text-base font-extrabold text-[#1E293B]">No class test results yet</h4>
+                <p className="text-xs text-[#64748B] max-w-sm mx-auto leading-relaxed">
+                  Weak topics come from your class tests. They&apos;ll show here after your first one.
+                </p>
+              </div>
+            ) : weakTopics.length === 0 ? (
               <div className="rounded-3xl bg-white p-8 text-center space-y-2 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">
                 <ShieldCheck className="h-9 w-9 text-[#2F8A5F] mx-auto" />
                 <h4 className="font-head text-base font-extrabold text-[#1E293B]">No Critical Weaknesses!</h4>
                 <p className="text-xs text-[#64748B] max-w-sm mx-auto leading-relaxed">
-                  All attempted concepts are currently above 55% accuracy. Challenge yourself with fresh board mocks!
+                  No topic is confirmed weak in your class tests. Keep it up!
                 </p>
               </div>
             ) : (

@@ -26,6 +26,7 @@ export default function Mastery() {
   const [loadingFull, setLoadingFull] = useState(false);
   const [showFullRadar, setShowFullRadar] = useState(false);
   const [filterBand, setFilterBand] = useState("all");
+  const [practiceTopics, setPracticeTopics] = useState([]);
 
   useEffect(() => {
     // 1. Fast load: Fetch attempted topics + summary counts immediately
@@ -36,6 +37,7 @@ export default function Mastery() {
         setAttemptedTopics(list);
         setSummary(d?.summary || null);
         setNotAttemptedByChapter(d?.not_attempted_by_chapter || {});
+        setPracticeTopics(d?.practice_topics || []);
       })
       .catch(() => setAttemptedTopics([]));
 
@@ -106,13 +108,13 @@ export default function Mastery() {
           MASTERY, {user?.name ? user.name.split(" ")[0].toUpperCase() : "STUDENT"}
         </h1>
         <p className="text-[#1E293B]/80 font-medium mt-2 max-w-lg">
-          Weighted by question difficulty and recency. {attemptedTopics === null ? "Crunching your numbers…" : `${weak} weak · ${untested} untested · ${strong} strong across ${totalSyllabus} syllabus topics.`}
+          Based on your class tests, weighted by question difficulty and recency. {attemptedTopics === null ? "Crunching your numbers…" : `${weak} weak · ${untested} untested · ${strong} strong across ${totalSyllabus} syllabus topics.`}
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
           <Button data-testid="start-diagnostic" onClick={startDiagnostic} disabled={busy}
             className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-900 border-[2.5px] border-[#1E293B] shadow-[3px_3px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none">
             {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin text-[#1E293B]" /> : <Target className="h-4 w-4 mr-2 text-[#1E293B]" />}
-            {attemptedTopics && attemptedTopics.length === 0 ? "Take the diagnostic" : "Re-run diagnostic"}
+            Practice diagnostic
           </Button>
 
           {!showFullRadar ? (
@@ -215,8 +217,17 @@ export default function Mastery() {
       ) : displayedTopics.length === 0 ? (
         <div className="rounded-3xl bg-white border-[2.5px] border-dashed border-[#1E293B] p-10 text-center shadow-[4px_4px_0_#1E293B]">
           <Brain className="h-10 w-10 text-[#F5C842] mx-auto mb-3" />
-          <div className="font-head text-xl font-800 text-[#1E293B]">No topics match this view</div>
-          <p className="text-[#1E293B]/70 font-medium mt-1">Take the diagnostic (or any DPP/test) to build your map.</p>
+          {(attemptedTopics || []).length === 0 ? (
+            <>
+              <div className="font-head text-xl font-800 text-[#1E293B]">No mastery yet</div>
+              <p className="text-[#1E293B]/70 font-medium mt-1">Mastery is based on class tests. Take a class test to see it.</p>
+            </>
+          ) : (
+            <>
+              <div className="font-head text-xl font-800 text-[#1E293B]">No topics match this view</div>
+              <p className="text-[#1E293B]/70 font-medium mt-1">Try another filter.</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
@@ -263,6 +274,32 @@ export default function Mastery() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Practice is shown apart from mastery: it never changes the bands above */}
+      {practiceTopics.length > 0 && (
+        <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 shadow-[4px_4px_0_#1E293B] space-y-4">
+          <div>
+            <h2 className="font-head text-xl font-800 text-[#1E293B]">Practice accuracy</h2>
+            <p className="text-xs font-semibold text-[#1E293B]/60 mt-0.5">
+              From practice tests &amp; diagnostics — doesn&apos;t change your mastery.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {practiceTopics.map((p) => (
+              <div key={`${p.subject}|${p.chapter}|${p.topic}`} className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-head font-bold text-sm text-[#1E293B] truncate">{p.topic}</div>
+                    <div className="text-[11px] font-semibold text-[#1E293B]/60 truncate">{p.chapter} · {p.subject}</div>
+                  </div>
+                  <span className="text-sm font-900 font-mono text-[#1E293B]">{p.accuracy}%</span>
+                </div>
+                <div className="text-[11px] font-mono text-[#1E293B]/60 mt-1">{p.attempts} practice questions</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

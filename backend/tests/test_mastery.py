@@ -64,30 +64,42 @@ class TestMastery:
         assert d["status"] == "ready" and d["question_count"] >= 1 and "id" in d
         self.state["diag_id"] = d["id"]
 
-    def test_02_dpp_feeds_mastery(self):
+    def _create(self, kind):
         tag = self.state["tag"]
         r = requests.post(f"{API}/tests", headers=self.state["th"], json={
-            "title": f"Mastery DPP {tag}", "kind": "dpp", "class_level": "9",
+            "title": f"Mastery {kind} {tag}", "kind": kind, "class_level": "9",
             "subject": "Maths", "chapter": f"Chapter {tag}", "topic": "",
             "question_count": 4, "duration_minutes": 5, "valid_hours": 24}, timeout=30)
         assert r.status_code == 200, r.text
         t = self._wait_ready(r.json()["id"])
         assert t["question_count"] == 4
-        self.state["dpp_id"] = r.json()["id"]
+        return r.json()["id"]
 
-    def test_03_mastery_scores_and_bands(self):
-        tag = self.state["tag"]
-        canon = requests.get(f"{API}/tests/{self.state['dpp_id']}", headers=self.state["th"], timeout=15).json()
-        view = requests.get(f"{API}/tests/{self.state['dpp_id']}", headers=self.state["sh"], timeout=15).json()
+    def _submit_all_correct(self, test_id):
+        canon = requests.get(f"{API}/tests/{test_id}", headers=self.state["th"], timeout=15).json()
+        view = requests.get(f"{API}/tests/{test_id}", headers=self.state["sh"], timeout=15).json()
         answers = [view["questions"][i]["options"].index(q["options"][q["correct_index"]])
                    for i, q in enumerate(canon["questions"])]
-        r = requests.post(f"{API}/tests/{self.state['dpp_id']}/submit", headers=self.state["sh"],
-                          json={"answers": answers}, timeout=30)
+        r = requests.post(f"{API}/tests/{test_id}/submit", headers=self.state["sh"], json={"answers": answers}, timeout=30)
         assert r.status_code == 200 and r.json()["score"] == 100, r.text
 
+    def _my_topic(self, key):
         m = requests.get(f"{API}/mastery/me", headers=self.state["sh"], timeout=15).json()
-        topics = m["topics"] if isinstance(m, dict) else m
-        topic = next((x for x in topics if x["topic"] == f"Topic {tag}"), None)
+        return m, next((x for x in m[key] if x["topic"] == f"Topic {self.state['tag']}"), None)
+
+    def test_02_practice_test_does_not_feed_mastery(self):
+        # Mastery counts class tests only; practice shows up separately under practice_topics
+        self._submit_all_correct(self._create("dpp"))
+        m, topic = self._my_topic("topics")
+        assert topic is None, m["topics"]
+        _, practice = self._my_topic("practice_topics")
+        assert practice is not None and practice["accuracy"] == 100 and practice["attempts"] == 4
+        assert "band" not in practice  # practice is never presented as mastery
+        assert m["mastery_source"] == "class_tests"
+
+    def test_03_class_test_feeds_mastery(self):
+        self._submit_all_correct(self._create("test"))
+        m, topic = self._my_topic("topics")
         assert topic is not None, m
         assert topic["score"] == 100 and topic["band"] == "strong" and topic["attempts"] == 4
 

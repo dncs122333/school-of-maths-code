@@ -235,9 +235,9 @@ export default function ClassHeatmap({
       ) : visibleTopics.length === 0 ? (
         <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-12 text-center space-y-2 text-[#64748B]">
           <BarChart3 className="h-9 w-9 mx-auto text-[#5B9BD5] opacity-50" />
-          <h4 className="font-head text-lg font-800 text-[#1E293B]">No test submissions for this batch yet</h4>
+          <h4 className="font-head text-lg font-800 text-[#1E293B]">No class test results for this batch yet</h4>
           <p className="text-xs leading-relaxed">
-            Launch a timed test or DPP to start mapping student topic retention automatically.
+            Mastery is based on class tests. Practice tests don&apos;t change it.
           </p>
         </div>
       ) : (

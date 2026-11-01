@@ -39,7 +39,7 @@ from storage import init_storage, put_object, get_object
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
                          is_confirmed_strong, get_ingestion_quality_summary, _extract_syllabus_topics,
                          compute_unattempted_summary, is_answered, apply_batch_confirmation,
-                         summarize_submission_topics)
+                         summarize_submission_topics, source_weight, PRACTICE_SOURCE_WEIGHTS)
 from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXTS
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter,
@@ -2398,7 +2398,7 @@ async def list_live_tests(user: dict = Depends(get_current_user)):
 
 
 MAX_TEST_QUESTIONS = 200
-MAX_DAILY_SPRINTS = 100  # backstop on new self-started sprints per student per day (unfinished ones are resumed)
+MAX_DAILY_SPRINTS = 100  # backstop on unfinished self-started sprints per student per day (same-target ones are resumed)
 
 
 def _validate_test_timing(valid_hours: Optional[int], duration_minutes: Optional[int]) -> None:
@@ -2580,7 +2580,9 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
                        "negative_marks": q.get("negative_marks", 0.0),
                        "hint": q.get("hint", "")})
         # Per-question result for the mastery engine.
-        results.append({"q": i, "subject": norm_subj,
+        # question_id + kind on each result: lets a later "count a practice question only on its first attempt"
+        # rule work without reprocessing old submissions
+        results.append({"q": i, "question_id": q.get("id"), "kind": test["kind"], "subject": norm_subj,
                         "chapter": norm_chap,
                         "topic": norm_top,
                         "topics": norm_tops,
@@ -3411,6 +3413,16 @@ class DiagnosticInput(BaseModel):
     kind: Optional[str] = "diagnostic"
 
 
+def _practice_topics(attempts, class_level) -> list:
+    """Accuracy per topic from practice tests and diagnostics, shown apart from mastery. No band or
+    confirmed flags, so it can't be read as mastery."""
+    rows = compute_topic_mastery(attempts, class_level=class_level, include_unattempted=False,
+                                 source_weights=PRACTICE_SOURCE_WEIGHTS)
+    return [{"subject": t["subject"], "chapter": t["chapter"], "topic": t["topic"], "accuracy": t["score"],
+             "attempts": t["attempts"], "last_attempt": t.get("last_attempt")}
+            for t in rows if t.get("attempts", 0) > 0]
+
+
 def _flatten_attempts(subs):
     attempts = []
     for idx, s in enumerate(subs):
@@ -3418,8 +3430,9 @@ def _flatten_attempts(subs):
         stud_id = s.get("student_id")
         answers = s.get("answers")
         for i, r in enumerate(s.get("results") or []):
+            # kind drives the mastery source weight (class tests count; practice/diagnostics are reported apart)
             attempts.append({**r, "submission_id": sess_id, "student_id": stud_id, "created_at": s.get("created_at"),
-                             "answered": is_answered(r, answers, i)})
+                             "answered": is_answered(r, answers, i), "kind": s.get("kind") or "test"})
     return attempts
 
 
@@ -3449,10 +3462,15 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
             return {"id": t["id"], "status": "ready", "question_count": t.get("question_count"),
                     "title": t["title"], "resumed": True}
 
-    # Backstop against scripted flooding (each sprint is a stored test)
+    # Backstop against scripted flooding (each sprint is a stored test). Only *unfinished* sprints count, so a
+    # student who keeps completing sprints is never blocked.
     day_start = datetime.now(APP_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-    if await db.tests.count_documents({"student_id": user["id"], "created_at": {"$gte": day_start.isoformat()}}) >= MAX_DAILY_SPRINTS:
-        raise HTTPException(status_code=429, detail="You've started a lot of practice sprints today. Try again tomorrow.")
+    todays = [t["id"] async for t in db.tests.find(
+        {"student_id": user["id"], "created_at": {"$gte": day_start.isoformat()}}, {"_id": 0, "id": 1})]
+    if len(todays) >= MAX_DAILY_SPRINTS:
+        finished = set(await db.submissions.distinct("test_id", {"student_id": user["id"], "test_id": {"$in": todays}}))
+        if len(todays) - len(finished) >= MAX_DAILY_SPRINTS:
+            raise HTTPException(status_code=429, detail="You have too many unfinished practice sprints today. Finish one first.")
 
     questions = None
     if top or chap or subj:
@@ -3510,6 +3528,8 @@ async def my_mastery(full: bool = False, format: str = None, user: dict = Depend
         "not_attempted_by_chapter": summary_data["not_attempted_by_chapter"],
         "summary": summary_data["summary"],
         "is_full": full,
+        "mastery_source": "class_tests",
+        "practice_topics": _practice_topics(attempts, cl),
     }
 
 
@@ -3543,7 +3563,9 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
         cursor = db.submissions.find(sub_query, {"_id": 0}).sort("created_at", -1)
         async for s in cursor:
             per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
-            if s.get("test_id") in own_test_ids and s.get("score") is not None:
+            # Class tests only (practice tests assigned to the batch don't move the class average)
+            if (s.get("test_id") in own_test_ids and s.get("score") is not None
+                    and source_weight(s.get("kind")) > 0):
                 own_scores.append(float(s["score"]))
     class_avg_score = round_half_up(sum(own_scores) / len(own_scores)) if own_scores else None
 
@@ -3695,14 +3717,17 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
             if b.get("class_level") and b["class_level"] not in class_levels:
                 class_levels.append(b["class_level"])
     cl = class_levels if class_levels else None
-    topics = compute_topic_mastery(_flatten_attempts(subs), class_level=cl)
+    attempts = _flatten_attempts(subs)
+    topics = compute_topic_mastery(attempts, class_level=cl)
+    practice_topics = _practice_topics(attempts, cl)
     ingestion_quality = get_ingestion_quality_summary(topics)
     trend = [{"test_id": s["test_id"], "title": s.get("title", ""), "kind": s.get("kind", ""),
               "score": s.get("score"), "correct": s.get("correct"), "total": s.get("total"),
               "tab_switches": s.get("tab_switches", 0), "created_at": s.get("created_at")}
              for s in subs[:50]]
     return {"student": {"id": str(student["_id"]), "name": student["name"]},
-            "topics": topics, "trend": trend, "ingestion_quality": ingestion_quality}
+            "topics": topics, "trend": trend, "ingestion_quality": ingestion_quality,
+            "mastery_source": "class_tests", "practice_topics": practice_topics}
 
 
 # Stored files are served only through routes that check access (e.g. /resources/{id}/download). A generic
