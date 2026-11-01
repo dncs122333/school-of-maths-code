@@ -436,20 +436,40 @@ _join_rate_limit_lock = asyncio.Lock()
 _join_attempts: Dict[str, List[float]] = defaultdict(list)
 
 
-async def _check_join_rate_limit(user_id: str, client_ip: str, max_attempts: int = 10, window_seconds: int = 60) -> bool:
+JOIN_USER_MAX_ATTEMPTS = 10       # any attempt, per student account
+JOIN_IP_MAX_FAILURES = 30         # invalid codes only, per client IP
+JOIN_WINDOW_SECONDS = 60
+
+
+def _countable_ip(client_ip: str) -> bool:
+    return bool(client_ip) and client_ip not in ("unknown", "127.0.0.1", "localhost")
+
+
+async def _check_join_rate_limit(user_id: str, client_ip: str) -> bool:
+    """A whole class joining from one school network shares an IP, so successful joins never count against
+    the IP; only invalid-code guesses do (see _record_failed_join). Behind a proxy, client_ip is the real
+    client only when uvicorn trusts it (FORWARDED_ALLOW_IPS)."""
     now = time.time()
-    cutoff = now - window_seconds
+    cutoff = now - JOIN_WINDOW_SECONDS
     async with _join_rate_limit_lock:
-        keys = [f"user:{user_id}"]
-        if client_ip and client_ip not in ("unknown", "", "127.0.0.1", "localhost"):
-            keys.append(f"ip:{client_ip}")
-        for k in keys:
-            _join_attempts[k] = [t for t in _join_attempts[k] if t > cutoff]
-            if len(_join_attempts[k]) >= max_attempts:
+        user_key = f"user:{user_id}"
+        _join_attempts[user_key] = [t for t in _join_attempts[user_key] if t > cutoff]
+        if len(_join_attempts[user_key]) >= JOIN_USER_MAX_ATTEMPTS:
+            return False
+        if _countable_ip(client_ip):
+            ip_key = f"ipfail:{client_ip}"
+            _join_attempts[ip_key] = [t for t in _join_attempts[ip_key] if t > cutoff]
+            if len(_join_attempts[ip_key]) >= JOIN_IP_MAX_FAILURES:
                 return False
-        for k in keys:
-            _join_attempts[k].append(now)
+        _join_attempts[user_key].append(now)
         return True
+
+
+async def _record_failed_join(client_ip: str) -> None:
+    if not _countable_ip(client_ip):
+        return
+    async with _join_rate_limit_lock:
+        _join_attempts[f"ipfail:{client_ip}"].append(time.time())
 
 
 def active_batch_ids(user: dict) -> list:
@@ -678,7 +698,8 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
                     "status": new_status,
                     "paid_months": derived["paid_months"],
                     "updated_at": update_fields["updated_at"]
-                }, **({"$push": {"ledger": {"$each": ledger_entries}}} if ledger_entries else {})}
+                }, "$inc": {"version": 1},  # in-flight fee writes computed against the old fee now conflict
+                **({"$push": {"ledger": {"$each": ledger_entries}}} if ledger_entries else {})}
             )
 
     updated = await db.batches.find_one({"id": batch_id, **NOT_ARCHIVED}, {"_id": 0})
@@ -763,11 +784,12 @@ async def list_batches(user: dict = Depends(get_current_user)):
 @api_router.post("/batches/join")
 async def join_batch(body: JoinInput, request: Request, user: dict = Depends(require_role("student"))):
     client_ip = request.client.host if request.client else "unknown"
-    if not await _check_join_rate_limit(user["id"], client_ip, max_attempts=10, window_seconds=60):
+    if not await _check_join_rate_limit(user["id"], client_ip):
         raise HTTPException(status_code=429, detail="Too many join attempts. Please try again later.")
 
     batch = await db.batches.find_one({"code": body.code.upper().strip(), **NOT_ARCHIVED}, {"_id": 0})
     if not batch:
+        await _record_failed_join(client_ip)
         raise HTTPException(status_code=404, detail="Invalid batch code")
     if batch["id"] in user.get("blocked_batch_ids", []):
         raise HTTPException(status_code=403, detail="You are blocked from joining this batch")
@@ -1044,6 +1066,11 @@ async def record_student_fee(
     lock = await _get_fee_lock(batch_id, student_id)
     async with lock:
         record = await db.batch_fees.find_one({"batch_id": batch_id, "student_id": student_id}, {"_id": 0})
+        # The asyncio lock only serializes writes inside this process; the stored version guards across
+        # workers/instances (compare-and-set on write below)
+        record_existed = record is not None
+        version_filter = ({"version": record["version"]} if record_existed and "version" in record
+                          else {"version": {"$exists": False}})
         if record and idem_key:
             recorded_keys = set(record.get("idempotency_keys", []))
             for p in record.get("payments", []):
@@ -1368,6 +1395,8 @@ async def record_student_fee(
 
         if idem_key and idem_key not in idempotency_keys:
             idempotency_keys.append(idem_key)
+        # Payment rows carry their own key; this list only needs recent keys (retries arrive within seconds)
+        idempotency_keys = idempotency_keys[-200:]
 
         # Invariant: paid_fee == sum(p.amount for p in payments) using paise
         current_paid_paise = sum(to_paise(p.get("amount", 0.0)) for p in payments)
@@ -1418,11 +1447,18 @@ async def record_student_fee(
         if ledger_entries:
             fee_update["$push"] = {"ledger": {"$each": ledger_entries}}
 
-        await db.batch_fees.update_one(
-            {"batch_id": batch_id, "student_id": student_id},
-            fee_update,
-            upsert=True
-        )
+        conflict = HTTPException(status_code=409, detail="This student's fee record was changed by someone else. Refresh and try again.")
+        try:
+            res = await db.batch_fees.update_one(
+                {"batch_id": batch_id, "student_id": student_id, **version_filter},
+                fee_update,
+                # A new record is inserted only if none exists; a concurrent insert hits the unique index
+                upsert=not record_existed
+            )
+        except DuplicateKeyError:
+            raise conflict
+        if record_existed and res.matched_count == 0:
+            raise conflict
 
         return {
             "id": student_id,

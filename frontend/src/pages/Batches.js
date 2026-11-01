@@ -168,6 +168,10 @@ export default function Batches() {
         ...payload,
         idempotency_key: newIdempotencyKey(),
       });
+    } catch (err) {
+      // 409 = the record changed under us (another teacher/tab); show the latest before they retry
+      if (err.response?.status === 409) loadBatchStudents(selectedBatchId);
+      throw err;
     } finally {
       feeInFlight.current.delete(studentId);
     }

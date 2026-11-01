@@ -853,3 +853,30 @@ class TestJoinMonthBilling:
         _, row = self._student_row(student["id"])
         assert row["total_fee"] == 2000 * len(self.expected_months)
         assert row["paid_fee"] == 1000
+
+
+SECOND_API = (os.environ.get("SECOND_BACKEND_URL") or "").rstrip("/")
+
+
+@pytest.mark.skipif(not SECOND_API, reason="needs SECOND_BACKEND_URL: a second backend process on the same DB")
+def test_concurrent_writes_across_processes_lose_nothing():
+    """Two server processes each have their own in-memory lock; the version check must turn a lost update
+    into a 409. Every 200 must correspond to a stored payment."""
+    from concurrent.futures import ThreadPoolExecutor
+    teacher = _register_user("Race Teacher", "teacher")
+    batch = requests.post(f"{API}/batches", json={"name": "Race Batch", "class_level": "10", "academic_year": FULL_YEAR_AY,
+                                                  "fee_amount": 120000}, headers=teacher["headers"], timeout=15).json()
+    student = _register_user("Race Student", "student")
+    requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=student["headers"], timeout=15)
+
+    def pay(i):
+        base = API if i % 2 == 0 else f"{SECOND_API}/api"
+        return requests.post(f"{base}/batches/{batch['id']}/students/{student['id']}/fee", json={"amount": 100},
+                             headers=teacher["headers"], timeout=30).status_code
+
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        codes = list(ex.map(pay, range(40)))
+    assert set(codes) <= {200, 409}, codes
+    row = next(s for s in requests.get(f"{API}/batches/{batch['id']}/students", headers=teacher["headers"], timeout=15).json()["students"]
+               if s["id"] == student["id"])
+    assert row["paid_fee"] == 100 * codes.count(200), (codes.count(200), codes.count(409), row["paid_fee"])
