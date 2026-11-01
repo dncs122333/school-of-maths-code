@@ -1023,3 +1023,56 @@ def test_27_unattempted_summary_counts_unconfirmed_topics():
     assert summary["strong_count"] == 0
     assert summary["developing_count"] == 2
     assert summary["unconfirmed_count"] == 2
+
+
+def test_28_retakes_count_once_and_completion_never_exceeds_100():
+    """A practice test retaken three times by one student is one completion (first attempt scored), and
+    submitters who left the batch don't count toward completion."""
+    test_doc = {"id": "dpp_1", "kind": "dpp", "questions": [{"question": "Q1"}], "duration_minutes": 10}
+    subs = [
+        {"student_id": "s1", "score": 100, "created_at": "2026-10-03T10:00:00+00:00", "times": [20], "results": [{"is_correct": True}]},
+        {"student_id": "s1", "score": 25, "created_at": "2026-10-01T10:00:00+00:00", "times": [20], "results": [{"is_correct": False}]},
+        {"student_id": "s1", "score": 50, "created_at": "2026-10-02T10:00:00+00:00", "times": [20], "results": [{"is_correct": False}]},
+        {"student_id": "left_batch", "score": 80, "created_at": "2026-10-01T10:00:00+00:00", "times": [20], "results": [{"is_correct": True}]},
+    ]
+    res = compute_test_analytics(test_doc, subs, batch={"student_ids": ["s1", "s2"]})
+    assert res["attempts_count"] == 4
+    assert res["submitted_count"] == 2
+    assert res["completion_rate"] == 50.0  # s1 of {s1, s2}; the leaver is not on the roster
+    assert sorted(s for s in [res["summary"]["lowest_score"], res["summary"]["topper_score"]]) == [25, 80]
+
+
+def test_29_empty_test_has_no_average():
+    res = compute_test_analytics({"id": "t", "questions": [{"question": "Q"}]}, [], enrolled_count=5)
+    assert res["summary"]["avg_score"] is None
+    assert res["summary"]["median_score"] is None
+    assert res["summary"]["topper_score"] is None
+    assert res["summary"]["score_band"] == "not_attempted"
+    assert res["completion_rate"] == 0.0
+    assert render_test_report_pdf(res)[:4] == b"%PDF"
+
+
+def test_30_students_without_class_tests_are_unranked_and_ties_share_rank():
+    def sub(sid, correct):
+        return {"student_id": sid, "kind": "test", "subject": "Maths", "total": 4, "correct": correct,
+                "created_at": "2026-10-01T10:00:00+00:00"}
+    batch = {"name": "B", "class_level": "9", "student_ids": ["a", "b", "c", "new"]}
+    rep = compute_term_report("b1", batch, [sub("a", 3), sub("b", 4), sub("c", 3)],
+                              {"a": "A", "b": "B", "c": "C", "new": "New Kid"})
+    rows = {r["student_id"]: r for r in rep["student_summaries"]}
+    assert rows["b"]["rank"] == 1
+    assert rows["a"]["rank"] == rows["c"]["rank"] == 2
+    assert rows["new"]["rank"] is None
+    assert rows["new"]["avg_score"] is None
+    assert rows["new"]["overall_band"] == "not_attempted"
+    assert rep["student_summaries"][-1]["student_id"] == "new"
+
+
+def test_31_weekly_digest_empty_week_has_no_average_or_delta():
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    prior = [{"student_id": "s1", "kind": "test", "score": 70, "created_at": (now - timedelta(days=10)).isoformat()}]
+    d = compute_weekly_digest("b1", {"student_ids": ["s1"]}, [], prior, now=now)
+    assert d["recent_avg"] is None
+    assert d["prior_avg"] == 70.0
+    assert d["delta_avg"] is None

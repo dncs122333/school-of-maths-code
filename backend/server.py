@@ -2387,8 +2387,10 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         q_count = t.get("question_count")
         if q_count is None:
             q_count = len(t.get("questions", []))
-        out.append({"id": t["id"], "title": t["title"], "kind": t["kind"], "subject": t["subject"],
-                    "chapter": t["chapter"], "topic": t["topic"], "class_level": t["class_level"],
+        # .get(): one legacy/partial test document must not break the whole list
+        out.append({"id": t["id"], "title": t.get("title", "Untitled"), "kind": t.get("kind", "test"),
+                    "subject": t.get("subject", ""), "chapter": t.get("chapter", ""), "topic": t.get("topic", ""),
+                    "class_level": t.get("class_level", ""),
                     "duration_minutes": t.get("duration_minutes", 0), "question_count": q_count,
                     # This student's window (make-up if granted) and whether answers are visible yet
                     "valid_from": vf.isoformat() if vf else t.get("valid_from"),

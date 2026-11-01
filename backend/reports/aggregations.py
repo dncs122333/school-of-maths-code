@@ -34,22 +34,31 @@ def compute_test_analytics(
     - Question-level % correct and pace outliers
     - Topic breakdown with round_half_up accuracy and band
     - Anomaly detection (tab switches, rushing)
+    Practice tests can be retaken: everything is computed on each student's first attempt, and completion
+    counts distinct students on the roster (it can never exceed 100%).
     """
+    roster = set(batch["student_ids"]) if (batch and batch.get("student_ids")) else None
     total_enrolled = enrolled_count
-    if total_enrolled is None and batch and batch.get("student_ids"):
-        total_enrolled = len(batch["student_ids"])
+    if total_enrolled is None and roster:
+        total_enrolled = len(roster)
 
+    attempts_count = len(submissions)
+    submissions = first_attempt_per_student(submissions)
     submitted_count = len(submissions)
     if total_enrolled is not None and total_enrolled > 0:
-        completion_rate = round_half_up((submitted_count / total_enrolled * 100), 1)
+        # Students who have since left the batch still count in the scores below, not in completion
+        completed = (sum(1 for s in submissions if s.get("student_id") in roster) if roster is not None
+                     else submitted_count)
+        completion_rate = round_half_up(min(completed, total_enrolled) / total_enrolled * 100, 1)
     else:
         completion_rate = None
 
     scores = [s.get("score", 0) for s in submissions]
-    avg_score = round_half_up(sum(scores) / len(scores), 1) if scores else 0.0
-    median_score = round_half_up(statistics.median(scores), 1) if scores else 0.0
-    topper_score = max(scores) if scores else 0
-    lowest_score = min(scores) if scores else 0
+    # No submissions: null, not 0% (an empty test is not a test everyone failed)
+    avg_score = round_half_up(sum(scores) / len(scores), 1) if scores else None
+    median_score = round_half_up(statistics.median(scores), 1) if scores else None
+    topper_score = max(scores) if scores else None
+    lowest_score = min(scores) if scores else None
 
     # Score distribution histogram (5 standardized buckets)
     distribution = {
@@ -269,6 +278,7 @@ def compute_test_analytics(
         "created_at": test.get("created_at"),
         "enrolled_count": total_enrolled,
         "submitted_count": submitted_count,
+        "attempts_count": attempts_count,
         "completion_rate": completion_rate,
         "ingestion_quality": ingestion_quality,
         "summary": {
@@ -276,13 +286,33 @@ def compute_test_analytics(
             "median_score": median_score,
             "topper_score": topper_score,
             "lowest_score": lowest_score,
-            "score_band": band(avg_score, submitted_count)
+            "score_band": band(avg_score, submitted_count) if scores else "not_attempted"
         },
         "score_distribution": distribution,
         "question_analysis": question_analysis,
         "topic_breakdown": topic_breakdown,
         "anomalies": anomalies
     }
+
+
+def first_attempt_per_student(submissions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keeps each student's earliest submission (practice tests can be retaken; a retake after seeing the
+    answers says little about the class). Submissions without a student_id are kept as they are."""
+    firsts: Dict[str, Dict[str, Any]] = {}
+    anonymous = []
+    for s in submissions:
+        sid = s.get("student_id")
+        if not sid:
+            anonymous.append(s)
+            continue
+        prev = firsts.get(sid)
+        if prev is None or _created_key(s) < _created_key(prev):
+            firsts[sid] = s
+    return list(firsts.values()) + anonymous
+
+
+def _created_key(s: Dict[str, Any]) -> datetime:
+    return parse_utc_datetime(s.get("created_at")) or datetime.max.replace(tzinfo=timezone.utc)
 
 
 def parse_utc_datetime(dt_val: Any) -> Optional[datetime]:
@@ -376,13 +406,15 @@ def compute_weekly_digest(
     recent_scores = [s.get("score", 0) for s in recent_assessed]
     prior_scores = [s.get("score", 0) for s in prior_assessed]
 
-    recent_avg = round_half_up(sum(recent_scores) / len(recent_scores), 1) if recent_scores else 0.0
+    recent_avg = round_half_up(sum(recent_scores) / len(recent_scores), 1) if recent_scores else None
     prior_avg = round_half_up(sum(prior_scores) / len(prior_scores), 1) if prior_scores else None
-    # Report delta_avg: None when prior is empty to prevent phantom improvement
-    delta_avg = round_half_up(recent_avg - prior_avg, 1) if prior_scores else None
+    # Report delta_avg: None when either week is empty to prevent phantom improvement or decline
+    delta_avg = round_half_up(recent_avg - prior_avg, 1) if (recent_scores and prior_scores) else None
 
-    active_students = len({s.get("student_id") for s in recent_submissions if s.get("student_id")})
-    active_rate = round_half_up(active_students / enrolled_count * 100, 1) if enrolled_count else 0.0
+    roster = set(student_ids)
+    active_students = len({s.get("student_id") for s in recent_submissions
+                           if s.get("student_id") and (not roster or s.get("student_id") in roster)})
+    active_rate = round_half_up(min(active_students, enrolled_count) / enrolled_count * 100, 1) if enrolled_count else 0.0
 
     # Group topic performance in recent window vs prior window
     def _t_accuracies(subs):
@@ -656,7 +688,8 @@ def compute_term_report(
                 total_q += q_cnt
                 total_corr += q_corr
 
-        avg_score = round_half_up((total_corr / total_q) * 100, 1) if total_q else 0.0
+        # No class tests yet: no average (null) rather than 0%, and no rank
+        avg_score = round_half_up((total_corr / total_q) * 100, 1) if total_q else None
 
         # 2. Feed student attempts through compute_topic_mastery (single source of truth)
         active_mastery = compute_topic_mastery(
@@ -675,7 +708,7 @@ def compute_term_report(
             "name": name,
             "tests_taken": tests_taken,
             "avg_score": avg_score,
-            "overall_band": band(avg_score, total_q),
+            "overall_band": band(avg_score, total_q) if avg_score is not None else "not_attempted",
             "weak_topics_count": weak_count,
             "strong_topics_count": strong_count
         }
@@ -683,10 +716,16 @@ def compute_term_report(
             row.update(_attendance(sid, s_list, class_tests, (enrolled_at or {}).get(sid), now))
         student_summaries.append(row)
 
-    # Sort students by avg_score descending
-    student_summaries.sort(key=lambda s: s["avg_score"], reverse=True)
-    for rank, s in enumerate(student_summaries, start=1):
-        s["rank"] = rank
+    # Rank by average (ties share a rank); students with no class tests go last, unranked, by name
+    student_summaries.sort(key=lambda s: (s["avg_score"] is None, -(s["avg_score"] or 0), s["name"]))
+    prev_avg, prev_rank = None, 0
+    for pos, s in enumerate(student_summaries, start=1):
+        if s["avg_score"] is None:
+            s["rank"] = None
+            continue
+        if s["avg_score"] != prev_avg:
+            prev_avg, prev_rank = s["avg_score"], pos
+        s["rank"] = prev_rank
 
     return {
         "batch_id": batch_id,
@@ -694,6 +733,8 @@ def compute_term_report(
         "class_level": cl,
         "subject": target_subject or "All",
         "term_name": term.get("name", "Academic Term") if term else "All-Time Academic Overview",
+        "period_start": term.get("start") if term else None,
+        "period_end": term.get("end") if term else None,
         "total_enrolled": len(enrolled_ids),
         "total_submissions": len(all_submissions),
         "syllabus_coverage_pct": syllabus_coverage_pct,

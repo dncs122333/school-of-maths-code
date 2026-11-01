@@ -35,6 +35,60 @@ const BAND = {
 
 const key = (t) => `${t.subject}|${t.chapter}|${t.topic}`;
 
+// null means "no data" (e.g. nobody has taken the test yet), not 0%
+const pct = (v) => (v === null || v === undefined ? "—" : `${v}%`);
+
+const isoDay = (d) => d.toISOString().slice(0, 10);
+
+// Term report periods. The Indian academic year starts on 1 April.
+const PERIODS = {
+  all: { label: "All time", range: () => ({}) },
+  year: {
+    label: "This academic year",
+    range: () => {
+      const now = new Date();
+      const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+      return { start: `${startYear}-04-01` };
+    }
+  },
+  "90d": { label: "Last 90 days", range: () => ({ start: isoDay(new Date(Date.now() - 89 * 864e5)) }) },
+  "30d": { label: "Last 30 days", range: () => ({ start: isoDay(new Date(Date.now() - 29 * 864e5)) }) }
+};
+
+// Loads one report. Switching batch/test cancels the older request so a slow response can never
+// overwrite the newer one; old data is cleared while loading and on error, so nothing stale is shown.
+function useReport(path, params, enabled) {
+  const [state, setState] = useState({ data: null, loading: false, error: null });
+  const [reloadKey, setReloadKey] = useState(0);
+  const paramsKey = JSON.stringify(params || {});
+  useEffect(() => {
+    if (!enabled || !path) return undefined;
+    const controller = new AbortController();
+    setState({ data: null, loading: true, error: null });
+    api.get(path, { params: JSON.parse(paramsKey), signal: controller.signal })
+      .then((r) => setState({ data: r.data, loading: false, error: null }))
+      .catch((e) => {
+        if (controller.signal.aborted) return;
+        setState({ data: null, loading: false, error: formatApiErrorDetail(e.response?.data?.detail) });
+      });
+    return () => controller.abort();
+  }, [path, paramsKey, enabled, reloadKey]);
+  return { ...state, retry: () => setReloadKey((n) => n + 1) };
+}
+
+function ReportError({ message, onRetry }) {
+  return (
+    <div data-testid="report-error" className="rounded-3xl bg-[#FFF5F5] border-[2.5px] border-[#FF6B5E] p-10 text-center space-y-3">
+      <AlertTriangle className="h-6 w-6 text-[#E04A3C] mx-auto" />
+      <p className="font-bold text-[#991B1B]">Couldn't load this report.</p>
+      <p className="text-xs text-[#B91C1C]">{message}</p>
+      <Button onClick={onRetry} className="rounded-full bg-[#1E293B] hover:bg-[#334155] text-white text-xs font-bold h-9 px-5">
+        Retry
+      </Button>
+    </div>
+  );
+}
+
 export default function Reports() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -46,21 +100,8 @@ export default function Reports() {
   // Per-Test Report States
   const [batchTests, setBatchTests] = useState([]);
   const [selectedTestId, setSelectedTestId] = useState(searchParams.get("test_id") || "");
-  const [testReport, setTestReport] = useState(null);
-  const [loadingTestReport, setLoadingTestReport] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
-
-  // Weekly Digest States
-  const [weeklyDigest, setWeeklyDigest] = useState(null);
-  const [loadingWeekly, setLoadingWeekly] = useState(false);
-
-  // Term Report States
-  const [termReport, setTermReport] = useState(null);
-  const [loadingTerm, setLoadingTerm] = useState(false);
-
-  // Legacy Matrix States
-  const [matrixData, setMatrixData] = useState(null);
-  const [loadingMatrix, setLoadingMatrix] = useState(false);
+  const [period, setPeriod] = useState("all");
   const [drill, setDrill] = useState(null);
 
   // Load Batches
@@ -73,61 +114,36 @@ export default function Reports() {
       .catch(() => {});
   }, []);
 
-  // When batchId changes, fetch tests for this batch
+  // When batchId changes, fetch tests for this batch (including the teacher's "All Students" tests)
   useEffect(() => {
     if (!batchId) {
       setBatchTests([]);
-      return;
+      return undefined;
     }
+    let ignore = false;
     api.get("/tests")
       .then((r) => {
-        const tests = (r.data || []).filter((t) => t.batch_id === batchId || !t.batch_id);
+        if (ignore) return;
+        const tests = (r.data || []).filter((t) => t.batch_id === batchId || t.batch_id === "all" || !t.batch_id);
         setBatchTests(tests);
         setSelectedTestId((curr) => curr || (tests.length > 0 ? tests[0].id : ""));
       })
       .catch(() => {});
+    return () => { ignore = true; };
   }, [batchId]);
 
-  // Load Per-Test Report
-  useEffect(() => {
-    if (activeTab !== "test" || !selectedTestId) return;
-    setLoadingTestReport(true);
-    api.get(`/reports/test/${selectedTestId}`)
-      .then((r) => setTestReport(r.data))
-      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
-      .finally(() => setLoadingTestReport(false));
-  }, [activeTab, selectedTestId]);
+  useEffect(() => { setDrill(null); }, [batchId]);
 
-  // Load Weekly Digest
-  useEffect(() => {
-    if (activeTab !== "weekly" || !batchId) return;
-    setLoadingWeekly(true);
-    api.get(`/reports/batch/${batchId}/weekly`)
-      .then((r) => setWeeklyDigest(r.data))
-      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
-      .finally(() => setLoadingWeekly(false));
-  }, [activeTab, batchId]);
-
-  // Load Term Report
-  useEffect(() => {
-    if (activeTab !== "term" || !batchId) return;
-    setLoadingTerm(true);
-    api.get(`/reports/batch/${batchId}/term`)
-      .then((r) => setTermReport(r.data))
-      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
-      .finally(() => setLoadingTerm(false));
-  }, [activeTab, batchId]);
-
-  // Load Matrix
-  useEffect(() => {
-    if (activeTab !== "matrix" || !batchId) return;
-    setLoadingMatrix(true);
-    setDrill(null);
-    api.get("/mastery/teacher", { params: { batch_id: batchId } })
-      .then((r) => setMatrixData(r.data))
-      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
-      .finally(() => setLoadingMatrix(false));
-  }, [activeTab, batchId]);
+  const termParams = useMemo(() => PERIODS[period].range(), [period]);
+  const testRep = useReport(selectedTestId && `/reports/test/${selectedTestId}`, null, activeTab === "test");
+  const weeklyRep = useReport(batchId && `/reports/batch/${batchId}/weekly`, null, activeTab === "weekly");
+  const termRep = useReport(batchId && `/reports/batch/${batchId}/term`, termParams, activeTab === "term");
+  const matrixParams = useMemo(() => ({ batch_id: batchId }), [batchId]);
+  const matrixRep = useReport(batchId && "/mastery/teacher", matrixParams, activeTab === "matrix");
+  const testReport = testRep.data;
+  const weeklyDigest = weeklyRep.data;
+  const termReport = termRep.data;
+  const matrixData = matrixRep.data;
 
   const handleDownloadPdf = async () => {
     if (!selectedTestId) return;
@@ -283,10 +299,12 @@ export default function Reports() {
             <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-12 text-center text-[#1E293B]/70 font-bold shadow-[4px_4px_0_#1E293B]">
               No assessments found for this batch. Create a test to view psychometric batch reports.
             </div>
-          ) : loadingTestReport ? (
+          ) : testRep.loading ? (
             <div className="p-12 text-center text-[#1E293B] font-bold flex items-center justify-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-[#1E293B]" /> Crunching batch psychometrics…
             </div>
+          ) : testRep.error ? (
+            <ReportError message={testRep.error} onRetry={testRep.retry} />
           ) : !testReport ? (
             <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-12 text-center text-[#1E293B]/70 font-bold">
               Unable to load report data.
@@ -328,19 +346,24 @@ export default function Reports() {
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Batch Average</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="font-head text-3xl font-900 text-[#1E293B]">{testReport.summary.avg_score}%</span>
-                    <Badge className={BAND[testReport.summary.score_band]?.badge}>{testReport.summary.score_band}</Badge>
+                    <span className="font-head text-3xl font-900 text-[#1E293B]">{pct(testReport.summary.avg_score)}</span>
+                    {testReport.summary.avg_score != null && (
+                      <Badge className={BAND[testReport.summary.score_band]?.badge}>{testReport.summary.score_band}</Badge>
+                    )}
                   </div>
+                  {testReport.summary.avg_score == null && (
+                    <span className="text-[10px] text-[#64748B] block">No submissions yet</span>
+                  )}
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Median Score</span>
-                  <span className="font-head text-3xl font-900 text-[#1E293B]">{testReport.summary.median_score}%</span>
+                  <span className="font-head text-3xl font-900 text-[#1E293B]">{pct(testReport.summary.median_score)}</span>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Batch Topper</span>
-                  <span className="font-head text-3xl font-900 text-[#2F8A5F]">{testReport.summary.topper_score}%</span>
+                  <span className="font-head text-3xl font-900 text-[#2F8A5F]">{pct(testReport.summary.topper_score)}</span>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
@@ -357,6 +380,12 @@ export default function Reports() {
                         : `(${testReport.submitted_count} submitted)`}
                     </span>
                   </div>
+                  {testReport.attempts_count > testReport.submitted_count && (
+                    // Practice tests can be retaken; scores use each student's first attempt
+                    <span className="text-[10px] text-[#64748B] block">
+                      {testReport.attempts_count} attempts · first attempt scored
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -364,7 +393,7 @@ export default function Reports() {
               <div className="p-6 rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-head text-lg font-900 text-[#1E293B]">Cohort Score Distribution</h3>
-                  <span className="text-xs font-mono text-[#64748B]">{testReport.submitted_count} Submissions Analyzed</span>
+                  <span className="text-xs font-mono text-[#64748B]">{testReport.submitted_count} Students Analyzed</span>
                 </div>
 
                 <div className="grid grid-cols-5 gap-3 pt-2">
@@ -519,10 +548,12 @@ export default function Reports() {
       {/* TAB 2: ROLLING WEEKLY DIGEST */}
       {activeTab === "weekly" && (
         <div className="space-y-6">
-          {loadingWeekly ? (
+          {weeklyRep.loading ? (
             <div className="p-12 text-center text-[#1E293B] font-bold flex items-center justify-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin" /> Compiling 7-day movement…
             </div>
+          ) : weeklyRep.error ? (
+            <ReportError message={weeklyRep.error} onRetry={weeklyRep.retry} />
           ) : !weeklyDigest ? (
             <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-12 text-center text-[#1E293B]/70 font-bold">
               No weekly activity records found for this batch.
@@ -533,7 +564,7 @@ export default function Reports() {
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Current Week Avg</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="font-head text-3xl font-900 text-[#1E293B]">{weeklyDigest.recent_avg}%</span>
+                    <span className="font-head text-3xl font-900 text-[#1E293B]">{pct(weeklyDigest.recent_avg)}</span>
                     {weeklyDigest.delta_avg !== null && weeklyDigest.delta_avg !== undefined && (
                       <span className={`text-xs font-bold ${weeklyDigest.delta_avg >= 0 ? "text-[#2F8A5F]" : "text-[#E04A3C]"}`}>
                         {weeklyDigest.delta_avg >= 0 ? `+${weeklyDigest.delta_avg}%` : `${weeklyDigest.delta_avg}%`}
@@ -545,7 +576,7 @@ export default function Reports() {
                 <div className="p-5 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] space-y-1">
                   <span className="text-[10px] uppercase font-mono font-bold text-[#64748B] block">Prior Week Avg</span>
                   <span className="font-head text-3xl font-900 text-[#1E293B]">
-                    {weeklyDigest.prior_avg !== null && weeklyDigest.prior_avg !== undefined ? `${weeklyDigest.prior_avg}%` : "—"}
+                    {pct(weeklyDigest.prior_avg)}
                   </span>
                 </div>
 
@@ -634,10 +665,27 @@ export default function Reports() {
       {/* TAB 3: TERM & COVERAGE OVERVIEW */}
       {activeTab === "term" && (
         <div className="space-y-6">
-          {loadingTerm ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-mono font-bold text-[#1E293B]">Period:</span>
+            {Object.entries(PERIODS).map(([k, p]) => (
+              <button
+                key={k}
+                data-testid={`term-period-${k}`}
+                onClick={() => setPeriod(k)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 border-[#1E293B] ${
+                  period === k ? "bg-[#1E293B] text-white" : "bg-white text-[#1E293B] hover:bg-[#FFF9E8]"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {termRep.loading ? (
             <div className="p-12 text-center text-[#1E293B] font-bold flex items-center justify-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin" /> Aggregating term overview…
             </div>
+          ) : termRep.error ? (
+            <ReportError message={termRep.error} onRetry={termRep.retry} />
           ) : !termReport ? (
             <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-12 text-center text-[#1E293B]/70 font-bold">
               No term records found for this batch.
@@ -684,7 +732,9 @@ export default function Reports() {
                   <tbody>
                     {termReport.student_summaries.map((st) => (
                       <tr key={st.student_id} className="border-b border-[#1E293B]/10 hover:bg-[#FFF9E8]/40">
-                        <td className="py-3 px-3 font-mono font-bold text-[#1E293B]">#{st.rank}</td>
+                        <td className="py-3 px-3 font-mono font-bold text-[#1E293B]" title={st.rank == null ? "No class tests yet" : undefined}>
+                          {st.rank == null ? "—" : `#${st.rank}`}
+                        </td>
                         <td className="py-3 px-3 font-bold text-[#1E293B]">{st.name}</td>
                         <td className="py-3 px-2 font-mono text-[#64748B]">
                           {st.tests_assigned != null ? (
@@ -697,9 +747,13 @@ export default function Reports() {
                             `${st.tests_taken} Tests`
                           )}
                         </td>
-                        <td className="py-3 px-2 font-mono font-900 text-sm text-[#1E293B]">{st.avg_score}%</td>
+                        <td className="py-3 px-2 font-mono font-900 text-sm text-[#1E293B]">{pct(st.avg_score)}</td>
                         <td className="py-3 px-2">
-                          <Badge className={BAND[st.overall_band]?.badge}>{st.overall_band}</Badge>
+                          {st.avg_score == null ? (
+                            <span className="text-[11px] font-bold text-[#64748B]">No class tests yet</span>
+                          ) : (
+                            <Badge className={BAND[st.overall_band]?.badge}>{st.overall_band}</Badge>
+                          )}
                         </td>
                         <td className="py-3 px-2 font-mono text-right font-bold text-[#E04A3C]">
                           {st.weak_topics_count} Weak
@@ -717,10 +771,12 @@ export default function Reports() {
       {/* TAB 4: LEGACY STUDENT MASTERY MATRIX */}
       {activeTab === "matrix" && (
         <div className="space-y-6">
-          {loadingMatrix ? (
+          {matrixRep.loading ? (
             <div className="text-[#1E293B] font-bold flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin" /> Loading mastery matrix…
             </div>
+          ) : matrixRep.error ? (
+            <ReportError message={matrixRep.error} onRetry={matrixRep.retry} />
           ) : !matrixData || matrixData.students.length === 0 ? (
             <div className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-10 text-center font-bold text-[#1E293B]/70 shadow-[4px_4px_0_#1E293B]">
               No student attempts recorded for this batch yet.

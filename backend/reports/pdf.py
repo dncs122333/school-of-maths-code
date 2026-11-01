@@ -119,11 +119,16 @@ def _render_reportlab_test_report(report: Dict[str, Any], generated_date: str) -
 
     # KPI Summary Table
     summary = report.get("summary", {})
+
+    def _pct(v):
+        return "—" if v is None else f"{v}%"
+
     kpi_data = [
         ["Class Average", "Median Score", "Topper Score", "Completion Rate"],
         [
-            f"{summary.get('avg_score', 0)}% ({summary.get('score_band', '')})",
-            f"{summary.get('median_score', 0)}%",
+            f"{_pct(summary.get('avg_score'))} ({summary.get('score_band', '')})" if summary.get('avg_score') is not None else "—",
+            _pct(summary.get('median_score')),
+            _pct(summary.get('topper_score')),
             (
                 f"{report.get('completion_rate')}% ({report.get('submitted_count')}/{report.get('enrolled_count')})"
                 if (report.get('completion_rate') is not None and report.get('enrolled_count') is not None)
