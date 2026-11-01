@@ -2754,6 +2754,13 @@ async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
     q = {"test_id": test_id}
     if user["role"] == "student":
         q["student_id"] = user["id"]
+    elif user["role"] == "teacher":
+        # Submissions carry students' names, answers and scores: only the test's own teacher may list them
+        test = await db.tests.find_one({"id": test_id}, {"_id": 0, "teacher_id": 1})
+        if not test:
+            raise HTTPException(status_code=404, detail="Test not found")
+        if test.get("teacher_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="You do not own this test")
     subs = await db.submissions.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return subs
 
@@ -3652,12 +3659,20 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
             raise HTTPException(status_code=403, detail="You do not teach this student")
         shares_batch = await db.batches.find_one({
             "id": {"$in": student_bids},
-            "teacher_id": user["id"]
+            "teacher_id": user["id"],
+            **NOT_ARCHIVED
         })
         if not shares_batch:
             raise HTTPException(status_code=403, detail="You do not teach this student")
 
-    subs = await db.submissions.find({"student_id": student_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    sub_q = {"student_id": student_id}
+    if user["role"] != "admin":
+        # Only this teacher's tests plus the student's own self-started diagnostics/sprints (no teacher);
+        # a student's results in another teacher's batch are not this teacher's to see
+        visible_test_ids = [t["id"] async for t in db.tests.find(
+            {"$or": [{"teacher_id": user["id"]}, {"student_id": student_id, "teacher_id": None}]}, {"_id": 0, "id": 1})]
+        sub_q["test_id"] = {"$in": visible_test_ids}
+    subs = await db.submissions.find(sub_q, {"_id": 0}).sort("created_at", -1).to_list(500)
     class_levels = []
     if student.get("class_level"):
         class_levels.append(student["class_level"])
@@ -3676,14 +3691,8 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
             "topics": topics, "trend": trend, "ingestion_quality": ingestion_quality}
 
 
-# ------------------------- Media -------------------------
-@api_router.get("/media/{path:path}")
-async def media(path: str, user: dict = Depends(get_current_user)):
-    try:
-        data, ct = get_object(path)
-        return Response(content=data, media_type=ct)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Image not found")
+# Stored files are served only through routes that check access (e.g. /resources/{id}/download). A generic
+# /media/{path} route served any key to any user (and, on local storage, any file on disk); it was removed.
 
 
 # ------------------------- Stats -------------------------

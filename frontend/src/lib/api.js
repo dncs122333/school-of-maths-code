@@ -56,7 +56,6 @@ api.interceptors.response.use(
   }
 );
 
-export const mediaUrl = (path) => `${API}/media/${path}`;
 
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Something went wrong. Please try again.";

@@ -48,9 +48,19 @@ def init_storage(force: bool = False):
     return "s3"
 
 
+def _local_path(path: str):
+    """Resolve a key inside the local store; keys with '..' or absolute parts must not escape it
+    (a traversal here once exposed backend/.env through a media route)."""
+    root = _LOCAL_STORE.resolve()
+    dest = (root / path).resolve()
+    if dest == root or root not in dest.parents:
+        raise FileNotFoundError(f"Local storage: invalid path {path!r}")
+    return dest
+
+
 def put_object(path: str, data: bytes, content_type: str) -> dict:
     if not _USE_S3:
-        dest = _LOCAL_STORE / path
+        dest = _local_path(path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         # Store content-type alongside the file
@@ -62,7 +72,7 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 
 def get_object(path: str):
     if not _USE_S3:
-        dest = _LOCAL_STORE / path
+        dest = _local_path(path)
         if not dest.exists():
             raise FileNotFoundError(f"Local storage: {path} not found")
         ct_file = dest.parent / (dest.name + ".ct")
@@ -81,7 +91,7 @@ def get_object(path: str):
 def delete_object(path: str) -> None:
     """Remove a stored object. Raises on failure — callers decide how soft to be."""
     if not _USE_S3:
-        dest = _LOCAL_STORE / path
+        dest = _local_path(path)
         dest.unlink(missing_ok=True)
         (dest.parent / (dest.name + ".ct")).unlink(missing_ok=True)
         return

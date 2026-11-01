@@ -90,3 +90,15 @@ def test_s3_other_errors_propagate(s3_stub):
 def test_s3_init_checks_bucket(s3_stub):
     s3_stub.add_response("head_bucket", {}, {"Bucket": "test-bucket"})
     assert storage.init_storage() == "s3"
+
+
+@pytest.mark.parametrize("key", ["../server.py", "../../.env", "a/../../outside.txt", "/etc/passwd", ""])
+def test_local_store_rejects_paths_outside_the_store(local_store, key):
+    (local_store.parent / "outside.txt").write_text("secret")
+    with pytest.raises(FileNotFoundError):
+        storage.get_object(key)
+    with pytest.raises(FileNotFoundError):
+        storage.put_object(key, b"x", "text/plain")
+    with pytest.raises(FileNotFoundError):
+        storage.delete_object(key)
+    assert (local_store.parent / "outside.txt").read_text() == "secret"
