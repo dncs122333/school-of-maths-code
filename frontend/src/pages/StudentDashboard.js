@@ -28,6 +28,13 @@ import ActivityTimeline from "../components/dashboard/ActivityTimeline";
 import SpotlightCard from "../components/SpotlightCard";
 import WeeklyTimetable from "../components/WeeklyTimetable";
 
+// Key for the current local week (Monday-based), e.g. "week-of-2026-10-26"
+const currentWeekKey = () => {
+  const d = new Date();
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  return `week-of-${monday.getFullYear()}-${monday.getMonth() + 1}-${monday.getDate()}`;
+};
+
 export default function StudentDashboard() {
   const { user, refreshUser } = useAuth();
   const nav = useNavigate();
@@ -38,6 +45,7 @@ export default function StudentDashboard() {
   const [masterySummary, setMasterySummary] = useState(null);
   const [notAttemptedByChapter, setNotAttemptedByChapter] = useState({});
   const [submissions, setSubmissions] = useState([]);
+  const [submissionTotal, setSubmissionTotal] = useState(0);
   const [activeTests, setActiveTests] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [topper, setTopper] = useState(null);
@@ -57,7 +65,8 @@ export default function StudentDashboard() {
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [reminderDismissed, setReminderDismissed] = useState(() => {
     try {
-      return localStorage.getItem("vidya_weekly_reminder_dismissed") === "true";
+      // Dismissal lasts for the current week only, so the weekly reminder comes back next week
+      return localStorage.getItem("vidya_weekly_reminder_dismissed") === currentWeekKey();
     } catch {
       return false;
     }
@@ -85,13 +94,18 @@ export default function StudentDashboard() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [statsRes, masteryRes, testsRes, matRes] = await Promise.allSettled([
+        const [statsRes, masteryRes, testsRes, matRes, subsRes] = await Promise.allSettled([
           api.get("/stats"),
           api.get("/mastery/me"),
           api.get("/tests"),
           api.get("/resources"),
+          api.get("/submissions/me", { params: { limit: 10 } }),
         ]);
 
+        if (statsRes.status === "rejected" && masteryRes.status === "rejected") {
+          // Otherwise every tile silently reads 0 and looks like real data
+          toast.error("Couldn't load your dashboard. Check your connection and refresh.");
+        }
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data || {});
         if (masteryRes.status === "fulfilled") {
           const d = masteryRes.value.data;
@@ -107,8 +121,10 @@ export default function StudentDashboard() {
         }
         if (matRes.status === "fulfilled") setMaterials(matRes.value.data || []);
 
-        // Fetch batch topper if student has a batch enrolled
-        const studentBatchId = user?.batch_id || (user?.batch_ids && user.batch_ids[0]);
+        // Topper of the first batch the student can actually open (skips disabled/blocked batches,
+        // which the topper endpoint refuses)
+        const activeIds = statsRes.status === "fulfilled" ? (statsRes.value.data?.active_batch_ids || []) : [];
+        const studentBatchId = activeIds[0];
         if (studentBatchId) {
           try {
             const topperRes = await api.get(`/batches/${studentBatchId}/topper`);
@@ -124,20 +140,11 @@ export default function StudentDashboard() {
           setTopper(null);
         }
 
-        // Fetch recent test submissions for activity timeline
-        try {
-          const testList = testsRes.status === "fulfilled" ? (testsRes.value.data || []) : [];
-          const testIds = testList.slice(0, 6).map((t) => t.id);
-          const subs = [];
-          for (const tid of testIds) {
-            try {
-              const sRes = await api.get(`/tests/${tid}/submissions`);
-              if (sRes.data) subs.push(...sRes.data);
-            } catch {}
-          }
-          subs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-          setSubmissions(subs);
-        } catch {}
+        // Recent attempts of every kind (tests, DPPs, diagnostics) in one request
+        if (subsRes.status === "fulfilled") {
+          setSubmissions(subsRes.value.data?.items || []);
+          setSubmissionTotal(subsRes.value.data?.total || 0);
+        }
       } catch (err) {
         console.error("Dashboard fetch error:", err);
       } finally {
@@ -146,7 +153,8 @@ export default function StudentDashboard() {
     };
 
     fetchData();
-  }, [user]);
+    // Re-run when the student or their batches change, not on every refreshed user object
+  }, [user?.id, (user?.batch_ids || []).join(",")]);
 
   // Top 3 confirmed weak topics (weak across >= 2 sessions; a single wrong answer is not enough)
   const weakTopics = useMemo(() => {
@@ -218,7 +226,7 @@ export default function StudentDashboard() {
 
   const handleDismissReminder = () => {
     try {
-      localStorage.setItem("vidya_weekly_reminder_dismissed", "true");
+      localStorage.setItem("vidya_weekly_reminder_dismissed", currentWeekKey());
     } catch {}
     setReminderDismissed(true);
     toast.success("Weekly reminder marked done!");
@@ -244,9 +252,11 @@ export default function StudentDashboard() {
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#3E7CB1] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
                 {formattedDate}
               </span>
-              <Badge className="bg-[#2F8A5F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
-                CBSE Class 9 & 10
-              </Badge>
+              {(stats.class_levels || []).length > 0 && (
+                <Badge className="bg-[#2F8A5F] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
+                  Class {stats.class_levels.join(" & ")}
+                </Badge>
+              )}
             </div>
 
             <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-[#1E293B] uppercase">
@@ -746,7 +756,7 @@ export default function StudentDashboard() {
         {/* RIGHT COLUMN: Recent Activity, Learning Queue & Batches (5 Cols) */}
         <div className="lg:col-span-5 space-y-8">
           {/* Recent Activity Timeline */}
-          <ActivityTimeline submissions={submissions} />
+          <ActivityTimeline submissions={submissions} total={submissionTotal} />
 
           {/* Learning Queue: Class Materials */}
           <div className="rounded-3xl bg-white p-6 sm:p-7 space-y-4 border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B]">

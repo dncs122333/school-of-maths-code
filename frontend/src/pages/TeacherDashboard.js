@@ -14,7 +14,6 @@ import {
   TrendingUp,
   Award,
   ArrowRight,
-  CheckCircle2,
   Orbit,
   Radio,
   Database,
@@ -36,6 +35,7 @@ export default function TeacherDashboard() {
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [cohortTab, setCohortTab] = useState("leaderboard"); // "leaderboard" | "fees"
   const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importInitialTab, setImportInitialTab] = useState("ai_vision");
   const [liveDrawerOpen, setLiveDrawerOpen] = useState(false);
@@ -74,29 +74,22 @@ export default function TeacherDashboard() {
     }).catch(() => {});
   }, []);
 
-  // Fetch report data when selectedBatchId changes
+  // Fetch report data when selectedBatchId changes; clear the previous batch's data and ignore a late response
+  // for it, or the heatmap/roster would show batch A under batch B
   useEffect(() => {
+    setReportData(null);
     if (!selectedBatchId) return;
+    let cancelled = false;
+    setReportLoading(true);
     api.get("/mastery/teacher", { params: { batch_id: selectedBatchId } })
-      .then((r) => setReportData(r.data))
-      .catch((err) => toast.error(formatApiErrorDetail(err.response?.data?.detail)));
+      .then((r) => { if (!cancelled) setReportData(r.data); })
+      .catch((err) => { if (!cancelled) toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not load batch insights"); })
+      .finally(() => { if (!cancelled) setReportLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedBatchId]);
 
-  // Calculate average class score across all students in batch
-  const avgClassScore = useMemo(() => {
-    if (!reportData || !reportData.students || reportData.students.length === 0) return 72;
-    let totalScore = 0;
-    let count = 0;
-    reportData.students.forEach((s) => {
-      (s.topics || []).forEach((t) => {
-        if (t.score !== undefined) {
-          totalScore += t.score;
-          count += 1;
-        }
-      });
-    });
-    return count > 0 ? Math.round(totalScore / count) : 72;
-  }, [reportData]);
+  // Mean score of submissions on this batch's tests, computed by the server; null until there is real data
+  const avgClassScore = reportData?.class_avg_score ?? null;
 
   // Selected batch object
   const activeBatch = useMemo(() => {
@@ -121,13 +114,10 @@ export default function TeacherDashboard() {
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#5B9BD5] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold">
                 {formattedDate}
               </span>
-              <Badge className="bg-[#4CAF7D] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-3 py-0.5 rounded-full">
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> CBSE Calibrated
-              </Badge>
             </div>
 
             <h1 className="font-head text-3xl sm:text-4xl lg:text-5xl font-900 tracking-tight text-[#1E293B] uppercase">
-              {greeting}, {user?.name?.split(" ")[0]} sir!{" "}
+              {greeting}, {user?.name?.split(" ")[0]}!{" "}
               <span className="inline-block animate-floaty">📚</span>
             </h1>
 
@@ -264,10 +254,14 @@ export default function TeacherDashboard() {
               <Award className="h-4 w-4 text-[#4CAF7D]" />
             </div>
             <div className="font-head text-2xl sm:text-3xl font-900 text-[#4CAF7D] mt-1">
-              {avgClassScore}%
+              {reportLoading ? "…" : avgClassScore === null ? "—" : `${avgClassScore}%`}
             </div>
             <div className="text-[11px] text-[#4CAF7D] font-mono font-bold mt-1">
-              <span>Batch Retention Index</span>
+              <span>
+                {avgClassScore === null
+                  ? "No tests taken yet"
+                  : `Avg test score · ${reportData?.class_avg_submissions || 0} attempts`}
+              </span>
             </div>
           </div>
         </div>

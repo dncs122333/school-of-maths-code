@@ -33,18 +33,24 @@ export default function CohortLeaderboardTab({
 
   // Fetch batch topper & leaderboard
   useEffect(() => {
+    // Clear the previous batch's ranking and ignore its late response after a batch switch
+    setLeaderboardData({ topper: null, leaderboard: [] });
     if (!batchId) return;
+    let cancelled = false;
     setLoading(true);
     api.get(`/batches/${batchId}/topper`)
       .then((res) => {
-        setLeaderboardData(res.data || { topper: null, leaderboard: [] });
+        if (!cancelled) setLeaderboardData(res.data || { topper: null, leaderboard: [] });
       })
       .catch((err) => {
-        toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load leaderboard");
+        if (!cancelled) toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load leaderboard");
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [batchId]);
 
   const leaderboard = useMemo(() => leaderboardData.leaderboard || [], [leaderboardData]);

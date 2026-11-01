@@ -2749,6 +2749,16 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
     }
 
 
+@api_router.get("/submissions/me")
+async def my_recent_submissions(limit: int = 10, user: dict = Depends(require_role("student"))):
+    """Recent attempts of every kind (tests, DPPs, diagnostics) in one query, for the activity timeline."""
+    limit = max(1, min(limit, 50))
+    fields = {"_id": 0, "id": 1, "test_id": 1, "title": 1, "kind": 1, "score": 1, "correct": 1, "total": 1, "created_at": 1}
+    items = await db.submissions.find({"student_id": user["id"]}, fields).sort("created_at", -1).to_list(limit)
+    total = await db.submissions.count_documents({"student_id": user["id"]})
+    return {"items": items, "total": total}
+
+
 @api_router.get("/tests/{test_id}/submissions")
 async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
     q = {"test_id": test_id}
@@ -3529,11 +3539,17 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     else:
         sub_query["batch_id"] = batch_id
 
+    # Class average = mean score of submissions on this batch's own tests (not self-started diagnostics)
+    own_test_ids = {t["id"] async for t in db.tests.find({"batch_id": batch_id}, {"_id": 0, "id": 1})}
+    own_scores = []
     per_student = {}
     if student_ids:
         cursor = db.submissions.find(sub_query, {"_id": 0}).sort("created_at", -1)
         async for s in cursor:
             per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
+            if s.get("test_id") in own_test_ids and s.get("score") is not None:
+                own_scores.append(float(s["score"]))
+    class_avg_score = round_half_up(sum(own_scores) / len(own_scores)) if own_scores else None
 
     batch_class = batch.get("class_level")
     # Compute syllabus union ONCE at the batch level (avoiding O(students * topics) explosion)
@@ -3641,7 +3657,9 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
             "weak_topics": weak_topics,
             "not_attempted_topics": not_attempted_topics,
             "needs_attention": needs_attention,
-            "ingestion_quality": ingestion_quality}
+            "ingestion_quality": ingestion_quality,
+            "class_avg_score": class_avg_score,
+            "class_avg_submissions": len(own_scores)}
 
 
 @api_router.get("/mastery/teacher/student/{student_id}")
@@ -3702,9 +3720,10 @@ async def stats(user: dict = Depends(get_current_user)):
         subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0, "created_at": 1, "score": 1, "kind": 1}).to_list(1000)
         test_subs = [s for s in subs if s.get("kind") == "test"]
         avg = round(sum(s.get("score", 0) for s in test_subs) / len(test_subs), 1) if test_subs else 0
-        batch_docs = await db.batches.find({"id": {"$in": user.get("batch_ids", [])}}, {"_id": 0, "class_level": 1}).to_list(20)
-        class_levels = [b["class_level"] for b in batch_docs]
-        student_batches = user.get("batch_ids", [])
+        # Only batches the student can actually open (not disabled/blocked there)
+        student_batches = active_batch_ids(user)
+        batch_docs = await db.batches.find({"id": {"$in": student_batches}, **NOT_ARCHIVED}, {"_id": 0, "class_level": 1}).to_list(20)
+        class_levels = sorted({b["class_level"] for b in batch_docs if b.get("class_level")}, key=lambda c: (len(str(c)), str(c)))
         nq = {
             "$or": [
                 {"batch_id": {"$in": student_batches}},
@@ -3758,6 +3777,8 @@ async def stats(user: dict = Depends(get_current_user)):
             "notes": note_count,
             "streak_days": streak_days,
             "active_week_days": active_week_days,
+            "class_levels": class_levels,
+            "active_batch_ids": student_batches,
         }
     q = {} if user["role"] == "admin" else {"teacher_id": user["id"]}
     if user["role"] == "admin":

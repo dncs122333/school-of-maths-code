@@ -2,7 +2,8 @@ import React from "react";
 import { Badge } from "../ui/badge";
 import { FileQuestion, Sparkles, Activity } from "lucide-react";
 
-export default function ActivityTimeline({ submissions = [] }) {
+// `submissions` is the most recent page only; `total` is the student's overall attempt count
+export default function ActivityTimeline({ submissions = [], total }) {
   const recent = submissions.slice(0, 5);
 
   const formatTimeAgo = (dateStr) => {
@@ -28,7 +29,7 @@ export default function ActivityTimeline({ submissions = [] }) {
           <h3 className="font-head text-lg font-black text-[#1E293B]">Recent Activity</h3>
         </div>
         <Badge className="bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] font-mono text-[11px] px-3 py-0.5">
-          {submissions.length} Total Attempts
+          {total ?? submissions.length} Total Attempts
         </Badge>
       </div>
 

@@ -67,3 +67,35 @@ class TestDashboardSecurity:
     def test_media_route_is_gone(self):
         r = requests.get(f"{API}/media/..%2Fserver.py", headers=self.student["headers"], timeout=15)
         assert r.status_code == 404
+
+
+class TestDashboardData:
+    @classmethod
+    def setup_class(cls):
+        cls.teacher = _register("teacher", "Dash Teacher")
+        cls.student = _register("student", "Dash Student")
+        cls.batch = requests.post(f"{API}/batches", json={"name": "Dash Batch", "class_level": "9"},
+                                  headers=cls.teacher["headers"], timeout=15).json()
+        requests.post(f"{API}/batches/join", json={"code": cls.batch["code"]}, headers=cls.student["headers"], timeout=15)
+
+    def test_class_average_is_null_without_data_then_real(self):
+        r = requests.get(f"{API}/mastery/teacher", params={"batch_id": self.batch["id"]}, headers=self.teacher["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        assert r.json()["class_avg_score"] is None  # no made-up placeholder
+
+        _test_with_submission(self.teacher["id"], self.student["id"], "Dash test", self.batch["id"])
+        _test_with_submission(None, self.student["id"], "Own diagnostic")  # self-started; not part of class average
+        r = requests.get(f"{API}/mastery/teacher", params={"batch_id": self.batch["id"]}, headers=self.teacher["headers"], timeout=15)
+        assert r.json()["class_avg_score"] == 80
+        assert r.json()["class_avg_submissions"] == 1
+
+    def test_recent_submissions_endpoint_and_stats(self):
+        r = requests.get(f"{API}/submissions/me", params={"limit": 1}, headers=self.student["headers"], timeout=15)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["items"]) == 1 and body["total"] >= 2
+        assert requests.get(f"{API}/submissions/me", headers=self.teacher["headers"], timeout=15).status_code == 403
+
+        stats = requests.get(f"{API}/stats", headers=self.student["headers"], timeout=15).json()
+        assert stats["class_levels"] == ["9"]
+        assert stats["active_batch_ids"] == [self.batch["id"]]
