@@ -1100,14 +1100,14 @@ export default function CreateQuiz({ kind }) {
                 onValueChange={(v) => setF({ ...f, batch_id: v })}
               >
                 <SelectTrigger data-testid="quiz-batch" className={inp}>
-                  <SelectValue placeholder={isDpp ? "All Students / Open" : "Choose target batch or Master Template"} />
+                  <SelectValue placeholder={isDpp ? "All my students" : "Choose target batch or Master Template"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="template">
                     📁 None (Save as Master Template in Library)
                   </SelectItem>
                   <SelectItem value="all">
-                    {isDpp ? "All Students / Open (Classwide)" : "👥 All Students (Classwide)"}
+                    {isDpp ? "All my students (every batch I teach)" : "👥 All my students (every batch I teach)"}
                   </SelectItem>
                   {availableBatches.map((b) => (
                     <SelectItem key={b.id} value={b.id}>

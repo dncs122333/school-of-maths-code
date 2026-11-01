@@ -1424,7 +1424,7 @@ export default function QuizList({ kind }) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">
-                      {isDpp ? "All Students / Open (Classwide)" : "All Students"}
+                      {isDpp ? "All my students (every batch I teach)" : "All my students"}
                     </SelectItem>
                     {batches
                       .filter((b) => !b.class_level || String(b.class_level) === String(reuseTest.class_level))

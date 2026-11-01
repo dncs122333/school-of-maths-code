@@ -2063,7 +2063,8 @@ async def _build_test(test_id: str, body: GenerateTestInput):
                                                      body.topic or "", body.question_count, kind=body.kind,
                                                      chapters=body.chapters)
         if not questions:
-            raise ValueError("No active questions available for this selection")
+            scope = ", ".join(body.chapters or []) or body.chapter or body.subject or f"Class {body.class_level}"
+            raise ValueError(f"No active questions in the question bank for {scope}")
         # Ensure questions are shuffled across chapters
         if (body.chapters and len(body.chapters) > 1) or (not body.kind or body.kind == "test"):
             random.shuffle(questions)
@@ -2077,11 +2078,18 @@ async def _build_test(test_id: str, body: GenerateTestInput):
 
 @api_router.post("/tests")
 async def create_test(body: GenerateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
+    body.title = _require_title(body.title)
+    body.class_level = validate_class_level(body.class_level)
+    _validate_test_timing(body.valid_hours, body.duration_minutes)
+    if body.kind not in ("test", "dpp"):
+        raise HTTPException(status_code=400, detail="kind must be 'test' or 'dpp'")
     if body.question_ids and len(body.question_ids) > 0:
+        if len(body.question_ids) > MAX_TEST_QUESTIONS:
+            raise HTTPException(status_code=400, detail=f"A test can have at most {MAX_TEST_QUESTIONS} questions")
         count = len(body.question_ids)
     else:
-        if body.question_count < 1:
-            raise HTTPException(status_code=400, detail="question_count must be at least 1")
+        if not 1 <= body.question_count <= MAX_TEST_QUESTIONS:
+            raise HTTPException(status_code=400, detail=f"question_count must be between 1 and {MAX_TEST_QUESTIONS}")
         count = body.question_count
     now = datetime.now(timezone.utc)
     valid_from = now  # MVP: tests go live immediately (activate_now is a no-op)
@@ -2099,9 +2107,7 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
 
     batch_name = None
     if batch_val and batch_val != "all":
-        b_doc = await db.batches.find_one({"id": batch_val}, {"name": 1})
-        if b_doc:
-            batch_name = b_doc.get("name")
+        batch_name = await _resolve_test_batch(batch_val, user)
     elif batch_val == "all":
         batch_name = "All Students"
     elif not batch_val:
@@ -2133,7 +2139,8 @@ def _shuffled_order(seed: int, n: int = 4) -> List[int]:
 
     Stateless by design: the same (test_id, student_id, question index) always
     yields the same order, so a student sees a stable layout across refreshes and
-    grading can reconstruct the same mapping without extra storage."""
+    grading can reconstruct the same mapping without extra storage. `n` is the question's real option
+    count (True/False has 2); for 4-option questions the order is unchanged from before."""
     rng = random.Random(seed)
     order = list(range(n))
     rng.shuffle(order)
@@ -2207,7 +2214,10 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
             chapter_questions = await db.question_bank.find(q_no_topic, {"_id": 0}).sort([("topic", 1), ("created_at", 1)]).to_list(1000)
         if chapter_questions:
             if count and count > 0 and len(chapter_questions) > count:
-                chapter_questions = chapter_questions[:count]
+                # Random subset so repeated practice tests on a chapter differ (the first N sorted by topic
+                # always gave the same questions, biased to alphabetically-early topics); keep topicwise order
+                chapter_questions = random.sample(chapter_questions, count)
+                chapter_questions.sort(key=lambda x: (x.get("topic") or "", x.get("created_at") or ""))
             if len(active_chapters) > 1:
                 random.shuffle(chapter_questions)
             return [_format_q(x) for x in chapter_questions]
@@ -2221,19 +2231,14 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
         q["$or"] = top_filter
     pool = await db.question_bank.find(q, {"_id": 0}).to_list(1000)
     if not pool and topic:
+        # A missing topic may fall back to its chapter, but never beyond what the teacher chose: a "Chapter X"
+        # test silently filled from other chapters (or the whole class) was mislabelled
         q_no_topic = {"class_level": class_level, "status": "active"}
         if subj_filter:
             q_no_topic["subject"] = subj_filter
         if chap_filter:
             q_no_topic["chapter"] = chap_filter
         pool = await db.question_bank.find(q_no_topic, {"_id": 0}).to_list(1000)
-    if not pool and chapter:
-        q_subject = {"class_level": class_level, "status": "active"}
-        if subj_filter:
-            q_subject["subject"] = subj_filter
-        pool = await db.question_bank.find(q_subject, {"_id": 0}).to_list(1000)
-    if not pool:
-        pool = await db.question_bank.find({"class_level": class_level, "status": "active"}, {"_id": 0}).to_list(1000)
     if not pool:
         return []
     buckets = {"easy": [], "medium": [], "hard": []}
@@ -2264,7 +2269,7 @@ def _strip_answers(test: dict, student_id: str) -> dict:
     out = []
     is_dpp = t.get("kind") == "dpp"
     for i, q in enumerate(questions):
-        order = _shuffled_order(_option_seed(t["id"], student_id, i))
+        order = _shuffled_order(_option_seed(t["id"], student_id, i), len(q["options"]))
         out.append({
             "question": q["question"],
             "options": [q["options"][j] for j in order],
@@ -2286,7 +2291,7 @@ def _strip_answers(test: dict, student_id: str) -> dict:
 
 @api_router.get("/tests")
 async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_current_user)):
-    q = {}
+    q = dict(TEST_NOT_DELETED)
     if kind:
         q["kind"] = kind
     if user["role"] == "teacher":
@@ -2310,18 +2315,14 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         q["status"] = "ready"
         if kind == "diagnostic":
             q["student_id"] = user["id"]
-        elif kind == "dpp":
-            user_batches = active_batch_ids(user)
+        else:
+            # Own sprints, tests for my batches, and "All Students" tests from my own teachers only
             q["$or"] = [
                 {"student_id": user["id"]},
-                {"batch_id": None, "student_id": None},
-                {"batch_id": None, "student_id": {"$exists": False}},
-                {"batch_id": ""},
-                {"batch_id": "all"},
-                {"batch_id": {"$in": user_batches}}
+                {"batch_id": {"$in": active_batch_ids(user)}},
+                {"batch_id": {"$in": list(OPEN_AUDIENCE)}, "student_id": None,
+                 "teacher_id": {"$in": await _student_teacher_ids(user)}},
             ]
-        else:
-            q["batch_id"] = {"$in": active_batch_ids(user)}
     tests = await db.tests.find(q, {"_id": 0, "questions": 0}).sort("created_at", -1).to_list(500)
     now = datetime.now(timezone.utc)
     subs_by_test = {}
@@ -2370,7 +2371,7 @@ async def list_live_tests(user: dict = Depends(get_current_user)):
     """Return all currently-active tests for the teacher (used by the Live Tests dashboard drawer)."""
     if user["role"] not in ("teacher", "admin"):
         raise HTTPException(status_code=403, detail="Teachers only")
-    q = {"is_active": {"$ne": False}, "status": "ready"}
+    q = {"is_active": {"$ne": False}, "status": "ready", **TEST_NOT_DELETED}
     if user["role"] == "teacher":
         q["teacher_id"] = user["id"]
     tests = await db.tests.find(
@@ -2396,19 +2397,60 @@ async def list_live_tests(user: dict = Depends(get_current_user)):
     return result
 
 
-def _ensure_student_can_access_test(test: dict, user: dict) -> None:
+MAX_TEST_QUESTIONS = 200
+MAX_DAILY_SPRINTS = 100  # backstop on new self-started sprints per student per day (unfinished ones are resumed)
+
+
+def _validate_test_timing(valid_hours: Optional[int], duration_minutes: Optional[int]) -> None:
+    if valid_hours is not None and not 1 <= int(valid_hours) <= 24 * 90:
+        raise HTTPException(status_code=400, detail="Availability must be between 1 hour and 90 days")
+    if duration_minutes is not None and not 0 <= int(duration_minutes) <= 600:
+        raise HTTPException(status_code=400, detail="Duration must be between 0 (untimed) and 600 minutes")
+
+
+OPEN_AUDIENCE = (None, "", "all")  # "All Students" / unassigned: every student of the test's teacher
+TEST_NOT_DELETED = {"is_deleted": {"$ne": True}}  # deleted tests stay for submission history but are hidden
+
+
+async def _student_teacher_ids(user: dict) -> list:
+    """Teachers of the batches this student can currently access."""
+    return [b["teacher_id"] async for b in db.batches.find(
+        {"id": {"$in": active_batch_ids(user)}, **NOT_ARCHIVED}, {"_id": 0, "teacher_id": 1}) if b.get("teacher_id")]
+
+
+async def _student_can_access_test(test: dict, user: dict) -> bool:
     if test.get("student_id"):
-        if test["student_id"] != user["id"]:
-            raise HTTPException(status_code=403, detail="Not yours")
-        return
+        return test["student_id"] == user["id"]
     bid = test.get("batch_id")
-    if bid and bid != "all" and bid not in active_batch_ids(user):
-        raise HTTPException(status_code=403, detail="You do not have access to this batch's tests")
+    if bid in OPEN_AUDIENCE:
+        # "All Students" means all of *this teacher's* students, not every student on the platform
+        return bool(test.get("teacher_id")) and test["teacher_id"] in await _student_teacher_ids(user)
+    return bid in active_batch_ids(user)
+
+
+async def _ensure_student_can_access_test(test: dict, user: dict) -> None:
+    if not await _student_can_access_test(test, user):
+        raise HTTPException(status_code=403, detail="You do not have access to this test")
+
+
+def _ensure_teacher_owns_test(test: dict, user: dict) -> None:
+    if user["role"] != "admin" and test.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this test")
+
+
+async def _resolve_test_batch(batch_val, user: dict):
+    """Validate a target batch for a teacher's test: must be the teacher's own, live batch. Returns its name."""
+    batch = await db.batches.find_one({"id": batch_val, **NOT_ARCHIVED}, {"_id": 0, "name": 1, "teacher_id": 1})
+    if not batch:
+        raise HTTPException(status_code=400, detail="Batch not found")
+    if user["role"] != "admin" and batch.get("teacher_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="You do not own this batch")
+    return batch.get("name")
 
 
 @api_router.get("/tests/{test_id}")
 async def get_test(test_id: str, user: dict = Depends(get_current_user)):
-    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED}, {"_id": 0})
     if not test:
         raise HTTPException(status_code=404, detail="Not found")
     if user["role"] == "student":
@@ -2430,21 +2472,68 @@ async def get_test(test_id: str, user: dict = Depends(get_current_user)):
         if test["kind"] == "test":
             if await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
                 raise HTTPException(status_code=403, detail="Already submitted")
-        _ensure_student_can_access_test(test, user)
-        return _strip_answers(test, user["id"])
+        await _ensure_student_can_access_test(test, user)
+        # The attempt clock lives on the server: a refresh resumes the same deadline instead of restarting it
+        await db.test_starts.update_one(
+            {"test_id": test_id, "student_id": user["id"]},
+            {"$setOnInsert": {"started_at": now.isoformat()}}, upsert=True)
+        start = await db.test_starts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+        deadline = _attempt_deadline(test, start)
+        stripped = _strip_answers(test, user["id"])
+        stripped["started_at"] = start.get("started_at")
+        stripped["seconds_left"] = (max(0, int((deadline - now).total_seconds()))
+                                    if deadline and int(test.get("duration_minutes") or 0) > 0 else None)
+        return stripped
+    _ensure_teacher_owns_test(test, user)  # the full test includes the answer key
     return test
+
+
+SUBMIT_GRACE_SECONDS = 120  # network lag on auto-submit at time-up
+
+
+def _parse_utc(value) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _attempt_deadline(test: dict, start: Optional[dict]) -> Optional[datetime]:
+    """Timed tests: start + duration, never past the test window. Untimed: the window's end."""
+    window_end = _parse_utc(test.get("valid_until"))
+    started = _parse_utc((start or {}).get("started_at"))
+    duration = int(test.get("duration_minutes") or 0)
+    if started and duration > 0:
+        timed_end = started + timedelta(minutes=duration)
+        return min(timed_end, window_end) if window_end else timed_end
+    return window_end
 
 
 @api_router.post("/tests/{test_id}/submit")
 async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(require_role("student"))):
-    test = await db.tests.find_one({"id": test_id}, {"_id": 0})
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED}, {"_id": 0})
     if not test:
         raise HTTPException(status_code=404, detail="Not found")
     if test.get("is_active", True) is False:
         raise HTTPException(status_code=403, detail="This test is currently inactive or closed by your teacher.")
-    _ensure_student_can_access_test(test, user)
+    if test.get("status") != "ready":
+        raise HTTPException(status_code=403, detail="This test is still building or has failed.")
+    await _ensure_student_can_access_test(test, user)
     if test["kind"] == "test" and await db.submissions.find_one({"test_id": test_id, "student_id": user["id"]}):
         raise HTTPException(status_code=403, detail="Already submitted")
+
+    now = datetime.now(timezone.utc)
+    start = await db.test_starts.find_one({"test_id": test_id, "student_id": user["id"]}, {"_id": 0})
+    deadline = _attempt_deadline(test, start)
+    late_by_s = 0
+    if deadline and now > deadline + timedelta(seconds=SUBMIT_GRACE_SECONDS):
+        if not start:
+            raise HTTPException(status_code=403, detail="This test has closed.")
+        # Opened in time but submitted after the deadline: keep the answers, but flag it for the teacher
+        late_by_s = int((now - deadline).total_seconds())
     questions = test["questions"]
     total = len(questions)
 
@@ -2463,7 +2552,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
     results = []
     for i, q in enumerate(questions):
         # Reconstruct the same per-student option order the student saw.
-        order = _shuffled_order(_option_seed(test_id, user["id"], i))
+        order = _shuffled_order(_option_seed(test_id, user["id"], i), len(q["options"]))
         shuffled_options = [q["options"][j] for j in order]
         chosen = answers[i]                                # index into shuffled options
         correct_display = order.index(q["correct_index"])  # index into shuffled options
@@ -2499,7 +2588,7 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
                         "is_correct": is_ok, "answered": chosen >= 0, "time_s": times[i]})
 
     score = round_half_up(correct / total * 100) if total else 0
-    status = "flagged" if tab_switches >= 3 else "submitted"
+    status = "late" if late_by_s else ("flagged" if tab_switches >= 3 else "submitted")
 
     # Chapter topic breakdown: accuracy over answered questions, skips counted separately
     topic_summary = summarize_submission_topics(results)
@@ -2510,15 +2599,26 @@ async def submit_test(test_id: str, body: SubmitInput, user: dict = Depends(requ
            "answers": answers, "times": times, "tab_switches": tab_switches,
            "results": results, "topic_summary": topic_summary,
            "score": score, "correct": correct, "total": total, "status": status,
-           "created_at": datetime.now(timezone.utc).isoformat()}
+           "started_at": (start or {}).get("started_at"), "late_by_seconds": late_by_s,
+           "created_at": now.isoformat()}
     # Tests store a single attempt; DPPs store every attempt for repeat history.
     await db.submissions.insert_one(dict(sub))
+    # Attempt is over; a practice test re-opened later starts a fresh clock
+    await db.test_starts.delete_one({"test_id": test_id, "student_id": user["id"]})
     return {"score": score, "correct": correct, "total": total, "review": review,
             "status": status, "topic_summary": topic_summary}
 
 
 @api_router.get("/tests/{test_id}/leaderboard")
 async def leaderboard(test_id: str, user: dict = Depends(get_current_user)):
+    # Names and scores: only the test's teacher (or admin) and students who can take this test
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED}, {"_id": 0, "questions": 0})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    if user["role"] == "student":
+        await _ensure_student_can_access_test(test, user)
+    else:
+        _ensure_teacher_owns_test(test, user)
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0}).sort("score", -1).to_list(200)
     return [{
         "student_id": s.get("student_id"),
@@ -2536,18 +2636,20 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
 
-    # Authorization: teacher must own this test or teach the student, or role is admin
-    if user["role"] != "admin":
-        is_owner = (test.get("teacher_id") == user["id"])
-        if not is_owner:
-            q_user = {"_id": ObjectId(student_id)} if ObjectId.is_valid(student_id) else {"id": student_id}
-            student = await db.users.find_one(q_user)
-            student_bids = student.get("batch_ids", []) if student else []
-            shares = await db.batches.find_one({"id": {"$in": student_bids}, "teacher_id": user["id"]}) if student_bids else None
-            if not shares:
-                raise HTTPException(status_code=403, detail="You do not teach this student or own this test")
+    # Authorization: the test's own teacher (or admin). The only exception is a student's self-started
+    # diagnostic/sprint (no teacher), which their current teachers may review; another teacher's test is never visible.
+    if user["role"] != "admin" and test.get("teacher_id") != user["id"]:
+        is_self_sprint = not test.get("teacher_id") and test.get("student_id") == student_id
+        student = await db.users.find_one({"_id": ObjectId(student_id)}) if ObjectId.is_valid(student_id) else None
+        student_bids = (student or {}).get("batch_ids", [])
+        shares = await db.batches.find_one(
+            {"id": {"$in": student_bids}, "teacher_id": user["id"], **NOT_ARCHIVED}) if student_bids else None
+        if not (is_self_sprint and shares):
+            raise HTTPException(status_code=403, detail="You do not own this test")
 
-    sub = await db.submissions.find_one({"test_id": test_id, "student_id": student_id}, {"_id": 0})
+    # Practice tests keep every attempt: review the most recent one
+    sub = await db.submissions.find_one({"test_id": test_id, "student_id": student_id}, {"_id": 0},
+                                        sort=[("created_at", -1)])
     if not sub:
         raise HTTPException(status_code=404, detail="No submission found for this student")
 
@@ -2557,7 +2659,7 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
 
     review_questions = []
     for i, q in enumerate(questions):
-        order = _shuffled_order(_option_seed(test_id, student_id, i))
+        order = _shuffled_order(_option_seed(test_id, student_id, i), len(q["options"]))
         shuffled_options = [q["options"][j] for j in order]
         chosen = answers[i] if i < len(answers) else -1
         correct_display = order.index(q["correct_index"])
@@ -2645,9 +2747,11 @@ async def get_submissions(test_id: str, user: dict = Depends(get_current_user)):
 
 @api_router.get("/tests/{test_id}/missed-students")
 async def get_test_missed_students(test_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    test = await db.tests.find_one({"id": test_id}, {"_id": 0, "questions": 0})
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED}, {"_id": 0, "questions": 0})
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
+    # Returns names, emails and phone numbers: only the test's own teacher (or admin)
+    _ensure_teacher_owns_test(test, user)
 
     batch_id = test.get("batch_id")
     if not batch_id or batch_id in ("Saved / Unassigned", ""):
@@ -2665,6 +2769,11 @@ async def get_test_missed_students(test_id: str, user: dict = Depends(require_ro
     q = {"role": "student"}
     if batch_id != "all":
         q["batch_ids"] = batch_id
+    else:
+        # "All Students" = the test teacher's own students, never every student on the platform
+        teacher_batches = [b["id"] async for b in db.batches.find(
+            {"teacher_id": test.get("teacher_id"), **NOT_ARCHIVED}, {"_id": 0, "id": 1})]
+        q["batch_ids"] = {"$in": teacher_batches}
 
     students = await db.users.find(q).sort("name", 1).to_list(1000)
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0, "student_id": 1, "student_name": 1}).to_list(1000)
@@ -2702,25 +2811,29 @@ class UpdateTestInput(BaseModel):
 
 @api_router.delete("/tests/{test_id}")
 async def delete_test(test_id: str, user: dict = Depends(require_role("teacher", "admin"))):
-    test = await db.tests.find_one({"id": test_id})
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED})
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
     if user["role"] != "admin" and test.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
-    await db.tests.delete_one({"id": test_id})
+    # Soft delete: students' submissions still point at this test (reviews, mastery, history)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.tests.update_one({"id": test_id}, {"$set": {
+        "is_deleted": True, "is_active": False, "deleted_at": now_iso, "deleted_by": user["id"]}})
     return {"status": "deleted", "id": test_id}
 
 
 @api_router.patch("/tests/{test_id}")
 async def update_test(test_id: str, body: UpdateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
-    test = await db.tests.find_one({"id": test_id})
+    test = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED})
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
     if user["role"] != "admin" and test.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
+    _validate_test_timing(body.valid_hours, None)
     updates = {}
     if body.title is not None:
-        updates["title"] = body.title
+        updates["title"] = _require_title(body.title)
     now = datetime.now(timezone.utc)
     if body.is_active is not None:
         updates["is_active"] = body.is_active
@@ -2781,11 +2894,12 @@ class DuplicateTestInput(BaseModel):
 
 @api_router.post("/tests/{test_id}/duplicate")
 async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = Depends(require_role("teacher", "admin"))):
-    orig = await db.tests.find_one({"id": test_id})
+    orig = await db.tests.find_one({"id": test_id, **TEST_NOT_DELETED})
     if not orig:
         raise HTTPException(status_code=404, detail="Original test not found")
     if user["role"] != "admin" and orig.get("teacher_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
+    _validate_test_timing(body.valid_hours, body.duration_minutes)
 
     now = datetime.now(timezone.utc)
     batch_val = body.batch_id if body.batch_id is not None else orig.get("batch_id")
@@ -2794,9 +2908,7 @@ async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = De
 
     batch_name = None
     if batch_val and batch_val != "all":
-        b_doc = await db.batches.find_one({"id": batch_val}, {"name": 1})
-        if b_doc:
-            batch_name = b_doc.get("name")
+        batch_name = await _resolve_test_batch(batch_val, user)
     elif batch_val == "all":
         batch_name = "All Students"
 
@@ -3322,9 +3434,28 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
     chap = (body.chapter or "").strip()
     top = (body.topic or "").strip()
 
-    questions = None
     if top or chap or subj:
         class_level, subj, chap, top, _ = normalize_taxonomy(class_level, subj, chap, top, [])
+    is_targeted = bool(top or chap)
+    kind = "dpp" if is_targeted else (body.kind or "diagnostic")
+
+    # Resume an unfinished sprint for the same target instead of creating another test document each click
+    now = datetime.now(timezone.utc)
+    async for t in db.tests.find({"student_id": user["id"], "kind": kind, "class_level": class_level, "subject": subj,
+                                  "chapter": chap, "topic": top, "valid_until": {"$gt": now.isoformat()},
+                                  **TEST_NOT_DELETED}, {"_id": 0, "id": 1, "title": 1, "question_count": 1}
+                                 ).sort("created_at", -1).limit(1):
+        if not await db.submissions.find_one({"test_id": t["id"], "student_id": user["id"]}, {"_id": 1}):
+            return {"id": t["id"], "status": "ready", "question_count": t.get("question_count"),
+                    "title": t["title"], "resumed": True}
+
+    # Backstop against scripted flooding (each sprint is a stored test)
+    day_start = datetime.now(APP_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    if await db.tests.count_documents({"student_id": user["id"], "created_at": {"$gte": day_start.isoformat()}}) >= MAX_DAILY_SPRINTS:
+        raise HTTPException(status_code=429, detail="You've started a lot of practice sprints today. Try again tomorrow.")
+
+    questions = None
+    if top or chap or subj:
         if top:
             questions = await _sample_bank_questions(class_level, subj, chap, top, 10)
         if not questions and chap:
@@ -3337,9 +3468,6 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
     if not questions:
         raise HTTPException(status_code=400, detail="No active questions available for a practice sprint")
 
-    now = datetime.now(timezone.utc)
-    is_targeted = bool(top or chap)
-    kind = "dpp" if is_targeted else (body.kind or "diagnostic")
     title = f"Practice Sprint: {top or chap}" if is_targeted else f"Diagnostic — Class {class_level}"
     doc = {"id": str(uuid.uuid4()), "title": title, "kind": kind,
            "class_level": class_level, "subject": subj, "chapter": chap, "topic": top, "batch_id": None,
@@ -3668,8 +3796,8 @@ async def stats(user: dict = Depends(get_current_user)):
             total_enrollments = 0
 
     return {"notes": await db.resources.count_documents({**q, "is_deleted": False}),
-            "tests": await db.tests.count_documents({**q, "kind": "test", "is_active": {"$ne": False}}),
-            "dpps": await db.tests.count_documents({**q, "kind": "dpp", "is_active": {"$ne": False}}),
+            "tests": await db.tests.count_documents({**q, "kind": "test", "is_active": {"$ne": False}, **TEST_NOT_DELETED}),
+            "dpps": await db.tests.count_documents({**q, "kind": "dpp", "is_active": {"$ne": False}, **TEST_NOT_DELETED}),
             "batches": await db.batches.count_documents({**(q if user["role"] == "admin" else {"teacher_id": user["id"]}), **NOT_ARCHIVED}),
             "students": student_count,
             "enrollments": total_enrollments}
@@ -3948,6 +4076,10 @@ async def startup():
         await db.batches.create_index("code", unique=True)
     except Exception as e:
         logger.error(f"batches unique code index: {e}")
+    try:
+        await db.test_starts.create_index([("test_id", 1), ("student_id", 1)], unique=True)
+    except Exception as e:
+        logger.error(f"test_starts index: {e}")
     try:
         await db.join_requests.create_index([("batch_id", 1), ("student_id", 1)], unique=True)
         await db.join_requests.create_index([("student_id", 1), ("status", 1)])

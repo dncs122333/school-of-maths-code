@@ -6,7 +6,7 @@
 """
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import pytest
 import requests
 from dotenv import dotenv_values
@@ -429,31 +429,43 @@ class TestFixesOneByOne:
         requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=s_high_vol["headers"], timeout=15)
         requests.post(f"{API}/batches/join", json={"code": batch["code"]}, headers=s_one_hit["headers"], timeout=15)
 
-        # Create 5 tests in this batch
+        # Create 5 ready tests in this batch directly (POST /tests builds from the question bank asynchronously,
+        # and submitting before a test is ready is now refused)
+        import certifi
+        from pathlib import Path
+        from dotenv import load_dotenv
+        from pymongo import MongoClient
+        load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+        db = MongoClient(os.environ["MONGO_URL"], tlsCAFile=certifi.where())[os.environ["DB_NAME"]]
+        now = datetime.now(timezone.utc)
+        questions = [{"question": "2+2?", "options": ["4", "3", "2", "1"], "correct_index": 0},
+                     {"question": "3+3?", "options": ["6", "5", "4", "3"], "correct_index": 0}]
         test_ids = []
         for i in range(5):
-            r_t = requests.post(f"{API}/tests", json={
-                "title": f"Batch Test {i}",
-                "class_level": "10",
-                "kind": "test",
-                "batch_id": bid,
-                "subject": "Maths",
-                "chapter": "Arithmetic",
-                "questions": [
-                    {"question": "2+2?", "options": ["4", "3", "2", "1"], "correct_index": 0},
-                    {"question": "3+3?", "options": ["6", "5", "4", "3"], "correct_index": 0}
-                ]
-            }, headers=teacher["headers"], timeout=15)
-            assert r_t.status_code == 200, r_t.text
-            test_ids.append(r_t.json()["id"])
+            tid = str(uuid.uuid4())
+            db.tests.insert_one({"id": tid, "title": f"Batch Test {i}", "kind": "test", "class_level": "10",
+                                 "subject": "Maths", "chapter": "Arithmetic", "topic": "", "batch_id": bid,
+                                 "questions": questions, "status": "ready", "is_active": True, "duration_minutes": 0,
+                                 "valid_from": now.isoformat(), "valid_until": (now + timedelta(hours=24)).isoformat(),
+                                 "teacher_id": teacher["id"], "created_at": now.isoformat()})
+            test_ids.append(tid)
+
+        def submit(student, tid, correct_count):
+            # Options are shuffled per student: find the correct answers in the student's own view
+            view = requests.get(f"{API}/tests/{tid}", headers=student["headers"], timeout=15).json()
+            answers = []
+            for qi, q in enumerate(view["questions"]):
+                right = q["options"].index(questions[qi]["options"][0])
+                answers.append(right if qi < correct_count else (right + 1) % len(q["options"]))
+            r = requests.post(f"{API}/tests/{tid}/submit", json={"answers": answers}, headers=student["headers"], timeout=15)
+            assert r.status_code == 200, r.text
 
         # High volume student submits all 5 tests: 100% on 4 tests, 50% on 1 test (avg 90%, total 450)
         for i, tid in enumerate(test_ids):
-            answers = [0, 0] if i < 4 else [0, 1]
-            requests.post(f"{API}/tests/{tid}/submit", json={"answers": answers}, headers=s_high_vol["headers"], timeout=15)
+            submit(s_high_vol, tid, 2 if i < 4 else 1)
 
         # One hit student submits only 1 test: 100% (avg 100%, total 100)
-        requests.post(f"{API}/tests/{test_ids[0]}/submit", json={"answers": [0, 0]}, headers=s_one_hit["headers"], timeout=15)
+        submit(s_one_hit, test_ids[0], 2)
 
         # Check topper
         r_top = requests.get(f"{API}/batches/{bid}/topper", headers=teacher["headers"], timeout=15)

@@ -38,17 +38,34 @@ export default function QuizRunner() {
   const tabSwitchesRef = useRef(0);
   const idxRef = useRef(0);
 
+  // Answers survive a refresh for this attempt; the server's started_at ties the saved copy to one attempt
+  const draftKey = (startedAt) => `quiz-draft:${id}:${user?.id}:${startedAt || ""}`;
+
   useEffect(() => {
     api.get(`/tests/${id}`)
       .then((r) => {
+        const n = r.data.questions.length;
+        let saved = null;
+        try {
+          saved = JSON.parse(sessionStorage.getItem(draftKey(r.data.started_at)) || "null");
+        } catch {}
         setQuiz(r.data);
-        setAnswers(new Array(r.data.questions.length).fill(-1));
-        timesRef.current = new Array(r.data.questions.length).fill(0);
+        setAnswers(saved?.answers?.length === n ? saved.answers : new Array(n).fill(-1));
+        timesRef.current = saved?.times?.length === n ? saved.times : new Array(n).fill(0);
         questionStartRef.current = Date.now();
-        if (!isTeacher && Number(r.data.duration_minutes) > 0) setSecs(Number(r.data.duration_minutes) * 60);
+        // The server owns the clock (seconds_left from when the attempt started), so a refresh can't reset it
+        if (!isTeacher && r.data.seconds_left != null) setSecs(Number(r.data.seconds_left));
+        else if (!isTeacher && Number(r.data.duration_minutes) > 0) setSecs(Number(r.data.duration_minutes) * 60);
       })
       .catch((e) => { toast.error(formatApiErrorDetail(e.response?.data?.detail)); nav(-1); });
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!quiz || isTeacher || result) return;
+    try {
+      sessionStorage.setItem(draftKey(quiz.started_at), JSON.stringify({ answers, times: timesRef.current }));
+    } catch {}
+  }, [answers, quiz, result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { idxRef.current = idx; setShowHint(false); }, [idx]);
 
@@ -82,6 +99,8 @@ export default function QuizRunner() {
         tab_switches: tabSwitchesRef.current,
       });
       setResult(r.data);
+      try { sessionStorage.removeItem(draftKey(quiz?.started_at)); } catch {}
+      if (r.data.status === "late") toast.warning("Submitted after the time limit — your teacher will see it marked late.");
       window.scrollTo(0, 0);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
@@ -89,7 +108,7 @@ export default function QuizRunner() {
     } finally {
       setSubmitting(false);
     }
-  }, [answers, id, recordTime]);
+  }, [answers, id, recordTime, quiz]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (secs === null || result) return;
