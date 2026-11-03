@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -26,6 +27,9 @@ import {
 import { toast } from "sonner";
 
 export default function QuestionBankExplorer({ onQuestionsChange }) {
+  const { user } = useAuth();
+  // The bank is shared: only the teacher who added a question (or admin) can delete it
+  const canDelete = (q) => user?.role === "admin" || q.created_by === user?.id;
   const [hierarchy, setHierarchy] = useState({});
   const [loadingHierarchy, setLoadingHierarchy] = useState(true);
   const [selectedClass, setSelectedClass] = useState("all");
@@ -635,7 +639,7 @@ export default function QuestionBankExplorer({ onQuestionsChange }) {
                                         </div>
 
                                         {/* Delete Action with Inline Confirmation */}
-                                        <div className="shrink-0">
+                                        {canDelete(q) && <div className="shrink-0">
                                           {confirmDeleteId === q.id ? (
                                             <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border-2 border-red-500 shadow-[2px_2px_0_red]">
                                               <span className="text-[10px] font-head font-bold text-red-600">
@@ -668,12 +672,13 @@ export default function QuestionBankExplorer({ onQuestionsChange }) {
                                               type="button"
                                               onClick={() => setConfirmDeleteId(q.id)}
                                               title="Delete question from bank"
+                                              aria-label="Delete question"
                                               className="p-1.5 rounded-lg text-[#64748B] hover:text-[#FF6B5E] hover:bg-red-50 border border-transparent hover:border-[#FF6B5E] transition-all"
                                             >
                                               <Trash2 className="h-4 w-4" />
                                             </button>
                                           )}
-                                        </div>
+                                        </div>}
                                       </div>
 
                                       {/* Options 2x2 Grid */}

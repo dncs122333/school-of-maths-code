@@ -76,27 +76,11 @@ class SubmitInput(BaseModel):
     tab_switches: Optional[int] = 0
 
 
-class LearningQueueRecord(BaseModel):
-    id: str
-    title: str
-    status: str = "ready"
-    owner_name: str = "Unknown"
-    owner_id: Optional[str] = None
-    batch_name: Optional[str] = None
-    batch_id: Optional[str] = None
-    class_level: Optional[str] = None
-    subject: Optional[str] = None
-    chapter: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-
-
 class DataSourceStatusResponse(BaseModel):
     source: str = "MongoDB Atlas"
     available: bool
     message: str
     checked_at: Optional[str] = None
-    learning_queue: List[LearningQueueRecord] = Field(default_factory=list)
 
 
 class QuestionInput(BaseModel):

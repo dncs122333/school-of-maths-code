@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone, timedelta
@@ -34,15 +35,20 @@ async def fetch_cursor_paged(cursor, limit: int = 5000, context: str = "items") 
     return items, warning
 
 
-async def _roster(batch_ids: list, active_only: bool = False) -> list:
-    """Student ids enrolled in any of batch_ids. active_only leaves out students disabled or blocked in
-    every one of those batches: they can't take tests, so they don't belong in completion denominators."""
-    students_raw, _ = await fetch_cursor_paged(
+async def _roster_docs(batch_ids: list) -> list:
+    """Students enrolled in any of batch_ids, with what the reports need (one query for all of it)."""
+    docs, _ = await fetch_cursor_paged(
         db.users.find({"role": "student", "batch_ids": {"$in": batch_ids}},
-                      {"_id": 1, "disabled_batch_ids": 1, "blocked_batch_ids": 1}),
+                      {"_id": 1, "name": 1, "batch_enrolled_at": 1, "disabled_batch_ids": 1, "blocked_batch_ids": 1}),
         limit=5000, context="students")
+    return docs
+
+
+def _roster_ids(docs: list, batch_ids: list, active_only: bool = False) -> list:
+    """Student ids from roster docs. active_only leaves out students disabled or blocked in every one of
+    batch_ids: they can't take tests, so they don't belong in completion denominators."""
     sids = []
-    for s in students_raw:
+    for s in docs:
         if active_only:
             inactive = set(s.get("disabled_batch_ids") or []) | set(s.get("blocked_batch_ids") or [])
             if all(bid in inactive for bid in batch_ids):
@@ -50,6 +56,10 @@ async def _roster(batch_ids: list, active_only: bool = False) -> list:
         # Submissions key students by str(_id); some users also carry a legacy, different "id" field
         sids.append(str(s["_id"]))
     return sids
+
+
+async def _roster(batch_ids: list, active_only: bool = False) -> list:
+    return _roster_ids(await _roster_docs(batch_ids), batch_ids, active_only)
 
 
 async def _verify_teacher_batch_access(user: dict, batch_id: Optional[str]) -> dict:
@@ -66,8 +76,10 @@ async def _verify_teacher_batch_access(user: dict, batch_id: Optional[str]) -> d
             raise HTTPException(status_code=403, detail="You do not have permission to view reports for this batch")
 
     # Enrolment lives on db.users.batch_ids; a student_ids list stored on the batch can be stale
-    batch["student_ids"] = await _roster([batch_id])
-    batch["active_student_ids"] = await _roster([batch_id], active_only=True)
+    docs = await _roster_docs([batch_id])
+    batch["student_ids"] = _roster_ids(docs, [batch_id])
+    batch["active_student_ids"] = _roster_ids(docs, [batch_id], active_only=True)
+    batch["_roster_docs"] = docs  # names and join dates for the term report, without re-reading users
     batch["is_archived"] = bool(batch.get("archived_at"))
     return batch
 
@@ -257,20 +269,19 @@ async def get_batch_term_report(
     batch = await _verify_teacher_batch_access(user, batch_id)
     student_ids = batch.get("student_ids") or []
 
-    student_map = {}
-    if student_ids:
-        conds = [{"id": {"$in": student_ids}}]
-        valid_oids = [ObjectId(sid) for sid in student_ids if ObjectId.is_valid(sid)]
-        if valid_oids:
-            conds.append({"_id": {"$in": valid_oids}})
-        cursor = db.users.find({"$or": conds}, {"_id": 1, "id": 1, "name": 1})
-        async for u in cursor:
-            name = u.get("name", "Student")
-            if "id" in u:
-                student_map[str(u["id"])] = name
-            student_map[str(u["_id"])] = name
+    roster_docs = batch.pop("_roster_docs", [])
+    student_map = {str(u["_id"]): u.get("name", "Student") for u in roster_docs}
+    enrolled_at = {str(u["_id"]): (u.get("batch_enrolled_at") or {}).get(batch_id) for u in roster_docs}
+    enrolled_at = {k: v for k, v in enrolled_at.items() if v}
 
-    sub_query = await _get_batch_submissions_query(batch_id, student_ids, batch.get("teacher_id"))
+    # Independent reads run together: the submission query's test ids and the attendance class tests
+    async def _class_tests():
+        return [t async for t in db.tests.find(
+            {"kind": "test", "is_deleted": {"$ne": True}, "is_draft": {"$ne": True}, "valid_until": {"$ne": None},
+             "$or": [{"batch_id": batch_id}, {"batch_id": "all", "teacher_id": batch.get("teacher_id")}]},
+            {"_id": 0, "id": 1, "valid_from": 1, "valid_until": 1, "makeups": 1, "excused_student_ids": 1})]
+    sub_query, class_tests = await asyncio.gather(
+        _get_batch_submissions_query(batch_id, student_ids, batch.get("teacher_id")), _class_tests())
     if period_start:
         # Coarse string prefilter with a day's buffer for mixed offsets; exact UTC filtering below
         sub_query["created_at"] = {"$gte": (period_start - timedelta(days=1)).isoformat()}
@@ -282,20 +293,9 @@ async def get_batch_term_report(
     if period_start or period_end:
         all_submissions = [s for s in all_submissions if _in_period(s.get("created_at"), period_start, period_end)]
 
-    # Attendance inputs: this batch's live class tests (plus the teacher's "All Students" ones) and join dates
-    class_tests = [t async for t in db.tests.find(
-        {"kind": "test", "is_deleted": {"$ne": True}, "is_draft": {"$ne": True}, "valid_until": {"$ne": None},
-         "$or": [{"batch_id": batch_id}, {"batch_id": "all", "teacher_id": batch.get("teacher_id")}]},
-        {"_id": 0, "id": 1, "valid_from": 1, "valid_until": 1, "makeups": 1, "excused_student_ids": 1})]
+    # Attendance counts this batch's live class tests (plus the teacher's "All Students" ones) and join dates
     if period_start or period_end:
         class_tests = [t for t in class_tests if _in_period(t.get("valid_from"), period_start, period_end)]
-    enrolled_at = {}
-    if student_ids:
-        valid_oids = [ObjectId(sid) for sid in student_ids if ObjectId.is_valid(sid)]
-        async for u in db.users.find({"_id": {"$in": valid_oids}}, {"_id": 1, "batch_enrolled_at": 1}):
-            joined = (u.get("batch_enrolled_at") or {}).get(batch_id)
-            if joined:
-                enrolled_at[str(u["_id"])] = joined
 
     try:
         term = None

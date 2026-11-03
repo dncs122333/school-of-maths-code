@@ -852,7 +852,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
   const isTeacherPaused = !isDraft && !isExpired && t.is_active === false;
   const studentLive = !isTeacher && !isDraft && t.is_active && !isExpired;
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.05 }}
       className={`relative group min-w-0 rounded-3xl bg-white border-[2.5px] ${isTargeted ? "border-[#E04A3C] ring-2 ring-[#E04A3C]/30 shadow-[5px_5px_0_#E04A3C]" : "border-[#1E293B] shadow-[4px_4px_0_#1E293B]"} p-5 sm:p-6 flex flex-col justify-between hover:-translate-y-1 transition-all`}>
 
       <div>
@@ -1278,7 +1278,8 @@ export default function QuizList({ kind }) {
     b.todo.sort((x, y) => (isTargetMatch(y) ? 1 : 0) - (isTargetMatch(x) ? 1 : 0) || closes(x) - closes(y));
     b.upcoming.sort((x, y) => new Date(x.valid_from) - new Date(y.valid_from));
     return b;
-  }, [searched]);
+    // isTargetMatch is rebuilt every render but only reads these target values
+  }, [searched, hasTarget, targetTopic, targetChapter, targetSubject]); // eslint-disable-line react-hooks/exhaustive-deps
   const activeStudentFilter = studentFilter || (studentBuckets.todo.length ? "todo" : "all");
   const studentList = activeStudentFilter === "all"
     ? [...studentBuckets.todo, ...studentBuckets.upcoming, ...studentBuckets.done, ...studentBuckets.closed]

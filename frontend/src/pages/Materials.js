@@ -350,11 +350,11 @@ export default function Materials() {
                                       const Icon = iconFor(r.content_type);
                                       const previewable = canPreview(r);
                                       return (
-                                        <motion.div key={r.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                                        <motion.div key={r.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.04 }}
                                           className="relative group rounded-3xl bg-white border-[2.5px] border-[#1E293B] p-6 flex flex-col shadow-[4px_4px_0_#1E293B] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0_#1E293B] transition-all">
                                           {/* Teacher quick action buttons */}
                                           {isTeacher && (
-                                            <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                            <div className="absolute top-3 right-3 flex gap-1.5 transition-opacity z-10 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
                                               <button
                                                 data-testid={`edit-material-top-${r.id}`}
                                                 onClick={(e) => { e.preventDefault(); openEdit(r); }}

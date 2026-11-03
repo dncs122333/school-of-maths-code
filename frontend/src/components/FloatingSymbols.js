@@ -16,10 +16,12 @@ const COLORS = [
   'text-[#D9A014]'  // Dark Mustard
 ];
 
-export default function FloatingSymbols({ count = 20 }) {
-  const prefersReducedMotion = typeof window !== 'undefined' && 
-    window.matchMedia && 
+export default function FloatingSymbols({ count: requested = 20 }) {
+  const prefersReducedMotion = typeof window !== 'undefined' &&
+    window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Fewer animated layers on phones: each one is a continuously running animation
+  const count = typeof window !== 'undefined' && window.innerWidth < 640 ? Math.min(requested, 8) : requested;
 
   // Generate random properties for each particle only once on mount
   const particles = useMemo(() => {

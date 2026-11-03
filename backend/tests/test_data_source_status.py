@@ -16,7 +16,7 @@ def _login(email: str, password: str) -> str:
     return response.json()["token"]
 
 
-def test_admin_can_inspect_atlas_status_and_learning_queue():
+def test_admin_can_inspect_atlas_status():
     token = _login("admin@vidya.com", "admin123")
     response = requests.get(
         f"{API}/admin/data-source-status",
@@ -28,10 +28,8 @@ def test_admin_can_inspect_atlas_status_and_learning_queue():
     assert payload["source"] == "MongoDB Atlas"
     assert payload["available"] is True
     assert "Atlas connected" in payload["message"]
-    assert isinstance(payload["learning_queue"], list)
+    assert "learning_queue" not in payload  # removed with the old notes feature
     assert "mongo_url" not in payload and "connection_string" not in payload
-    for note in payload["learning_queue"]:
-        assert {"id", "title", "owner_name", "created_at"}.issubset(note)
 
 
 def test_teacher_cannot_access_data_source_diagnostics():

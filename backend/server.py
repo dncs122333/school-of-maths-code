@@ -3641,18 +3641,37 @@ async def list_questions(class_level: Optional[str] = None, subject: Optional[st
         q["chapter"] = {"$regex": f"^{re.escape(chapter.strip())}$", "$options": "i"}
     if topic:
         top_rx = {"$regex": f"^{re.escape(topic.strip())}$", "$options": "i"}
-        q["$or"] = [{"topic": top_rx}, {"topics": top_rx}]
+        topic_or = [{"topic": top_rx}, {"topics": top_rx}]
+        # Combine with an "Unknown subject" $or instead of overwriting it
+        if "$or" in q:
+            q["$and"] = [{"$or": q.pop("$or")}, {"$or": topic_or}]
+        else:
+            q["$or"] = topic_or
     if difficulty:
         q["difficulty"] = difficulty
     if status:
         q["status"] = status
+        if status == "pending_review" and user["role"] != "admin":
+            # A teacher reviews only their own unreviewed imports (they can't approve anyone else's)
+            q["created_by"] = user["id"]
     items = await db.question_bank.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return items
 
 
 
+async def _owned_question(question_id: str, user: dict) -> dict:
+    """The bank is shared: a teacher may change or delete only the questions they added; admin any."""
+    q = await db.question_bank.find_one({"id": question_id}, {"_id": 0, "id": 1, "created_by": 1})
+    if not q:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user["role"] != "admin" and q.get("created_by") != user["id"]:
+        raise HTTPException(status_code=403, detail="You can only change questions you added")
+    return q
+
+
 @api_router.delete("/questions/{question_id}")
 async def delete_question(question_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _owned_question(question_id, user)
     res = await db.question_bank.delete_one({"id": question_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
@@ -3668,6 +3687,7 @@ class QuestionReviewInput(BaseModel):
 @api_router.put("/questions/{question_id}/review")
 @api_router.patch("/questions/{question_id}")
 async def review_question(question_id: str, body: QuestionReviewInput, user: dict = Depends(require_role("teacher", "admin"))):
+    await _owned_question(question_id, user)
     update = {"status": body.status}
     if body.correct_index is not None:
         update["correct_index"] = body.correct_index
@@ -4254,7 +4274,7 @@ async def decide_teacher_account(user_id: str, decision: str, admin: dict = Depe
 
 @api_router.get("/admin/data-source-status", response_model=DataSourceStatusResponse)
 async def data_source_status(_: dict = Depends(require_claim_role("admin"))):
-    """Admin-only Atlas status and a read-only Learning Queue investigation view."""
+    """Admin-only Atlas connection status."""
     status = await atlas_connection_status(force=True)
     if not status["available"]:
         return DataSourceStatusResponse(
@@ -4262,36 +4282,7 @@ async def data_source_status(_: dict = Depends(require_claim_role("admin"))):
             message=ATLAS_UNAVAILABLE_MESSAGE,
             checked_at=status["checked_at"],
         )
-
-    notes = await db.notes.find(
-        {},
-        {"_id": 0, "id": 1, "title": 1, "status": 1, "teacher_name": 1, "teacher_id": 1,
-         "batch_name": 1, "batch_id": 1, "class_level": 1, "subject": 1, "chapter": 1,
-         "created_at": 1, "updated_at": 1},
-    ).sort("created_at", -1).to_list(500)
-    queue = [
-        {
-            "id": note["id"],
-            "title": note.get("title") or "Untitled",
-            "status": note.get("status") or "ready",
-            "owner_name": note.get("teacher_name") or "Unknown",
-            "owner_id": note.get("teacher_id"),
-            "batch_name": note.get("batch_name"),
-            "batch_id": note.get("batch_id"),
-            "class_level": note.get("class_level"),
-            "subject": note.get("subject"),
-            "chapter": note.get("chapter"),
-            "created_at": note.get("created_at"),
-            "updated_at": note.get("updated_at"),
-        }
-        for note in notes
-    ]
-    return DataSourceStatusResponse(
-        available=True,
-        message="Atlas connected. Learning Queue records below are read-only for investigation.",
-        checked_at=status["checked_at"],
-        learning_queue=queue,
-    )
+    return DataSourceStatusResponse(available=True, message="Atlas connected.", checked_at=status["checked_at"])
 
 
 @api_router.get("/curriculum")
@@ -4349,38 +4340,32 @@ async def startup():
     if not status["available"]:
         logger.error("MongoDB Atlas unavailable at startup; database-backed routes are fail-closed")
         return
-    try:
-        await db.users.create_index("email", unique=True)
-    except Exception as e:
-        logger.error(f"index: {e}")
-    try:
-        await db.submissions.create_index([("test_id", 1), ("student_id", 1)])
-    except Exception as e:
-        logger.error(f"submissions index: {e}")
-    try:
-        await db.question_bank.create_index("dedup_key", unique=True)
-    except Exception as e:
-        logger.error(f"question_bank dedup index: {e}")
-    try:
-        await db.question_bank.create_index([("class_level", 1), ("subject", 1), ("chapter", 1)])
-    except Exception as e:
-        logger.error(f"question_bank filter index: {e}")
-    try:
-        await db.tests.create_index("id", unique=True)
-    except Exception as e:
-        logger.error(f"tests id index: {e}")
-    try:
-        await db.tests.create_index([("teacher_id", 1), ("kind", 1), ("created_at", -1)])
-    except Exception as e:
-        logger.error(f"tests teacher index: {e}")
-    try:
-        await db.tests.create_index([("kind", 1), ("status", 1), ("created_at", -1)])
-    except Exception as e:
-        logger.error(f"tests kind status index: {e}")
-    try:
-        await db.tests.create_index([("batch_id", 1), ("status", 1)])
-    except Exception as e:
-        logger.error(f"tests batch index: {e}")
+    # (collection, keys, options). Lookups by `id` and roster queries on users.batch_ids run on almost
+    # every request; without these indexes each one scanned the whole collection.
+    indexes = [
+        ("users", "email", {"unique": True}),
+        ("users", "batch_ids", {}),
+        ("batches", "id", {"unique": True}),
+        ("batches", [("teacher_id", 1), ("created_at", -1)], {}),
+        ("submissions", [("test_id", 1), ("student_id", 1)], {}),
+        ("submissions", [("student_id", 1), ("created_at", -1)], {}),
+        ("submissions", "id", {}),
+        ("question_bank", "dedup_key", {"unique": True}),
+        ("question_bank", "id", {"unique": True}),
+        ("question_bank", [("class_level", 1), ("subject", 1), ("chapter", 1)], {}),
+        ("question_bank", [("status", 1), ("created_at", -1)], {}),
+        ("tests", "id", {"unique": True}),
+        ("tests", [("teacher_id", 1), ("kind", 1), ("created_at", -1)], {}),
+        ("tests", [("kind", 1), ("status", 1), ("created_at", -1)], {}),
+        ("tests", [("batch_id", 1), ("status", 1)], {}),
+        ("tests", "student_id", {"sparse": True}),
+        ("resources", "id", {"unique": True}),
+    ]
+    for coll, keys, opts in indexes:
+        try:
+            await db[coll].create_index(keys, **opts)
+        except Exception as e:
+            logger.error(f"index {coll} {keys}: {e}")
     try:
         # Deduplicate any duplicate (batch_id, student_id) in batch_fees before unique index
         pipeline = [
@@ -4459,13 +4444,6 @@ async def startup():
             logger.info(f"Moved {migrated.modified_count} open tests to the 'all' audience")
     except Exception as e:
         logger.error(f"open-audience migration: {e}")
-    # Recover any notes left mid-generation if the worker restarted
-    try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
-        await db.notes.update_many({"status": "processing", "created_at": {"$lt": cutoff}},
-                                   {"$set": {"status": "failed", "error": "generation interrupted"}})
-    except Exception as e:
-        logger.error(f"note sweep failed: {e}")
     # Recover any tests left mid-build if the worker restarted
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()

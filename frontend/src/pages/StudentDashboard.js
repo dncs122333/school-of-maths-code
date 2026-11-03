@@ -99,7 +99,8 @@ export default function StudentDashboard() {
         const [statsRes, masteryRes, testsRes, matRes, subsRes] = await Promise.allSettled([
           api.get("/stats"),
           api.get("/mastery/me"),
-          api.get("/tests"),
+          // Only live class tests are shown here; fetching practice tests too added ~200 KB per load
+          api.get("/tests", { params: { kind: "test" } }),
           api.get("/resources"),
           api.get("/submissions/me", { params: { limit: 10 } }),
         ]);

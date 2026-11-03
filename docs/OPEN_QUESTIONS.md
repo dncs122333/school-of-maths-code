@@ -25,6 +25,11 @@ Decisions still to make, and work set aside on purpose. Update this when one is 
 - Batch detail (student fee rows) not yet checked on a phone after the wrap fix.
 - Two backend tests fail on subject capitalisation in question import (`test_questions_json` test_01/test_04); unrelated to UI work, still to fix.
 
+## Repository hygiene
+- **Uploaded files committed to git** — 12 student/teacher uploads (PDFs, images) are tracked under `backend/local_storage/`. Later: untrack them and add `local_storage/` to `.gitignore` (files stay on disk; production uses R2). Consider purging them from git history if they contain personal data.
+- Unused shadcn UI components and the npm packages only they use (~33 files, ~35 packages) were kept on purpose (Nov 2026); remove when sure they won't be used.
+- Old `db.notes` (151 records), `test_submissions` and `topic_mastery` collections are no longer used by any code; data kept on purpose.
+
 ## Earlier pending items
 - Academic year rollover for batches and fee schedules.
 - Scoring with marks and negative marks (fields exist; scoring ignores them).
