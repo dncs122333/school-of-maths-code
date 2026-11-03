@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
@@ -26,6 +27,7 @@ function formatExpiry(iso) {
 }
 
 function TestStudentsModal({ testData, onClose, isTeacher }) {
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState("leaderboard");
   const [leaderboard, setLeaderboard] = useState(null);
   const [missedData, setMissedData] = useState(null);
@@ -127,7 +129,7 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
     api.get(`/tests/${test.id}/missed-students`).then((r) => setMissedData(r.data || null)).catch(() => {});
 
   const handleMakeup = async (st) => {
-    if (!window.confirm(`Give ${st.name} a make-up window starting now (${test.duration_minutes || ""} min test, open ${(Number(test.duration_minutes) || 0) + 30} min)? Answers stay hidden from the class until it closes.`)) return;
+    if (!await confirm(`Give ${st.name} a make-up window starting now (${test.duration_minutes || ""} min test, open ${(Number(test.duration_minutes) || 0) + 30} min)? Answers stay hidden from the class until it closes.`)) return;
     setAbsenceBusy(st.id);
     try {
       await api.post(`/tests/${test.id}/makeup`, { student_ids: [st.id] });
@@ -154,7 +156,7 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
   };
 
   const handleReleaseResults = async () => {
-    if (!window.confirm("Show students the correct answers now? Anyone who hasn't taken it yet could be told them.")) return;
+    if (!await confirm("Show students the correct answers now? Anyone who hasn't taken it yet could be told them.")) return;
     try {
       await api.post(`/tests/${test.id}/release-results`);
       toast.success("Answers released to students");
@@ -819,9 +821,27 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
   );
 }
 
+const PAGE_SIZE = 24;
+
+// Where a test sits in a student's list
+function studentStatus(t, now) {
+  if (t.submitted) return "done";
+  if (t.opens_in_future) return "upcoming";
+  const expired = t.valid_until ? new Date(t.valid_until) <= now : false;
+  return t.is_active && !expired ? "todo" : "closed";
+}
+
+const STUDENT_FILTERS = [
+  { key: "todo", label: "To do" },
+  { key: "done", label: "Done" },
+  { key: "closed", label: "Closed" },
+  { key: "all", label: "All" },
+];
+
 function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse, onToggleActive, togglingActive, onOpenStudentsModal, isTargeted }) {
   const done = t.submitted;
-  const isDraft = Boolean(
+  // Templates are a teacher concept; students are never sent drafts
+  const isDraft = isTeacher && Boolean(
     t.is_draft ||
     (!t.valid_until && t.is_active === false) ||
     (t.is_active === false && (!t.batch_name || t.batch_name === "Saved / Unassigned")) ||
@@ -833,7 +853,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
   const studentLive = !isTeacher && !isDraft && t.is_active && !isExpired;
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-      className={`relative group rounded-3xl bg-white border-[2.5px] ${isTargeted ? "border-[#E04A3C] ring-2 ring-[#E04A3C]/30 shadow-[5px_5px_0_#E04A3C]" : "border-[#1E293B] shadow-[4px_4px_0_#1E293B]"} p-6 flex flex-col justify-between hover:-translate-y-1 transition-all`}>
+      className={`relative group min-w-0 rounded-3xl bg-white border-[2.5px] ${isTargeted ? "border-[#E04A3C] ring-2 ring-[#E04A3C]/30 shadow-[5px_5px_0_#E04A3C]" : "border-[#1E293B] shadow-[4px_4px_0_#1E293B]"} p-5 sm:p-6 flex flex-col justify-between hover:-translate-y-1 transition-all`}>
 
       <div>
         {isTargeted && (
@@ -844,18 +864,19 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
         )}
         {/* Teacher action buttons */}
         {isTeacher && (
-          <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          // Always visible on touch screens (no hover); hover-to-reveal only where a mouse exists
+          <div className="absolute top-3 right-3 flex gap-1.5 transition-opacity z-10 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
             <button
               data-testid={`reuse-icon-${t.id}`}
               onClick={() => onReuse(t)}
-              className="h-8 w-8 rounded-full bg-white hover:bg-[#F5C842]/40 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#1E293B] transition-colors"
+              aria-label="Reuse test" className="h-10 w-10 rounded-full bg-white hover:bg-[#F5C842]/40 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#1E293B] transition-colors"
               title="Reuse test / assign to batch">
               <Copy className="h-3.5 w-3.5 text-[#1E293B]" />
             </button>
             <button
               data-testid={`edit-test-${t.id}`}
               onClick={() => onEdit(t)}
-              className="h-8 w-8 rounded-full bg-white hover:bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#1E293B] transition-colors"
+              aria-label="Edit test" className="h-10 w-10 rounded-full bg-white hover:bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#1E293B] transition-colors"
               title="Edit test">
               <Pencil className="h-3.5 w-3.5" />
             </button>
@@ -863,16 +884,16 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
               data-testid={`delete-test-${t.id}`}
               onClick={() => onDelete(t)}
               disabled={deleting === t.id}
-              className="h-8 w-8 rounded-full bg-white hover:bg-[#FF6B5E]/20 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#FF6B5E] transition-colors disabled:opacity-50"
+              aria-label="Delete test" className="h-10 w-10 rounded-full bg-white hover:bg-[#FF6B5E]/20 border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center text-[#FF6B5E] transition-colors disabled:opacity-50"
               title="Delete test">
               {deleting === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
             </button>
           </div>
         )}
 
-        <div className="flex items-center justify-between mb-3 pr-16">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-head font-bold uppercase tracking-wide px-3 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B]">{t.subject}</span>
+        <div className={`flex flex-wrap items-center justify-between gap-2 mb-3 ${isTeacher ? "pr-36" : ""}`}>
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className="max-w-full truncate text-[11px] font-head font-bold uppercase tracking-wide px-3 py-0.5 rounded-full border-2 border-[#1E293B] bg-[#FFF9E8] text-[#1E293B]">{t.subject}</span>
             {isTeacher && (
               isDraft ? (
                 <button
@@ -1238,9 +1259,35 @@ export default function QuizList({ kind }) {
 
   useEffect(() => { load(); }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [search, setSearch] = useState("");
+  const [studentFilter, setStudentFilter] = useState(null); // null until items load, then "todo" or "all"
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const searched = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((t) => [t.title, t.chapter, t.topic, t.subject, t.batch_name]
+      .some((v) => (v || "").toLowerCase().includes(q)));
+  }, [items, search]);
+
+  // Students: one list, what they can do now first
+  const studentBuckets = useMemo(() => {
+    const now = new Date();
+    const b = { todo: [], upcoming: [], done: [], closed: [] };
+    for (const t of searched) b[studentStatus(t, now)].push(t);
+    const closes = (t) => (t.valid_until ? new Date(t.valid_until).getTime() : Infinity);
+    b.todo.sort((x, y) => (isTargetMatch(y) ? 1 : 0) - (isTargetMatch(x) ? 1 : 0) || closes(x) - closes(y));
+    b.upcoming.sort((x, y) => new Date(x.valid_from) - new Date(y.valid_from));
+    return b;
+  }, [searched]);
+  const activeStudentFilter = studentFilter || (studentBuckets.todo.length ? "todo" : "all");
+  const studentList = activeStudentFilter === "all"
+    ? [...studentBuckets.todo, ...studentBuckets.upcoming, ...studentBuckets.done, ...studentBuckets.closed]
+    : activeStudentFilter === "todo" ? [...studentBuckets.todo, ...studentBuckets.upcoming] : studentBuckets[activeStudentFilter];
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [activeStudentFilter, search, kind]);
+
   // Group by Class → Batch
   const classGroups = useMemo(() => {
-    return items.reduce((acc, t) => {
+    return searched.reduce((acc, t) => {
       const cl = `Class ${t.class_level || "?"}`;
       const isDraft = Boolean(
         t.is_draft ||
@@ -1256,7 +1303,7 @@ export default function QuizList({ kind }) {
       acc[cl][batch].push(t);
       return acc;
     }, {});
-  }, [items, isTeacher]);
+  }, [searched, isTeacher]);
   const sortedClasses = useMemo(() => Object.keys(classGroups).sort(), [classGroups]);
 
   /* ---- Delete ---- */
@@ -1377,11 +1424,76 @@ export default function QuizList({ kind }) {
         </div>
       )}
 
+      {!loading && items.length > 0 && (
+        <div className="space-y-3">
+          <Input
+            type="search"
+            aria-label={isDpp ? "Search practice tests" : "Search class tests"}
+            placeholder="Search by title or chapter"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-11 rounded-full border-2 border-[#1E293B] bg-white"
+          />
+          {!isTeacher && (
+            <div role="tablist" aria-label="Show" className="flex gap-2 overflow-x-auto pb-1">
+              {STUDENT_FILTERS.map((f) => {
+                const count = f.key === "all" ? searched.length
+                  : f.key === "todo" ? studentBuckets.todo.length + studentBuckets.upcoming.length
+                  : studentBuckets[f.key].length;
+                return (
+                  <button
+                    key={f.key}
+                    role="tab"
+                    aria-selected={activeStudentFilter === f.key}
+                    data-testid={`filter-${f.key}`}
+                    onClick={() => setStudentFilter(f.key)}
+                    className={`shrink-0 min-h-11 px-4 rounded-full text-sm font-head font-bold border-2 border-[#1E293B] ${
+                      activeStudentFilter === f.key ? "bg-[#1E293B] text-white" : "bg-white text-[#1E293B]"
+                    }`}
+                  >
+                    {f.label} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? <p className="text-[#64748B] font-bold">Loading assessments…</p> : items.length === 0 ? (
         <div className="rounded-3xl border-2 border-dashed border-[#1E293B] bg-white p-16 text-center shadow-[4px_4px_0_#1E293B]">
           {isDpp ? <Sparkles className="h-10 w-10 mx-auto text-[#64748B]" /> : <FileQuestion className="h-10 w-10 mx-auto text-[#64748B]" />}
           <p className="mt-3 text-[#1E293B] font-bold">Nothing here yet{!isTeacher && ". Join a batch to receive tests from your teacher."}</p>
         </div>
+      ) : !isTeacher ? (
+        studentList.length === 0 ? (
+          <div className="rounded-3xl border-2 border-dashed border-[#1E293B]/40 bg-white p-10 text-center font-bold text-[#64748B]">
+            {search ? "No tests match your search." : activeStudentFilter === "todo" ? "You're all caught up. Nothing to do right now." : "Nothing here."}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {studentList.slice(0, visibleCount).map((t, i) => (
+                <TestCard
+                  key={t.id} t={t} isTeacher={false} isDpp={isDpp} i={Math.min(i, 6)}
+                  onOpenStudentsModal={(test, initialTab) => setStudentsModal({ test, initialTab })}
+                  isTargeted={isTargetMatch(t)}
+                />
+              ))}
+            </div>
+            {studentList.length > visibleCount && (
+              <div className="text-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                  className="min-h-11 rounded-full border-2 border-[#1E293B] bg-white font-head font-bold"
+                >
+                  Show more ({studentList.length - visibleCount} left)
+                </Button>
+              </div>
+            )}
+          </div>
+        )
       ) : (
         <div className="space-y-10">
           {sortedClasses.map((cl) => {
@@ -1404,7 +1516,7 @@ export default function QuizList({ kind }) {
                   <div className="flex-1 h-0.5 bg-[#1E293B]" />
                 </div>
 
-                <div className="space-y-6 pl-2 border-l-2 border-[#1E293B]">
+                <div className="space-y-6 sm:pl-2 sm:border-l-2 border-[#1E293B]">
                   {sortedBatches.map((batch) => {
                     const batchItems = batchMap[batch];
                     const isTemplateFolder = batch === "Master Templates";
@@ -1412,7 +1524,7 @@ export default function QuizList({ kind }) {
                       <div key={batch}>
                         {/* Batch sub-header */}
                         {isTemplateFolder ? (
-                          <div className="flex items-center gap-2.5 mb-4 ml-4 p-2.5 rounded-2xl bg-[#F3E8FF]/80 border-2 border-[#9333EA]/30 pr-4 shadow-[2px_2px_0_#9333EA]/20">
+                          <div className="flex flex-wrap items-center gap-2.5 mb-4 sm:ml-4 p-2.5 rounded-2xl bg-[#F3E8FF]/80 border-2 border-[#9333EA]/30 pr-4 shadow-[2px_2px_0_#9333EA]/20">
                             <div className="h-7 w-7 rounded-xl bg-[#9333EA] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] flex items-center justify-center">
                               <Sparkles className="h-3.5 w-3.5 text-white" />
                             </div>
@@ -1428,14 +1540,14 @@ export default function QuizList({ kind }) {
                             <div className="flex-1 h-0.5 bg-[#9333EA]/30 ml-1" />
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 mb-4 ml-4">
+                          <div className="flex items-center gap-2 mb-4 sm:ml-4 min-w-0">
                             <Folder className="h-4 w-4 text-[#F5C842]" />
                             <h3 className="font-head font-bold text-[#1E293B] text-sm tracking-wide uppercase">{batch}</h3>
                             <span className="text-xs text-[#64748B] font-mono font-bold">({batchItems.length})</span>
                             <div className="flex-1 h-0.5 bg-[#1E293B]/20 ml-1" />
                           </div>
                         )}
-                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 pl-4">
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:pl-4">
                           {batchItems
                             .slice()
                             .sort((a, b) => (isTargetMatch(b) ? 1 : 0) - (isTargetMatch(a) ? 1 : 0))

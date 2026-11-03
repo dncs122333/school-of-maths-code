@@ -241,11 +241,34 @@ export default function StudentDashboard() {
   const activeWeekDays = stats.active_week_days || [];
 
   return (
-    <div className="space-y-10 pb-16">
+    <div className="space-y-6 sm:space-y-10 pb-16">
+      {/* A live class test is the most urgent thing on the page: first, above the greeting */}
+      {activeTests.length > 0 && (
+        <div data-testid="live-test-banner" className="rounded-3xl bg-[#E04A3C] border-[3px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-white">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="h-3 w-3 shrink-0 rounded-full bg-white animate-ping motion-reduce:animate-none" aria-hidden="true" />
+            <div className="min-w-0">
+              <span className="text-xs font-head font-black uppercase tracking-wider bg-white text-[#E04A3C] px-2 py-0.5 rounded-full border border-[#1E293B]">
+                {activeTests.length > 1 ? `${activeTests.length} live tests` : "Live test"}
+              </span>
+              <h2 className="font-head text-base sm:text-lg font-black mt-1 truncate">{activeTests[0].title}</h2>
+            </div>
+          </div>
+          <Button
+            asChild
+            className="w-full sm:w-auto min-h-11 rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:bg-[#FFF9E8] font-head font-bold text-sm px-5 shrink-0"
+          >
+            <Link to={activeTests.length > 1 ? "/tests" : `/quiz/${activeTests[0].id}`}>
+              {activeTests.length > 1 ? "See tests" : "Start now"} <ArrowRight className="h-4 w-4 ml-1" />
+            </Link>
+          </Button>
+        </div>
+      )}
+
       {/* ======================================================== */}
       {/* 1. GREETING HEADER (YELLOW BANNER - CLASSROOM HUB STYLE) */}
       {/* ======================================================== */}
-      <div className="rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 lg:p-10 relative overflow-hidden">
+      <div className="rounded-3xl bg-[#F5C842] border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-5 sm:p-8 lg:p-10 relative overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
@@ -272,14 +295,15 @@ export default function StudentDashboard() {
                 ? `You have ${weakTopics.length} priority topics flagged for revision today. Solve chapter DPPs to solidify your board exam score!`
                 : masteryTopics.length === 0
                   ? "Your mastery map fills in from class tests. Keep practising in the meantime!"
-                  : "Your syllabus retention is looking fantastic! Keep up the daily practice sprint to secure full CBSE board marks."}
+                  : "No weak topics flagged from your class tests so far. Keep practising to stay ahead."}
             </p>
           </div>
 
           {/* Quick Streak & Metrics Capsule */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 bg-white border-[2.5px] border-[#1E293B] p-4 rounded-3xl shrink-0 shadow-[4px_4px_0_#1E293B]">
+          {/* Phones: streak on its own row, the two numbers side by side, then the button (was 4 stacked cards) */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-row items-stretch sm:items-center gap-3 bg-white border-[2.5px] border-[#1E293B] p-3 sm:p-4 rounded-3xl shrink-0 shadow-[4px_4px_0_#1E293B]">
             {/* Streak Counter with weekly mini dots */}
-            <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex flex-col justify-center text-center min-w-[130px]">
+            <div className="col-span-2 px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] flex flex-col justify-center text-center min-w-[130px]">
               <div className="flex items-center justify-center gap-1.5 text-sm font-head font-black text-[#1E293B]">
                 <Flame className="h-5 w-5 text-[#E04A3C] fill-[#E04A3C]" />
                 {streakCount > 0 ? `${streakCount}-Day Streak` : "0"}
@@ -311,7 +335,7 @@ export default function StudentDashboard() {
 
             {/* Accuracy Rate */}
             <div className="px-4 py-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] text-center min-w-[95px]">
-              <div className="font-head font-black text-xl text-[#2F8A5F]">{stats.avg_score ?? 0}%</div>
+              <div className="font-head font-black text-xl text-[#2F8A5F]">{stats.tests_taken ? `${stats.avg_score ?? 0}%` : "—"}</div>
               <div className="text-[10px] text-[#64748B] font-head font-bold uppercase tracking-wider mt-0.5">Accuracy</div>
             </div>
 
@@ -320,7 +344,7 @@ export default function StudentDashboard() {
               size="sm"
               onClick={handleStartDiagnostic}
               disabled={diagnosticBusy}
-              className="rounded-2xl bg-[#2F8A5F] hover:bg-[#256e4c] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-4 h-12 transition-transform active:translate-x-[2px] active:translate-y-[2px] shrink-0"
+              className="col-span-2 rounded-2xl bg-[#2F8A5F] hover:bg-[#256e4c] text-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] font-head font-bold text-xs px-4 h-12 transition-transform active:translate-x-[2px] active:translate-y-[2px] shrink-0"
             >
               {diagnosticBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -336,28 +360,6 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Live Test Alert Banner if any */}
-        {activeTests.length > 0 && (
-          <div className="mt-6 rounded-2xl bg-[#E04A3C] border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-white">
-            <div className="flex items-center gap-3">
-              <span className="h-3 w-3 rounded-full bg-white animate-ping" />
-              <div>
-                <span className="text-xs font-head font-black uppercase tracking-wider bg-white text-[#E04A3C] px-2 py-0.5 rounded-full border border-[#1E293B]">
-                  LIVE TEST ACTIVE
-                </span>
-                <h4 className="font-head text-base sm:text-lg font-black mt-1">{activeTests[0].title}</h4>
-              </div>
-            </div>
-            <Button
-              asChild
-              className="rounded-full bg-white text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] hover:bg-[#FFF9E8] font-head font-bold text-xs px-5 h-9 shrink-0"
-            >
-              <Link to={`/quiz/${activeTests[0].id}`}>
-                Start Now <ArrowRight className="h-3.5 w-3.5 ml-1" />
-              </Link>
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* ======================================================== */}
@@ -661,7 +663,8 @@ export default function StudentDashboard() {
       {/* ======================================================== */}
       {/* 6. CLASS RESOURCES SECTION (CENTERED COLORED PILL BUTTONS) */}
       {/* ======================================================== */}
-      <section className="rounded-3xl bg-white border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 text-center space-y-6">
+      {/* Same links as the phone tab bar: desktop only */}
+      <section className="hidden lg:block rounded-3xl bg-white border-[3px] border-[#1E293B] shadow-[6px_6px_0_#1E293B] p-6 sm:p-8 text-center space-y-6">
         <div>
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#FFF9E8] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-black tracking-wider uppercase mb-2">
             🔗 QUICK NAVIGATION

@@ -19,6 +19,9 @@ import {
   Target
 } from "lucide-react";
 import { toast } from "sonner";
+import MathText from "../components/MathText";
+import QuestionFigure from "../components/QuestionFigure";
+import { useConfirm } from "../components/ConfirmDialog";
 
 export default function QuizRunner() {
   const { id } = useParams();
@@ -27,6 +30,7 @@ export default function QuizRunner() {
   const reviewMode = searchParams.get("review") === "1";
   const nav = useNavigate();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const isTeacher = user?.role === "teacher" || user?.role === "admin";
   const [quiz, setQuiz] = useState(null);
   const [answers, setAnswers] = useState([]);
@@ -95,12 +99,21 @@ export default function QuizRunner() {
 
   // Track tab/window switches as an anti-cheat signal
   useEffect(() => {
+    let hiddenAt = null;
     const handler = () => {
-      if (document.visibilityState === "hidden") tabSwitchesRef.current += 1;
+      if (document.visibilityState === "hidden") hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 3000) tabSwitchesRef.current += 1;
     };
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
   }, []);
+
+  useEffect(() => {
+    if (!quiz || isTeacher || result || reviewMode) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [quiz, isTeacher, result, reviewMode]);
 
   const goTo = useCallback((i) => { recordTime(); setIdx(i); }, [recordTime]);
 
@@ -203,7 +216,10 @@ export default function QuizRunner() {
                   ) : (
                     <XCircle className="h-5 w-5 text-[#E04A3C] shrink-0 mt-0.5" />
                   )}
-                  <p className="font-head font-bold text-base text-[#1E293B]">{i + 1}. {q.question}</p>
+                  <div className="min-w-0">
+                    <p className="font-head font-bold text-base text-[#1E293B]">{i + 1}. <MathText text={q.question} /></p>
+                    <QuestionFigure src={q.image_url} className="mt-2" />
+                  </div>
                 </div>
                 {q.topic && (
                   <Badge variant="outline" className="text-[10px] bg-[#FFF9E8] border-[#1E293B] shrink-0 font-bold">
@@ -224,13 +240,13 @@ export default function QuizRunner() {
                         : "bg-[#FFF9E8] text-[#1E293B]"
                     }`}
                   >
-                    {o}
+                    <MathText text={o} />
                   </div>
                 ))}
                 {q.explanation && (
                   <p className="text-xs text-[#1E293B] mt-2 font-medium bg-[#FFF9E8] p-3 rounded-xl border border-[#1E293B] leading-relaxed">
                     <span className="font-bold text-[#2F8A5F] block mb-0.5">✦ Step-by-Step Explanation:</span>
-                    {q.explanation}
+                    <MathText text={q.explanation} />
                   </p>
                 )}
               </div>
@@ -268,7 +284,10 @@ export default function QuizRunner() {
           {quiz.questions.map((q, i) => (
             <div key={i} className="rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] p-5">
               <div className="flex items-start justify-between gap-2">
-                <p className="font-head font-bold text-base text-[#1E293B]">{i + 1}. {q.question}</p>
+                <div className="min-w-0">
+                  <p className="font-head font-bold text-base text-[#1E293B]">{i + 1}. <MathText text={q.question} /></p>
+                  <QuestionFigure src={q.image_url} className="mt-2" />
+                </div>
                 {q.topic && (
                   <Badge variant="outline" className="text-[10px] bg-[#FFF9E8] border-[#1E293B] font-bold shrink-0">
                     {q.topic}
@@ -283,13 +302,13 @@ export default function QuizRunner() {
                       j === q.correct_index ? "bg-[#2F8A5F] text-white" : "bg-[#FFF9E8] text-[#1E293B]"
                     }`}
                   >
-                    {o}
+                    <MathText text={o} />
                   </div>
                 ))}
               </div>
               {q.explanation && (
                 <p className="text-xs text-[#1E293B] mt-2 font-medium bg-[#FFF9E8] p-2.5 rounded-xl border border-[#1E293B]">
-                  ✦ {q.explanation}
+                  ✦ <MathText text={q.explanation} />
                 </p>
               )}
             </div>
@@ -310,8 +329,8 @@ export default function QuizRunner() {
   const pick = (j) => setAnswers((a) => { const n = [...a]; n[idx] = j; return n; });
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="sticky top-16 z-30 bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] rounded-2xl p-4 flex items-center justify-between gap-4">
+    <div className="max-w-2xl mx-auto space-y-6 pb-24 lg:pb-0">
+      <div className="sticky top-14 sm:top-16 z-30 bg-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] rounded-2xl p-4 flex items-center justify-between gap-4">
         <div className="flex-1">
           <div className="text-xs font-head font-bold truncate text-[#1E293B] uppercase">{quiz.title}</div>
           <Progress value={(answered / quiz.questions.length) * 100} className="h-2.5 mt-1.5 bg-[#FFF9E8] border border-[#1E293B]" />
@@ -342,7 +361,8 @@ export default function QuizRunner() {
           </div>
         </div>
 
-        <p className="font-head text-xl font-extrabold leading-snug text-[#1E293B]">{q.question}</p>
+        <MathText as="p" text={q.question} className="font-head text-xl font-extrabold leading-snug text-[#1E293B]" />
+        <QuestionFigure src={q.image_url} className="mt-3" />
 
         {/* Practice mode hint */}
         {isDpp && q.hint && (
@@ -357,7 +377,7 @@ export default function QuizRunner() {
             </button>
             {showHint && (
               <div className="mt-1.5 p-2.5 rounded-xl bg-[#FFF9E8] border border-[#1E293B] text-xs text-[#1E293B] font-medium animate-in fade-in">
-                💡 {q.hint}
+                💡 <MathText text={q.hint} />
               </div>
             )}
           </div>
@@ -378,19 +398,45 @@ export default function QuizRunner() {
               <span className={`h-7 w-7 shrink-0 rounded-lg border-2 border-[#1E293B] flex items-center justify-center text-xs font-black font-mono ${answers[idx] === j ? "bg-white text-[#1E293B]" : "bg-white text-[#1E293B]"}`}>
                 {String.fromCharCode(65 + j)}
               </span>
-              {o}
+              <MathText text={o} />
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      {/* Question palette: jump anywhere, see what's answered */}
+      <nav aria-label="Questions" className="rounded-3xl bg-white border-2 border-[#1E293B] p-4">
+        <div className="flex items-center justify-between mb-3 text-xs font-head font-bold text-[#1E293B]">
+          <span>{answered} of {quiz.questions.length} answered</span>
+        </div>
+        <ol className="flex flex-wrap gap-2">
+          {quiz.questions.map((_, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                data-testid={`palette-${i}`}
+                aria-label={`Question ${i + 1}${answers[i] !== -1 ? ", answered" : ""}`}
+                aria-current={i === idx ? "step" : undefined}
+                onClick={() => goTo(i)}
+                className={`h-11 w-11 rounded-full border-2 border-[#1E293B] font-mono text-sm font-bold ${
+                  i === idx ? "ring-2 ring-offset-2 ring-[#3E7CB1]" : ""
+                } ${answers[i] !== -1 ? "bg-[#2F8A5F] text-white" : "bg-[#FFF9E8] text-[#1E293B]"}`}
+              >
+                {i + 1}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </nav>
+
+      {/* Phones: pinned to the bottom so long questions never push the controls off-screen */}
+      <div className="fixed lg:static bottom-0 inset-x-0 z-40 bg-white lg:bg-transparent border-t-[3px] lg:border-0 border-[#1E293B] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:p-0 flex items-center justify-between gap-3">
         <Button
           data-testid="prev-btn"
           variant="outline"
           disabled={idx === 0}
           onClick={() => goTo(idx - 1)}
-          className="rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] font-head font-bold active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+          className="min-h-11 rounded-full border-2 border-[#1E293B] bg-white text-[#1E293B] font-head font-bold active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
         >
           <ChevronLeft className="h-4 w-4 mr-1" /> Prev
         </Button>
@@ -398,18 +444,22 @@ export default function QuizRunner() {
           <Button
             data-testid="next-btn"
             onClick={() => goTo(idx + 1)}
-            className="rounded-full bg-[#3E7CB1] hover:bg-[#336894] text-white border-2 border-[#1E293B] font-head font-bold active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            className="min-h-11 rounded-full bg-[#3E7CB1] hover:bg-[#336894] text-white border-2 border-[#1E293B] font-head font-bold active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
           >
             Next <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         ) : (
           <Button
             data-testid="submit-quiz-btn"
-            onClick={doSubmit}
+            onClick={async () => {
+              const left = answers.filter((a) => a === -1).length;
+              if (left && !(await confirm({ title: "Submit now?", description: `${left} question${left > 1 ? "s are" : " is"} unanswered.`, confirmLabel: "Submit" }))) return;
+              doSubmit();
+            }}
             disabled={submitting}
-            className="rounded-full bg-[#2F8A5F] hover:bg-[#26734E] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-black active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            className="min-h-11 rounded-full bg-[#2F8A5F] hover:bg-[#26734E] text-white border-2 border-[#1E293B] shadow-[3px_3px_0_#1E293B] font-head font-black active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
           >
-            {submitting ? "Submitting…" : "Submit Assessment"}
+            {submitting ? "Submitting…" : "Submit"}
           </Button>
         )}
       </div>

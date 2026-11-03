@@ -1,0 +1,23 @@
+{
+  "short_name": "School of Maths",
+  "name": "School of Maths: CBSE Class 9–10",
+  "description": "Class notes, timed class tests, daily practice and weak-topic detection for CBSE Class 9–10 maths.",
+  "id": "/",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF9E8",
+  "theme_color": "#F5C842",
+  "categories": ["education"],
+  "icons": [
+    { "src": "favicon.ico", "sizes": "64x64 48x48 32x32 16x16", "type": "image/x-icon" },
+    { "src": "logo192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "logo512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "maskable512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Class tests", "url": "/tests", "icons": [{ "src": "logo192.png", "sizes": "192x192" }] },
+    { "name": "Practice", "url": "/dpp", "icons": [{ "src": "logo192.png", "sizes": "192x192" }] }
+  ]
+}

@@ -5,7 +5,7 @@ const BASE_URL = RAW_BACKEND_URL.replace(/\/+$/, "");
 const API = `${BASE_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
-export const DATABASE_UNAVAILABLE_MESSAGE = "Database unavailable. Contact Dhruv immediately.";
+export const DATABASE_UNAVAILABLE_MESSAGE = "We can't reach the database right now. Please try again in a few minutes.";
 
 function notifyDatabaseAvailability(eventName) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(eventName));
@@ -48,9 +48,13 @@ api.interceptors.response.use(
     const isBlockedOrDisabled = res?.status === 403 && typeof res?.data?.detail === "string" && (
       res.data.detail.toLowerCase().includes("disabled") || res.data.detail.toLowerCase().includes("blocked")
     );
-    if ((res?.status === 401 || isBlockedOrDisabled) && !isAuthAttempt && window.location.pathname !== "/auth") {
+    if ((res?.status === 401 || isBlockedOrDisabled) && !isAuthAttempt && localStorage.getItem("vidya_token")) {
       localStorage.removeItem("vidya_token");
-      window.location.href = "/auth"; // the app's login route is /auth (see App.js)
+      // AuthContext signs out in place and the route guards send the user to /auth. No full-page
+      // reload: inside an installed or native app shell a reload would restart the whole app.
+      window.dispatchEvent(new CustomEvent("vidya:signed-out", {
+        detail: { reason: typeof res?.data?.detail === "string" ? res.data.detail : null },
+      }));
     }
     return Promise.reject(err);
   }

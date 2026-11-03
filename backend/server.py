@@ -33,7 +33,7 @@ from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connect
 from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
-                  require_claim_role)
+                  require_claim_role, check_account_access, TEACHER_PENDING_MESSAGE)
 from ai import extract_questions_from_media
 from storage import init_storage, put_object, get_object
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
@@ -85,8 +85,13 @@ async def register(body: RegisterInput):
         raise HTTPException(status_code=400, detail="Email already registered")
     doc = {"name": body.name, "email": email, "password_hash": hash_password(body.password),
            "role": body.role, "batch_ids": [], "created_at": datetime.now(timezone.utc).isoformat()}
+    if body.role == "teacher":
+        # Teacher accounts get the question bank and student data: an admin approves them first
+        doc["teacher_status"] = "pending"
     res = await db.users.insert_one(doc)
     uid = str(res.inserted_id)
+    if body.role == "teacher":
+        return {"pending_approval": True, "message": TEACHER_PENDING_MESSAGE}
     token = create_access_token(uid, email, body.role)
     return {"token": token, "user": {"id": uid, "name": body.name, "email": email, "role": body.role, "batch_ids": []}}
 
@@ -97,10 +102,7 @@ async def login(body: LoginInput):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if user.get("is_blocked"):
-        raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
-    if user.get("is_disabled"):
-        raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
+    check_account_access(user)
     uid = str(user["_id"])
     token = create_access_token(uid, email, user["role"])
     return {"token": token, "user": {"id": uid, "name": user["name"], "email": email,
@@ -2043,6 +2045,7 @@ async def _build_test(test_id: str, body: GenerateTestInput):
                     "options": x["options"],
                     "correct_index": x["correct_index"],
                     "explanation": x.get("explanation", ""),
+                    "image_url": x.get("image_url"),
                     "subject": q_subj,
                     "chapter": q_chap,
                     "topic": q_top,
@@ -2118,8 +2121,10 @@ async def create_test(body: GenerateTestInput, user: dict = Depends(require_role
     if batch_val in ("template", "none"):
         batch_val = None
         is_draft = True
-    elif batch_val in ("all", ""):
-        batch_val = None if (body.kind == "dpp" or is_draft) else "all"
+    elif batch_val in ("all", "", None):
+        # "all" is the only open audience; only drafts/templates have no batch and they never reach
+        # students. A live test sent without a batch is for all of this teacher's students.
+        batch_val = None if is_draft else "all"
 
     batch_name = None
     if batch_val and batch_val != "all":
@@ -2194,6 +2199,7 @@ async def _sample_bank_questions(class_level: str, subject: str, chapter: str,
             "options": x["options"],
             "correct_index": x["correct_index"],
             "explanation": x.get("explanation", ""),
+            "image_url": x.get("image_url"),
             "subject": q_subj,
             "chapter": q_chap,
             "topic": q_top,
@@ -2307,6 +2313,7 @@ def _strip_answers(test: dict, student_id: str) -> dict:
         out.append({
             "question": q["question"],
             "options": [q["options"][j] for j in order],
+            "image_url": q.get("image_url"),
             "subject": q.get("subject", ""),
             "chapter": q.get("chapter", ""),
             "topic": q.get("topic", ""),
@@ -2349,6 +2356,7 @@ async def list_tests(kind: Optional[str] = None, user: dict = Depends(get_curren
         return tests
     if user["role"] == "student":
         q["status"] = "ready"
+        q["is_draft"] = {"$ne": True}
         if kind == "diagnostic":
             q["student_id"] = user["id"]
         else:
@@ -2447,7 +2455,9 @@ def _validate_test_timing(valid_hours: Optional[int], duration_minutes: Optional
         raise HTTPException(status_code=400, detail="Duration must be between 0 (untimed) and 600 minutes")
 
 
-OPEN_AUDIENCE = (None, "", "all")  # "All Students" / unassigned: every student of the test's teacher
+# "All Students": every student of the test's teacher. A test with no batch is a private template/draft
+# and is never shown to students (legacy open practice tests are migrated to "all" at startup).
+OPEN_AUDIENCE = ("all",)
 TEST_NOT_DELETED = {"is_deleted": {"$ne": True}}  # deleted tests stay for submission history but are hidden
 
 
@@ -2597,7 +2607,8 @@ def _review_rows(test: dict, student_id: str, answers: list, times: list) -> lis
         order = _shuffled_order(_option_seed(test["id"], student_id, i), len(q["options"]))
         chosen = answers[i] if i < len(answers) else -1
         correct_display = order.index(q["correct_index"])
-        rows.append({"question": q["question"], "options": [q["options"][j] for j in order], "chosen": chosen,
+        rows.append({"question": q["question"], "image_url": q.get("image_url"),
+                     "options": [q["options"][j] for j in order], "chosen": chosen,
                      "correct_index": correct_display, "explanation": q.get("explanation", ""),
                      "is_correct": chosen == correct_display, "time_s": times[i] if i < len(times) else 0.0,
                      "subject": q.get("subject", ""), "chapter": q.get("chapter", ""), "topic": q.get("topic", ""),
@@ -2844,6 +2855,7 @@ async def get_student_submission_review(test_id: str, student_id: str, user: dic
             "is_correct": is_ok,
             "is_unattempted": is_unattempted,
             "explanation": q.get("explanation", ""),
+            "image_url": q.get("image_url"),
             "topic": q.get("topic", test.get("topic", "")),
             "chapter": q.get("chapter", test.get("chapter", "")),
             "subject": q.get("subject", test.get("subject", "")),
@@ -3108,6 +3120,10 @@ async def update_test(test_id: str, body: UpdateTestInput, user: dict = Depends(
                 else:
                     updates["valid_until"] = (now + timedelta(hours=vh)).isoformat()
                 updates["valid_hours"] = vh
+            if not test.get("student_id") and test.get("batch_id") in (None, "", "Saved / Unassigned"):
+                # A template going live with no batch is for all of this teacher's students
+                updates["batch_id"] = "all"
+                updates["batch_name"] = "All Students"
     if body.is_draft is not None:
         updates["is_draft"] = body.is_draft
         if body.is_draft is True:
@@ -3154,7 +3170,10 @@ async def duplicate_test(test_id: str, body: DuplicateTestInput, user: dict = De
     now = datetime.now(timezone.utc)
     batch_val = body.batch_id if body.batch_id is not None else orig.get("batch_id")
     if batch_val in ("all", ""):
-        batch_val = None if orig.get("kind") == "dpp" else "all"
+        batch_val = "all"
+    if not batch_val or batch_val in ("template", "none", "Saved / Unassigned"):
+        # The copy goes live immediately; with no audience nobody could ever take it
+        raise HTTPException(status_code=400, detail="Choose a batch or All Students for this test")
 
     batch_name = None
     if batch_val and batch_val != "all":
@@ -3347,6 +3366,7 @@ async def _ingest_questions_list(
             negative_marks = 0.0
 
         hint = (raw.get("hint") or "").strip()
+        image_url = (raw.get("image_url") or raw.get("Image URL") or raw.get("image") or "").strip()
         raw_tags = raw.get("tags") or []
         if isinstance(raw_tags, str):
             raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
@@ -3357,6 +3377,8 @@ async def _ingest_questions_list(
             status = "active"
 
         problems = []
+        if image_url and not (image_url.startswith("https://") and len(image_url) <= 500):
+            problems.append("image_url must be an https:// link")
         if not question:
             problems.append("empty question")
         if any(not o for o in options) or len(options) < 2:
@@ -3379,7 +3401,7 @@ async def _ingest_questions_list(
                "question": question, "options": options,
                "correct_index": correct_index, "explanation": explanation, "difficulty": difficulty,
                "question_type": question_type, "marks": marks, "negative_marks": negative_marks,
-               "hint": hint, "tags": tags,
+               "hint": hint, "tags": tags, "image_url": image_url or None,
                "status": status, "source": source, "source_id": src_id,
                "dedup_key": _dedup_key(question), "created_by": user_id, "created_at": now}
 
@@ -4200,6 +4222,36 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
     return {"topper": top_student, "leaderboard": toppers}
 
 
+@api_router.get("/admin/teachers")
+async def list_teacher_accounts(status: str = "pending", _: dict = Depends(require_role("admin"))):
+    """Teacher sign-ups by approval status (pending / approved / rejected). Accounts from before approval
+    existed have no teacher_status and are listed as approved."""
+    if status not in ("pending", "approved", "rejected"):
+        raise HTTPException(status_code=400, detail="status must be pending, approved or rejected")
+    q = {"role": "teacher"}
+    q["teacher_status"] = {"$in": ["approved", None]} if status == "approved" else status
+    users = await db.users.find(q, {"name": 1, "email": 1, "created_at": 1, "teacher_status": 1,
+                                    "teacher_decided_at": 1}).sort("created_at", -1).to_list(500)
+    return [{"id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "created_at": u.get("created_at"),
+             "status": u.get("teacher_status") or "approved", "decided_at": u.get("teacher_decided_at")} for u in users]
+
+
+@api_router.post("/admin/teachers/{user_id}/{decision}")
+async def decide_teacher_account(user_id: str, decision: str, admin: dict = Depends(require_role("admin"))):
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=404, detail="Unknown action")
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user id")
+    new_status = "approved" if decision == "approve" else "rejected"
+    res = await db.users.update_one(
+        {"_id": ObjectId(user_id), "role": "teacher"},
+        {"$set": {"teacher_status": new_status, "teacher_decided_at": datetime.now(timezone.utc).isoformat(),
+                  "teacher_decided_by": admin["id"]}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Teacher account not found")
+    return {"id": user_id, "status": new_status}
+
+
 @api_router.get("/admin/data-source-status", response_model=DataSourceStatusResponse)
 async def data_source_status(_: dict = Depends(require_claim_role("admin"))):
     """Admin-only Atlas status and a read-only Learning Queue investigation view."""
@@ -4382,15 +4434,31 @@ async def startup():
         await db.join_requests.create_index([("student_id", 1), ("status", 1)])
     except Exception as e:
         logger.error(f"join_requests indexes: {e}")
+    # Seed the admin once. No default password (a known default is a public admin login), and an existing
+    # admin's password is never overwritten unless ADMIN_PASSWORD_RESET=1 is set for a one-off recovery.
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@vidya.com").lower()
-    admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_pw = os.environ.get("ADMIN_PASSWORD")
     existing = await db.users.find_one({"email": admin_email})
-    if existing is None:
+    if not admin_pw:
+        if existing is None:
+            logger.error("ADMIN_PASSWORD is not set: no admin account was created")
+    elif existing is None:
         await db.users.insert_one({"name": "Admin", "email": admin_email,
                                    "password_hash": hash_password(admin_pw), "role": "admin",
                                    "batch_ids": [], "created_at": datetime.now(timezone.utc).isoformat()})
-    elif not verify_password(admin_pw, existing["password_hash"]):
+    elif os.environ.get("ADMIN_PASSWORD_RESET") == "1" and not verify_password(admin_pw, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_pw)}})
+        logger.warning("Admin password reset from ADMIN_PASSWORD (ADMIN_PASSWORD_RESET=1); unset it now")
+    # Open practice tests used to be stored with no batch; "all" is now the only open audience
+    try:
+        migrated = await db.tests.update_many(
+            {"kind": "dpp", "batch_id": {"$in": [None, ""]}, "student_id": None, "is_draft": {"$ne": True},
+             "valid_until": {"$ne": None}, "batch_name": {"$ne": "Saved / Unassigned"}},
+            {"$set": {"batch_id": "all", "batch_name": "All Students"}})
+        if migrated.modified_count:
+            logger.info(f"Moved {migrated.modified_count} open tests to the 'all' audience")
+    except Exception as e:
+        logger.error(f"open-audience migration: {e}")
     # Recover any notes left mid-generation if the worker restarted
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()

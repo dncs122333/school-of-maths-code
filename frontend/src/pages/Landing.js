@@ -23,32 +23,32 @@ export default function Landing() {
       <FloatingSymbols count={20} />
 
       {/* Top Navbar: Constant h-16 across breakpoints to align with sticky offsets */}
-      <header className="sticky top-0 z-50 bg-[#F5C842] border-b-[3px] border-[#1E293B] shadow-[0_4px_0_#1E293B]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-50 bg-[#F5C842] border-b-[3px] border-[#1E293B] shadow-[0_4px_0_#1E293B] pt-[env(safe-area-inset-top)]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
           <div
-            className="flex items-center gap-2.5 cursor-pointer group"
+            className="flex items-center gap-2 sm:gap-2.5 cursor-pointer group min-w-0"
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           >
-            <div className="h-10 w-10 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center group-hover:rotate-6 transition-transform">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 rounded-2xl bg-white border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] flex items-center justify-center group-hover:rotate-6 transition-transform">
               <span className="text-xl">📐</span>
             </div>
-            <div className="flex flex-col">
-              <span className="font-head font-black text-xl sm:text-2xl tracking-tight text-[#1E293B] uppercase leading-none">
+            <div className="flex flex-col min-w-0">
+              <span className="font-head font-black text-base sm:text-2xl tracking-tight text-[#1E293B] uppercase leading-none whitespace-nowrap">
                 School of <span className="text-[#E04A3C]">Maths</span>
               </span>
-              <span className="text-[10px] sm:text-xs font-head font-bold uppercase tracking-wider text-[#1E293B]/80 mt-0.5">
+              <span className="hidden sm:block text-xs font-head font-bold uppercase tracking-wider text-[#1E293B]/80 mt-0.5">
                 Classroom Hub • CBSE 9–10
               </span>
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <Button
               data-testid="landing-login-btn"
               variant="outline"
-              className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-bold text-xs sm:text-sm h-10 px-4 sm:px-5 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              className="rounded-full bg-white hover:bg-[#FFF9E8] text-[#1E293B] font-head font-bold text-xs sm:text-sm h-11 px-3 sm:px-5 border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
               onClick={() => nav("/auth")}
             >
               Log in
@@ -56,10 +56,10 @@ export default function Landing() {
             <Button
               data-testid="landing-start-btn"
               variant="dark"
-              className="rounded-full font-head font-bold text-xs sm:text-sm h-10 px-4 sm:px-6 shadow-[2px_2px_0_#1E293B] !text-white"
+              className="rounded-full font-head font-bold text-xs sm:text-sm h-11 px-3 sm:px-6 shadow-[2px_2px_0_#1E293B] !text-white"
               onClick={() => nav("/auth?mode=register")}
             >
-              Get started <ArrowRight className="h-4 w-4 ml-1 inline !text-white" />
+              Sign up<span className="hidden sm:inline">&nbsp;free</span> <ArrowRight className="hidden sm:inline h-4 w-4 ml-1 !text-white" />
             </Button>
           </div>
         </div>

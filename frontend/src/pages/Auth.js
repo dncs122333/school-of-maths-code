@@ -20,19 +20,32 @@ export default function Auth() {
     password: process.env.NODE_ENV === "development" ? "admin123" : ""
   });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [pendingMessage, setPendingMessage] = useState("");
 
-  useEffect(() => { if (user) nav("/dashboard"); }, [user, nav]);
+  useEffect(() => { if (user) nav("/dashboard", { replace: true }); }, [user, nav]);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
+    setError("");
+    setPendingMessage("");
     try {
-      if (mode === "login") await login(form.email, form.password);
-      else await register({ ...form, role });
+      if (mode === "login") {
+        await login(form.email, form.password);
+      } else {
+        const res = await register({ ...form, role });
+        if (res?.pendingApproval) {
+          setPendingMessage(res.message);
+          setMode("login");
+          return;
+        }
+      }
       toast.success("Welcome to School of Maths!");
-      nav("/dashboard");
+      nav("/dashboard", { replace: true });
     } catch (err) {
-      toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
+      // Shown under the form: a toast is easy to miss on a phone
+      setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
     } finally { setBusy(false); }
   };
 
@@ -74,6 +87,12 @@ export default function Auth() {
             ))}
           </div>
 
+          {pendingMessage && (
+            <div role="status" data-testid="teacher-pending" className="mb-5 rounded-2xl bg-[#EAF7EE] border-2 border-[#2F8A5F] p-4 text-sm text-[#1E293B]">
+              <p className="font-head font-bold">Request sent</p>
+              <p className="mt-1">{pendingMessage}</p>
+            </div>
+          )}
           <form onSubmit={submit} className="space-y-4">
             {mode === "register" && (
               <>
@@ -103,6 +122,7 @@ export default function Auth() {
                     id="name"
                     data-testid="name-input"
                     required
+                    autoComplete="name"
                     className="mt-1"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -118,6 +138,9 @@ export default function Auth() {
                 data-testid="email-input"
                 type="email"
                 required
+                autoComplete="email"
+                inputMode="email"
+                autoCapitalize="none"
                 className="mt-1"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -131,12 +154,20 @@ export default function Auth() {
                 data-testid="password-input"
                 type="password"
                 required
+                minLength={mode === "register" ? 6 : undefined}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
                 className="mt-1"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="••••••••"
               />
             </div>
+            {error && (
+              <p role="alert" data-testid="auth-error" className="text-sm font-bold text-[#E04A3C]">{error}</p>
+            )}
+            {mode === "register" && role === "teacher" && (
+              <p className="text-xs text-[#64748B]">Teacher accounts are checked by the admin before you can log in.</p>
+            )}
             <Button
               data-testid="auth-submit"
               type="submit"

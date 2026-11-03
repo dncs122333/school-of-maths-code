@@ -30,7 +30,7 @@ Login page `/auth`. Credentials: see `memory/test_credentials.md`.
 ## Atlas-only data source guardrails
 
 - `backend/db.py` accepts only a `mongodb+srv://…mongodb.net` Atlas URI. A local MongoDB URI fails startup rather than becoming a fallback.
-- All `/api` routes except the admin status route ping Atlas through a short-lived availability cache. If Atlas cannot be reached, the API returns `503` with the exact safe message: `Database unavailable. Contact Dhruv immediately.` No driver details or URI are returned.
+- All `/api` routes except the admin status route ping Atlas through a short-lived availability cache. If Atlas cannot be reached, the API returns `503` with the exact safe message: `We can't reach the database right now. Please try again in a few minutes.` No driver details or URI are returned.
 - Database driver errors are converted to the same safe `503`; the app records the source as unavailable until a later Atlas ping succeeds.
 - `GET /api/admin/data-source-status` is restricted to the signed `admin` role and remains reachable during an outage without a DB lookup. It returns only source name, availability, check time, safe message, and (when available) read-only current `db.notes` Learning Queue records. It never exposes a URI, credentials, host, or private infrastructure data.
 - Frontend `DatabaseAvailabilityProvider` displays a full-screen outage state on guarded `503`s so stale-looking content is not presented. The admin data-source route remains accessible to show its durable incident notice.

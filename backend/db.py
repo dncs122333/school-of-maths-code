@@ -15,7 +15,7 @@ _env_path = Path(__file__).parent / ".env"
 if _env_path.exists():
     load_dotenv(_env_path, override=False)
 
-ATLAS_UNAVAILABLE_MESSAGE = "Database unavailable. Contact Dhruv immediately."
+ATLAS_UNAVAILABLE_MESSAGE = "We can't reach the database right now. Please try again in a few minutes."
 _STATUS_CACHE_SECONDS = 60
 _mongo_url = (os.environ.get("MONGO_URL") or "").strip()
 _parsed_mongo_url = urlparse(_mongo_url)

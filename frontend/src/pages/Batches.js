@@ -3,6 +3,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "../lib/api";
 import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
@@ -90,6 +91,7 @@ const newIdempotencyKey = () =>
   (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function Batches() {
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialBatchId = searchParams.get("batch_id") || "";
 
@@ -522,7 +524,7 @@ export default function Batches() {
     if (paidChanged) {
       if (paidNum < Number(student.paid_fee || 0)) {
         const removed = Number(student.paid_fee || 0) - paidNum;
-        if (!window.confirm(`This removes ₹${removed.toLocaleString()} of recorded payments for ${student.name}. Continue?`)) return;
+        if (!await confirm(`This removes ₹${removed.toLocaleString()} of recorded payments for ${student.name}. Continue?`)) return;
       }
       payload.paid_fee = paidNum;
     }
@@ -565,7 +567,7 @@ export default function Batches() {
   const handleResetToBatchFee = async () => {
     const student = feeModal.student;
     if (!student) return;
-    if (!window.confirm(`Switch ${student.name} back to the batch fee? Their custom fee and schedule are replaced; payments are kept.`)) return;
+    if (!await confirm(`Switch ${student.name} back to the batch fee? Their custom fee and schedule are replaced; payments are kept.`)) return;
     setFeeModal((prev) => ({ ...prev, saving: true }));
     try {
       const res = await postFee(student.id, { reset_to_batch_fee: true });
@@ -659,7 +661,7 @@ export default function Batches() {
   const handleQuickMarkPaid = async (student) => {
     if (!selectedBatchId) return;
     const due = Number(student.due_fee || 0);
-    if (!window.confirm(`Record ₹${due.toLocaleString()} as received from ${student.name} and mark the full year paid?`)) return;
+    if (!await confirm(`Record ₹${due.toLocaleString()} as received from ${student.name} and mark the full year paid?`)) return;
     try {
       const res = await postFee(student.id, { mark_as_paid: true });
       if (!res) return;
@@ -698,7 +700,7 @@ export default function Batches() {
       const ms = student.monthly_status?.find((x) => x.month === m);
       return sum + Number(ms?.due_amount ?? ms?.amount ?? 0);
     }, 0);
-    if (!window.confirm(`Record ₹${amountDue.toLocaleString()} received from ${student.name} for ${monthsToPay.join(", ")}?`)) return;
+    if (!await confirm(`Record ₹${amountDue.toLocaleString()} received from ${student.name} for ${monthsToPay.join(", ")}?`)) return;
 
     try {
       const res = await postFee(student.id, { months_paid: monthsToPay });
@@ -776,7 +778,7 @@ export default function Batches() {
 
   const handleDeleteBatch = async (batch) => {
     if (!batch) return;
-    if (!window.confirm(`Delete batch "${batch.name}"? Students will be removed from it. Fee records are archived, not erased.`)) {
+    if (!(await confirm({ title: `Delete batch "${batch.name}"?`, description: "Students will be removed from it. Fee records are archived, not erased.", confirmLabel: "Delete batch", destructive: true }))) {
       return;
     }
     try {
@@ -785,7 +787,7 @@ export default function Batches() {
       } catch (err) {
         // 409 = the batch has collected fees; the server wants an explicit second confirmation
         if (err.response?.status !== 409) throw err;
-        if (!window.confirm(formatApiErrorDetail(err.response?.data?.detail))) return;
+        if (!await confirm(formatApiErrorDetail(err.response?.data?.detail))) return;
         await api.delete(`/batches/${batch.id}`, { params: { force: true } });
       }
       toast.success(`Batch "${batch.name}" deleted successfully!`);
@@ -801,7 +803,7 @@ export default function Batches() {
 
   const handleRemoveStudentFromBatch = async (student) => {
     if (!student || !selectedBatchId) return;
-    if (!window.confirm(`Remove ${student.name} from this batch? Their fee history is kept and restored if they rejoin.`)) {
+    if (!await confirm({ title: `Remove ${student.name}?`, description: "Their fee history is kept and restored if they rejoin.", confirmLabel: "Remove", destructive: true })) {
       return;
     }
     setStatusBusyId(student.id);
@@ -841,7 +843,7 @@ export default function Batches() {
   };
 
   const handleApproveAllRequests = async () => {
-    if (!window.confirm(`Add all ${joinRequests.length} students waiting to join this batch?`)) return;
+    if (!await confirm(`Add all ${joinRequests.length} students waiting to join this batch?`)) return;
     setJoinRequestBusy("all");
     try {
       const res = await api.post(`/batches/${selectedBatchId}/join-requests-approve-all`);
@@ -856,7 +858,7 @@ export default function Batches() {
   };
 
   const handleRotateCode = async (batch) => {
-    if (!window.confirm(`Issue a new join code for "${batch.name}"? The current code ${batch.code} will stop working; enrolled students are not affected.`)) return;
+    if (!await confirm(`Issue a new join code for "${batch.name}"? The current code ${batch.code} will stop working; enrolled students are not affected.`)) return;
     try {
       const res = await api.post(`/batches/${batch.id}/rotate-code`);
       setBatches((prev) => prev.map((b) => (b.id === batch.id ? { ...b, code: res.data.code } : b)));
@@ -1341,7 +1343,7 @@ export default function Batches() {
                         e.stopPropagation();
                         handleOpenEditBatch(b);
                       }}
-                      className="h-8 px-2 rounded-xl text-[#1E293B]/70 hover:text-[#1E293B] hover:bg-[#FFF9E8] text-xs font-bold"
+                      className="h-10 px-3 rounded-xl text-[#1E293B]/70 hover:text-[#1E293B] hover:bg-[#FFF9E8] text-xs font-bold"
                       title="Edit Batch Details & Fees"
                     >
                       <Pencil className="h-3.5 w-3.5 mr-1 text-[#3E7CB1]" /> Edit
@@ -1353,21 +1355,10 @@ export default function Batches() {
                         e.stopPropagation();
                         copyCode(b.code);
                       }}
-                      className="h-8 px-2.5 rounded-xl text-[#1E293B]/70 hover:text-[#1E293B] hover:bg-[#FFF9E8] text-xs font-bold"
+                      aria-label={`Copy join code ${b.code}`}
+                      className="h-10 px-3 rounded-xl text-[#1E293B]/70 hover:text-[#1E293B] hover:bg-[#FFF9E8] text-xs font-bold"
                     >
                       <Copy className="h-3.5 w-3.5 mr-1 text-[#1E293B]" /> Copy
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteBatch(b);
-                      }}
-                      className="h-8 px-2 rounded-xl text-[#E04A3C]/80 hover:text-[#E04A3C] hover:bg-[#FEE2E2] text-xs font-bold"
-                      title="Delete Batch"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-1 text-[#E04A3C]" /> Delete
                     </Button>
                   </div>
                 </div>
@@ -1747,7 +1738,7 @@ export default function Batches() {
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                            <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto flex-wrap">
                               {(selectedMonthsMap[st.id] || []).length > 0 && (
                                 <>
                                   <Button

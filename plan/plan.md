@@ -13,7 +13,7 @@ Unexpected Learning Queue notes will be inspectable as records, so their presenc
 - An Atlas-only connection rule: the application will not silently read from or fall back to a local database.
 - A restricted administrator data-source status view that clearly reports either **Atlas connected** or **Database unavailable**. It will never show credentials, connection strings, or private infrastructure details.
 - A Learning Queue inspection view for administrators showing the current queued notes and their useful audit details, such as title, owner, and creation/update timing, to identify why unexpected items are present.
-- A clear outage state across affected screens: **“Database unavailable. Contact Dhruv immediately.”** Normal content will not be shown as if it were current when the database cannot be reached.
+- A clear outage state across affected screens: **“We can't reach the database right now. Please try again in a few minutes.”** Normal content will not be shown as if it were current when the database cannot be reached.
 - A durable, visible administrator incident notice for database outages so the instruction to contact Dhruv is not missed.
 
 ## User flow

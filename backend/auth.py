@@ -19,6 +19,24 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+TEACHER_PENDING_MESSAGE = "Your teacher account is waiting for admin approval. You can log in once it's approved."
+TEACHER_REJECTED_MESSAGE = "Your teacher account request was not approved. Contact the admin."
+
+
+def check_account_access(user: dict) -> None:
+    """Shared login/token gate: blocked or disabled accounts, and teachers not yet approved by an admin
+    (accounts from before approval existed have no teacher_status and count as approved)."""
+    if user.get("is_blocked"):
+        raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
+    if user.get("is_disabled"):
+        raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
+    if user.get("role") == "teacher":
+        if user.get("teacher_status") == "pending":
+            raise HTTPException(status_code=403, detail=TEACHER_PENDING_MESSAGE)
+        if user.get("teacher_status") == "rejected":
+            raise HTTPException(status_code=403, detail=TEACHER_REJECTED_MESSAGE)
+
+
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {"sub": user_id, "email": email, "role": role,
                "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
@@ -38,10 +56,7 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        if user.get("is_blocked"):
-            raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
-        if user.get("is_disabled"):
-            raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
+        check_account_access(user)
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)
@@ -92,10 +107,7 @@ async def user_from_token(token: str) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        if user.get("is_blocked"):
-            raise HTTPException(status_code=403, detail="Your account has been blocked. Please contact your teacher.")
-        if user.get("is_disabled"):
-            raise HTTPException(status_code=403, detail="Your account has been disabled. Please contact your teacher.")
+        check_account_access(user)
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api } from "../lib/api";
 
 const AuthContext = createContext(null);
@@ -17,6 +18,16 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // The API client signals an expired session or a blocked account; drop the user without reloading
+  useEffect(() => {
+    const onSignedOut = (e) => {
+      setUser(null);
+      if (e.detail?.reason) toast.error(e.detail.reason === "Token expired" ? "Your session expired. Please log in again." : e.detail.reason);
+    };
+    window.addEventListener("vidya:signed-out", onSignedOut);
+    return () => window.removeEventListener("vidya:signed-out", onSignedOut);
+  }, []);
+
   const persist = (data) => {
     localStorage.setItem("vidya_token", data.token);
     setUser(data.user);
@@ -24,7 +35,12 @@ export function AuthProvider({ children }) {
   };
 
   const login = async (email, password) => persist((await api.post("/auth/login", { email, password })).data);
-  const register = async (payload) => persist((await api.post("/auth/register", payload)).data);
+  // Teacher sign-ups wait for admin approval and come back without a token
+  const register = async (payload) => {
+    const data = (await api.post("/auth/register", payload)).data;
+    if (data.pending_approval) return { pendingApproval: true, message: data.message };
+    return persist(data);
+  };
   const logout = () => { localStorage.removeItem("vidya_token"); setUser(null); };
   const refreshUser = async () => { const r = await api.get("/auth/me"); setUser(r.data); return r.data; };
 

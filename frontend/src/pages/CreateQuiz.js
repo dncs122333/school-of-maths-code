@@ -351,7 +351,8 @@ export default function CreateQuiz({ kind }) {
       return;
     }
 
-    const targetBatchId = (!f.batch_id || f.batch_id === "template") ? null : f.batch_id;
+    // Practice tests show "All Students" as the default audience: send it, rather than no batch (= template)
+    const targetBatchId = f.batch_id === "template" ? null : (f.batch_id || (isDpp ? "all" : null));
 
     const payload = {
       ...f,

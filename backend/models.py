@@ -115,6 +115,7 @@ class QuestionInput(BaseModel):
     marks: Optional[float] = 1.0
     negative_marks: Optional[float] = 0.0
     hint: Optional[str] = ""
+    image_url: Optional[str] = None  # https link to a diagram/figure shown with the question
     tags: Optional[List[str]] = Field(default_factory=list)
     status: Optional[str] = "active"
     source_id: Optional[str] = None
