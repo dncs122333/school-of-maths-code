@@ -36,3 +36,46 @@ def test_stage_1_hero_quadratics_is_weak():
     seed_demo.main(1)
     band, score = hero_band(demo_db())
     assert band == "weak", score
+
+
+def _weak_quadratics_count(db):
+    teacher = login(roster.TEACHER["email"], roster.DEMO_PASSWORD)
+    n = 0
+    for s in roster.hero_batch_students():
+        sid = db.users.find_one({"email": s["email"]})["_id"]
+        r = requests.get(f"{API}/mastery/teacher/student/{sid}", headers=teacher, timeout=60)
+        rows = [x for x in find_rows(r.json()) if "band" in x]
+        n += bool(rows) and rows[0]["band"] == "weak"
+    return n
+
+
+def test_stage_2_hero_developing_with_rising_practice():
+    import seed_demo
+    seed_demo.main(2)
+    db = demo_db()
+    band, score = hero_band(db)
+    assert band == "developing", score
+    hero = db.users.find_one({"email": roster.HERO_EMAIL})
+    dpps = list(db.submissions.find({"student_id": str(hero["_id"]), "kind": "dpp"}).sort("created_at", 1))
+    assert len(dpps) >= 3
+    scores = [d["score"] for d in dpps]
+    assert scores == sorted(scores) and scores[0] < scores[-1]
+
+
+def test_stage_3_hero_strong_and_fewer_weak_students():
+    import seed_demo
+    seed_demo.main(1)
+    weak_before = _weak_quadratics_count(demo_db())
+    seed_demo.main(3)
+    db = demo_db()
+    band, score = hero_band(db)
+    assert band == "strong", score
+    assert _weak_quadratics_count(db) < weak_before
+
+
+def test_verify_stage_matches_seeded_stage():
+    import seed_demo
+    import verify_stage
+    seed_demo.main(3)
+    assert verify_stage.check(3) == []
+    assert verify_stage.check(1) != []
