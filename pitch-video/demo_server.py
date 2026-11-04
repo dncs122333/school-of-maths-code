@@ -1,0 +1,46 @@
+"""Run the real backend against the demo database.
+
+backend/config.py calls load_dotenv(..., override=True), which would replace DB_NAME=som_demo with the real
+database name from backend/.env. This wrapper makes every load_dotenv call keep variables already set, then
+checks DB_NAME is still som_demo before anything can connect. No app code is changed.
+Run from backend/:  python ../pitch-video/demo_server.py [--print-db] [--port 8011]
+"""
+import argparse
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "seed"))
+from guard import require_demo_db  # noqa: E402
+
+require_demo_db()
+
+import dotenv  # noqa: E402
+
+_real_load = dotenv.load_dotenv
+
+
+def _keep_existing(*args, **kwargs):
+    kwargs["override"] = False
+    return _real_load(*args, **kwargs)
+
+
+dotenv.load_dotenv = _keep_existing
+sys.path.insert(0, str(HERE.parent / "backend"))
+import config  # noqa: E402,F401  (loads backend/.env through the patched loader)
+
+require_demo_db()
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--print-db", action="store_true")
+    ap.add_argument("--port", type=int, default=8011)
+    a = ap.parse_args()
+    if a.print_db:
+        print(os.environ["DB_NAME"])
+        raise SystemExit(0)
+    import uvicorn
+    import server  # noqa: F401
+    require_demo_db()
+    uvicorn.run(server.app, host="127.0.0.1", port=a.port)

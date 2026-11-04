@@ -88,3 +88,4 @@ credentials.json
 .credentials
 backend/local_storage/
 backup_data/
+.superpowers/
