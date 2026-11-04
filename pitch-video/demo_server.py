@@ -12,25 +12,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "seed"))
-from guard import require_demo_db  # noqa: E402
+from guard import require_demo_db  # noqa: E402,F401
 
-require_demo_db()
+from backend_env import load_backend  # noqa: E402
 
-import dotenv  # noqa: E402
-
-_real_load = dotenv.load_dotenv
-
-
-def _keep_existing(*args, **kwargs):
-    kwargs["override"] = False
-    return _real_load(*args, **kwargs)
-
-
-dotenv.load_dotenv = _keep_existing
-sys.path.insert(0, str(HERE.parent / "backend"))
-import config  # noqa: E402,F401  (loads backend/.env through the patched loader)
-
-require_demo_db()
+load_backend()
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
