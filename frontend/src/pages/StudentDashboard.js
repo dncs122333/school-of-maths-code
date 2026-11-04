@@ -501,7 +501,7 @@ export default function StudentDashboard() {
               </div>
 
               <div className="mt-6 pt-3 border-t-2 border-white/20 flex items-center justify-between">
-                <span className="text-[11px] font-mono font-bold text-white/80">VidyaLab Desk</span>
+                <span className="text-[11px] font-mono font-bold text-white/80">School of Maths Desk</span>
                 <Button
                   size="sm"
                   onClick={handleDismissReminder}

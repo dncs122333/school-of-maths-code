@@ -471,7 +471,7 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-head font-bold text-[#1E293B]">
           <div className="flex items-center gap-2">
             <span className="text-lg">📐</span>
-            <span>VidyaLab • School of Maths Classroom Hub</span>
+            <span>School of Maths • Classroom Hub</span>
           </div>
           <div className="flex items-center gap-4 text-xs font-medium text-[#1E293B]/70">
             <Link to="/auth" className="hover:underline">Student Login</Link>
@@ -481,7 +481,7 @@ export default function Landing() {
             <span>CBSE Classes 9–10 Coaching</span>
           </div>
           <div className="text-[11px] font-mono text-[#1E293B]/60">
-            © {new Date().getFullYear()} VidyaLab
+            © {new Date().getFullYear()} School of Maths
           </div>
         </div>
       </footer>
