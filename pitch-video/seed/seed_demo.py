@@ -162,7 +162,7 @@ def build_base(db):
     hb = batches[roster.HERO_BATCH]
     for title, chapter, lines in MATERIALS:
         teacher.call("POST", "/resources",
-                     files={"file": (f"{title}.pdf", _pdf(title, lines), "application/pdf")},
+                     files={"file": (f"{title.replace(chr(8211), '-')}.pdf", _pdf(title, lines), "application/pdf")},
                      data={"title": title, "batch_id": hb["id"], "class_level": "Class 10",
                            "subject": "Maths", "chapter": chapter})
     return teacher, batches, students
