@@ -5,16 +5,44 @@ import { api } from "../lib/api";
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
+const USER_KEY = "vidya_user";
+
+function readSavedUser() {
+  try {
+    if (!localStorage.getItem("vidya_token")) return null;
+    return JSON.parse(localStorage.getItem(USER_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function saveUser(user) {
+  try {
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_KEY);
+  } catch { /* storage full or blocked: the app still works, it just waits for the server next time */ }
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // The last known user shows the app straight away, even on a bad network, while the server confirms it.
+  // Screens fetch their own data, and the server still checks every request.
+  const [user, setUserState] = useState(readSavedUser);
+  const [loading, setLoading] = useState(() => !!localStorage.getItem("vidya_token") && !readSavedUser());
+  const setUser = (next) => { saveUser(next); setUserState(next); };
 
   useEffect(() => {
     const token = localStorage.getItem("vidya_token");
     if (!token) { setLoading(false); return; }
     api.get("/auth/me")
       .then((r) => setUser(r.data))
-      .catch(() => localStorage.removeItem("vidya_token"))
+      .catch((err) => {
+        // Only the server saying no ends the session. A dropped connection or a server restart must not log
+        // a student out. (A 401 has already been handled by the API client.)
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          localStorage.removeItem("vidya_token");
+          setUser(null);
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 

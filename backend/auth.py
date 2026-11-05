@@ -1,5 +1,7 @@
 """Auth: password hashing, JWT, current-user resolution."""
+import asyncio
 import os
+import time
 import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
@@ -17,6 +19,16 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
     except Exception:
         return False
+
+
+# bcrypt takes about 0.2 s of CPU by design. Request handlers use these so that a burst of logins
+# at the start of a class test doesn't stall every other request.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 TEACHER_PENDING_MESSAGE = "Your teacher account is waiting for admin approval. You can log in once it's approved."
@@ -38,9 +50,16 @@ def check_account_access(user: dict) -> None:
 
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
-    payload = {"sub": user_id, "email": email, "role": role,
+    payload = {"sub": user_id, "email": email, "role": role, "iat": int(time.time()),
                "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _check_session_current(user: dict, payload: dict) -> None:
+    """A password reset ends every session started before it."""
+    changed_at = user.get("password_changed_at")
+    if changed_at and payload.get("iat", 0) < changed_at:
+        raise HTTPException(status_code=401, detail="Token expired")
 
 
 async def get_current_user(request: Request) -> dict:
@@ -57,6 +76,7 @@ async def get_current_user(request: Request) -> dict:
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         check_account_access(user)
+        _check_session_current(user, payload)
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)
@@ -108,6 +128,7 @@ async def user_from_token(token: str) -> dict:
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         check_account_access(user)
+        _check_session_current(user, payload)
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)

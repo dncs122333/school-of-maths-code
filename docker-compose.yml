@@ -1,3 +1,4 @@
+# Run the whole app locally in Docker. Production uses docker-compose.prod.yml.
 services:
   backend:
     build: ./backend

@@ -27,13 +27,17 @@ from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE
+from config import (logger, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE,
+                    IS_PRODUCTION, SENTRY_DSN)
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
-from models import (RegisterInput, LoginInput, BatchInput, BatchUpdateInput, JoinInput, StudentStatusInput, GenerateTestInput,
+from models import (RegisterInput, LoginInput, ForgotPasswordInput, ResetPasswordInput, BatchInput, BatchUpdateInput,
+                    JoinInput, StudentStatusInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
-from auth import (hash_password, verify_password, create_access_token, get_current_user, require_role,
-                  require_claim_role, check_account_access, TEACHER_PENDING_MESSAGE)
+from auth import (hash_password, verify_password, hash_password_async, verify_password_async, create_access_token,
+                  get_current_user, require_role, require_claim_role, check_account_access, TEACHER_PENDING_MESSAGE)
+from mailer import send_password_reset, RESET_LINK_MINUTES
+import rate_limit
 from ai import extract_questions_from_media
 from storage import init_storage, put_object, get_object
 from lib.mastery import (compute_topic_mastery, round_half_up, band, is_confirmed_weak,
@@ -46,16 +50,25 @@ from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt
                         normalize_class_level)
 from reports.router import router as reports_router
 
-app = FastAPI()
+if SENTRY_DSN:
+    import sentry_sdk
+    # No request bodies or personal data: this app holds passwords and details of minors
+    sentry_sdk.init(dsn=SENTRY_DSN, environment="production" if IS_PRODUCTION else "development",
+                    send_default_pii=False, max_request_body_size="never", traces_sample_rate=0)
+
+# The interactive API docs list every route, so they stay off in production
+app = FastAPI(docs_url=None if IS_PRODUCTION else "/docs", redoc_url=None if IS_PRODUCTION else "/redoc",
+              openapi_url=None if IS_PRODUCTION else "/openapi.json")
 api_router.include_router(reports_router)
 
 _DATA_SOURCE_STATUS_PATH = "/api/admin/data-source-status"
+_HEALTH_PATH = "/api/health"
 
 
 @app.middleware("http")
 async def atlas_only_guard(request: Request, call_next):
     """Stop all database-backed API flows when Atlas cannot be reached."""
-    if request.url.path.startswith("/api") and request.url.path != _DATA_SOURCE_STATUS_PATH:
+    if request.url.path.startswith("/api") and request.url.path not in (_DATA_SOURCE_STATUS_PATH, _HEALTH_PATH):
         status = await atlas_connection_status()
         if not status["available"]:
             return JSONResponse(
@@ -75,16 +88,32 @@ async def atlas_database_exception_handler(_: Request, __: PyMongoError):
         headers={"Retry-After": "5"},
     )
 
+
+@api_router.get("/health")
+async def health():
+    """For uptime monitors and deploy checks. Needs no login and reveals nothing but up or down."""
+    status = await atlas_connection_status()
+    return JSONResponse(status_code=200 if status["available"] else 503,
+                        content={"status": "ok" if status["available"] else "degraded",
+                                 "database": "up" if status["available"] else "down"})
+
+
 # ------------------------- Auth routes -------------------------
 @api_router.post("/auth/register")
-async def register(body: RegisterInput):
+async def register(body: RegisterInput, request: Request):
     email = body.email.lower()
+    ip = rate_limit.client_ip(request)
+    await rate_limit.enforce(rate_limit.REGISTER_IP, ip, "Too many sign-ups from this network. Please try again in an hour.")
     if body.role not in ("student", "teacher"):
         raise HTTPException(status_code=400, detail="Invalid role")
+    if not body.consent:
+        raise HTTPException(status_code=400, detail="Please agree to the Terms and Privacy Policy to create an account.")
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
-    doc = {"name": body.name, "email": email, "password_hash": hash_password(body.password),
-           "role": body.role, "batch_ids": [], "created_at": datetime.now(timezone.utc).isoformat()}
+    await rate_limit.record(rate_limit.REGISTER_IP, ip)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    doc = {"name": body.name, "email": email, "password_hash": await hash_password_async(body.password),
+           "role": body.role, "batch_ids": [], "created_at": now_iso, "consent_at": now_iso}
     if body.role == "teacher":
         # Teacher accounts get the question bank and student data: an admin approves them first
         doc["teacher_status"] = "pending"
@@ -97,11 +126,17 @@ async def register(body: RegisterInput):
 
 
 @api_router.post("/auth/login")
-async def login(body: LoginInput):
+async def login(body: LoginInput, request: Request):
     email = body.email.lower()
+    ip = rate_limit.client_ip(request)
+    await rate_limit.enforce(rate_limit.LOGIN_EMAIL, email, "Too many wrong passwords. Please wait 15 minutes, or reset your password.")
+    await rate_limit.enforce(rate_limit.LOGIN_IP, ip)
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user or not await verify_password_async(body.password, user["password_hash"]):
+        await rate_limit.record(rate_limit.LOGIN_EMAIL, email)
+        await rate_limit.record(rate_limit.LOGIN_IP, ip)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    await rate_limit.clear(rate_limit.LOGIN_EMAIL, email)
     check_account_access(user)
     uid = str(user["_id"])
     token = create_access_token(uid, email, user["role"])
@@ -114,6 +149,57 @@ async def login(body: LoginInput):
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+_background_emails = set()  # asyncio keeps only weak references to tasks
+
+
+def _reset_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordInput, request: Request):
+    """Same reply whether or not the account exists, and the email goes out after the reply,
+    so this can't be used to find out who has an account."""
+    email = body.email.lower()
+    ip = rate_limit.client_ip(request)
+    await rate_limit.enforce(rate_limit.FORGOT_IP, ip)
+    await rate_limit.record(rate_limit.FORGOT_IP, ip)
+    user = await db.users.find_one({"email": email}, {"name": 1})
+    if user and not await rate_limit.is_over_limit(rate_limit.FORGOT_EMAIL, email):
+        await rate_limit.record(rate_limit.FORGOT_EMAIL, email)
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        # Only the hash is stored: a leaked database or backup can't be used to take over accounts
+        await db.password_resets.delete_many({"user_id": str(user["_id"])})
+        await db.password_resets.insert_one({"token_hash": _reset_token_hash(token), "user_id": str(user["_id"]),
+                                             "created_at": now, "expire_at": now + timedelta(minutes=RESET_LINK_MINUTES)})
+        task = asyncio.create_task(send_password_reset(email, user.get("name"), token))
+        _background_emails.add(task)
+        task.add_done_callback(_background_emails.discard)
+    return {"message": "If that email has an account, we've sent a link to reset the password. Check your spam folder too."}
+
+
+@api_router.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordInput, request: Request):
+    ip = rate_limit.client_ip(request)
+    await rate_limit.enforce(rate_limit.RESET_IP, ip)
+    # Deleted as it's read, so a link works once even if opened twice at the same moment
+    reset = await db.password_resets.find_one_and_delete({"token_hash": _reset_token_hash(body.token),
+                                                          "expire_at": {"$gt": datetime.now(timezone.utc)}})
+    if not reset or not ObjectId.is_valid(reset["user_id"]):
+        await rate_limit.record(rate_limit.RESET_IP, ip)
+        raise HTTPException(status_code=400, detail="This reset link has expired or was already used. Please ask for a new one.")
+    new_hash = await hash_password_async(body.password)
+    # password_changed_at ends every session started before now, including an intruder's
+    res = await db.users.find_one_and_update(
+        {"_id": ObjectId(reset["user_id"])},
+        {"$set": {"password_hash": new_hash, "password_changed_at": int(time.time())}}, {"email": 1})
+    if not res:
+        raise HTTPException(status_code=400, detail="This reset link has expired or was already used. Please ask for a new one.")
+    await rate_limit.clear(rate_limit.LOGIN_EMAIL, res["email"])
+    return {"message": "Password changed. You can log in now."}
 
 
 # ------------------------- Catalog -------------------------
@@ -1907,7 +1993,7 @@ async def create_resource(
         raise HTTPException(status_code=400, detail="Subject cannot be empty")
     ct = _MIME[ext]  # derived from the allowlisted extension; never trust the client's content_type
     path = f"{APP_NAME}/resources/{user['id']}/{uuid.uuid4()}.{ext}"
-    put_object(path, data, ct)
+    await asyncio.to_thread(put_object, path, data, ct)
     doc = {"id": str(uuid.uuid4()), "title": title, "batch_id": batch_id, "batch_name": batch["name"],
            "class_level": class_level, "subject": subject.strip(), "chapter": chapter.strip(), "topic": topic.strip(),
            "storage_path": path, "filename": file.filename, "content_type": ct, "size": len(data),
@@ -1995,13 +2081,18 @@ async def download_resource(res_id: str, user: dict = Depends(get_current_user))
                or (user["role"] == "student" and res["batch_id"] in active_batch_ids(user)))
     if not allowed:
         raise HTTPException(status_code=403, detail="No access to this file")
-    content, ct = get_object(res["storage_path"])
+    # In a thread: fetching from R2 takes real time, and blocking here would freeze every other student's request
+    try:
+        content, ct = await asyncio.to_thread(get_object, res["storage_path"])
+    except FileNotFoundError:
+        logger.error(f"Resource {res_id}: file missing from storage: {res['storage_path']}")
+        raise HTTPException(status_code=404, detail="This file is no longer available. Please ask your teacher to upload it again.")
     filename = res.get("filename") or "download"
     ext = (filename.rsplit(".", 1)[-1].lower() if "." in filename else "")
     media_type = res.get("content_type", ct)
 
     if ENABLE_WATERMARKING and user["role"] == "student" and ext in WATERMARKABLE_EXTS:
-        content = apply_watermark(content, ext, user.get("name"), user.get("email"))
+        content = await asyncio.to_thread(apply_watermark, content, ext, user.get("name"), user.get("email"))
         media_type = watermarked_media_type(ext, media_type)
 
 
@@ -2697,10 +2788,21 @@ async def _finalize_expired_attempts(test_ids: Optional[list] = None, student_id
     return done
 
 
+async def _claim_sweep(seconds: int = 110) -> bool:
+    """Each uvicorn worker runs the sweep loop; the first to take this lock does the work for that round."""
+    now = datetime.now(timezone.utc)
+    try:
+        await db.job_locks.update_one({"_id": "auto_submit", "until": {"$lte": now}},
+                                      {"$set": {"until": now + timedelta(seconds=seconds)}}, upsert=True)
+        return True
+    except DuplicateKeyError:  # the lock exists and hasn't run out, so the upsert tried to insert a second one
+        return False
+
+
 async def _auto_submit_loop():
     while True:
         try:
-            n = await _finalize_expired_attempts()
+            n = await _finalize_expired_attempts() if await _claim_sweep() else 0
             if n:
                 logger.info(f"auto-submitted {n} expired class-test attempts")
         except Exception as e:
@@ -3532,7 +3634,7 @@ async def extract_questions_endpoint(
     else:
         raise HTTPException(status_code=400, detail="Supported file formats: PDF, PNG, JPG, JPEG, WEBP")
 
-    raw_bytes = await file.read()
+    raw_bytes = await _read_upload_capped(file)
     if not raw_bytes or len(raw_bytes) < 100:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
@@ -4272,6 +4374,30 @@ async def decide_teacher_account(user_id: str, decision: str, admin: dict = Depe
     return {"id": user_id, "status": new_status}
 
 
+@api_router.delete("/admin/students/{student_id}")
+async def delete_student_data(student_id: str, _: dict = Depends(require_role("admin"))):
+    """Permanently erase a student's account and everything recorded about them (a data deletion request).
+    The account goes last, so a failure part-way can simply be retried."""
+    if not ObjectId.is_valid(student_id):
+        raise HTTPException(status_code=400, detail="Invalid student id")
+    student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"}, {"email": 1})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    removed = {}
+    for coll in ("submissions", "submissions_duplicates", "test_submissions", "topic_mastery", "test_starts",
+                 "join_requests", "batch_fees", "tests"):  # in `tests`, only their own diagnostics have a student_id
+        removed[coll] = (await db[coll].delete_many({"student_id": student_id})).deleted_count
+    await db.tests.update_many({"$or": [{"makeups.student_id": student_id}, {"excused_student_ids": student_id}]},
+                               {"$pull": {"makeups": {"student_id": student_id}, "excused_student_ids": student_id}})
+    await db.batches.update_many({"$or": [{"student_ids": student_id}, {"archived_student_ids": student_id}]},
+                                 {"$pull": {"student_ids": student_id, "archived_student_ids": student_id}})
+    await db.password_resets.delete_many({"user_id": student_id})
+    await db.auth_limits.delete_many({"key": {"$in": [f"login:email:{student['email']}", f"forgot:email:{student['email']}"]}})
+    await db.users.delete_one({"_id": ObjectId(student_id)})
+    logger.info(f"Deleted student {student_id}: {removed}")
+    return {"success": True, "removed": removed}
+
+
 @api_router.get("/admin/data-source-status", response_model=DataSourceStatusResponse)
 async def data_source_status(_: dict = Depends(require_claim_role("admin"))):
     """Admin-only Atlas connection status."""
@@ -4336,6 +4462,9 @@ CATALOG = {
 
 @app.on_event("startup")
 async def startup():
+    # Auto-submit class-test attempts whose time ran out with the tab closed (autosaved answers are kept).
+    # Started first: the loop survives a database outage, and tests must still close if Atlas was down at boot.
+    asyncio.create_task(_auto_submit_loop())
     status = await atlas_connection_status(force=True)
     if not status["available"]:
         logger.error("MongoDB Atlas unavailable at startup; database-backed routes are fail-closed")
@@ -4360,6 +4489,10 @@ async def startup():
         ("tests", [("batch_id", 1), ("status", 1)], {}),
         ("tests", "student_id", {"sparse": True}),
         ("resources", "id", {"unique": True}),
+        ("auth_limits", [("key", 1), ("at", -1)], {}),
+        ("auth_limits", "expire_at", {"expireAfterSeconds": 0}),
+        ("password_resets", "token_hash", {"unique": True}),
+        ("password_resets", "expire_at", {"expireAfterSeconds": 0}),
     ]
     for coll, keys, opts in indexes:
         try:
@@ -4428,9 +4561,12 @@ async def startup():
         if existing is None:
             logger.error("ADMIN_PASSWORD is not set: no admin account was created")
     elif existing is None:
-        await db.users.insert_one({"name": "Admin", "email": admin_email,
-                                   "password_hash": hash_password(admin_pw), "role": "admin",
-                                   "batch_ids": [], "created_at": datetime.now(timezone.utc).isoformat()})
+        try:
+            await db.users.insert_one({"name": "Admin", "email": admin_email,
+                                       "password_hash": hash_password(admin_pw), "role": "admin",
+                                       "batch_ids": [], "created_at": datetime.now(timezone.utc).isoformat()})
+        except DuplicateKeyError:
+            pass  # another worker starting at the same moment got there first
     elif os.environ.get("ADMIN_PASSWORD_RESET") == "1" and not verify_password(admin_pw, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_pw)}})
         logger.warning("Admin password reset from ADMIN_PASSWORD (ADMIN_PASSWORD_RESET=1); unset it now")
@@ -4451,8 +4587,6 @@ async def startup():
                                    {"$set": {"status": "failed", "error": "build interrupted"}})
     except Exception as e:
         logger.error(f"test sweep failed: {e}")
-    # Auto-submit class-test attempts whose time ran out with the tab closed (autosaved answers are kept)
-    asyncio.create_task(_auto_submit_loop())
     try:
         init_storage()
         logger.info("Storage initialized")

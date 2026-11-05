@@ -473,12 +473,16 @@ export default function Landing() {
             <span className="text-lg">📐</span>
             <span>School of Maths • Classroom Hub</span>
           </div>
-          <div className="flex items-center gap-4 text-xs font-medium text-[#1E293B]/70">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs font-medium text-[#1E293B]/70">
             <Link to="/auth" className="hover:underline">Student Login</Link>
             <span>•</span>
             <Link to="/auth?role=teacher" className="hover:underline">Teacher Portal</Link>
             <span>•</span>
             <span>CBSE Classes 9–10 Coaching</span>
+            <span>•</span>
+            <Link to="/privacy" className="hover:underline">Privacy</Link>
+            <span>•</span>
+            <Link to="/terms" className="hover:underline">Terms</Link>
           </div>
           <div className="text-[11px] font-mono text-[#1E293B]/60">
             © {new Date().getFullYear()} School of Maths

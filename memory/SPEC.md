@@ -27,6 +27,15 @@ JWT bearer token in `localStorage.vidya_token`, sent via an axios request interc
 `get_current_user` also accepts an `access_token` cookie. Roles: `student`, `teacher`, `admin`.
 Login page `/auth`. Credentials: see `memory/test_credentials.md`.
 
+The last known user is kept in `localStorage.vidya_user`, so the app opens straight away on a bad network; only a 401/403
+from the server ends the session. Login, sign-up and reset attempts are limited by `backend/rate_limit.py` (stored in
+`auth_limits`; requests from localhost skip the per-IP limits). Password reset: `/auth/forgot-password` emails a single-use
+30-minute link (Brevo, `backend/mailer.py`; without a key, non-production servers log the link), and a reset ends all earlier
+sessions through `password_changed_at`. Sign-up requires `consent` (saved as `consent_at`). `DELETE /admin/students/{id}` erases
+a student and all their data. The in-memory batch-join limiter is per uvicorn worker, so its tests need a single-worker server.
+
+Deployment: `docs/DEPLOYMENT_PLAN.md`, `deploy/README.md`.
+
 ## Atlas-only data source guardrails
 
 - `backend/db.py` accepts only a `mongodb+srv://…mongodb.net` Atlas URI. A local MongoDB URI fails startup rather than becoming a fallback.

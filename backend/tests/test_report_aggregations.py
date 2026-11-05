@@ -417,14 +417,13 @@ class TestReportsAPI:
                     return {"id": self.i}
                 raise StopAsyncIteration
 
-        loop = asyncio.get_event_loop()
         # Cap not reached
-        items, warn = loop.run_until_complete(fetch_cursor_paged(MockCursor(5), limit=10, context="subs"))
+        items, warn = asyncio.run(fetch_cursor_paged(MockCursor(5), limit=10, context="subs"))
         assert len(items) == 5
         assert warn is None
 
         # Cap reached -> returns warning
-        items_capped, warn_capped = loop.run_until_complete(fetch_cursor_paged(MockCursor(15), limit=10, context="subs"))
+        items_capped, warn_capped = asyncio.run(fetch_cursor_paged(MockCursor(15), limit=10, context="subs"))
         assert len(items_capped) == 10
         assert warn_capped is not None
         assert "10" in warn_capped

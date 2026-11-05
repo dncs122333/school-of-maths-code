@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push replaces an older run of the same branch. Deploys never overlap.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    env:
+      # A separate database on the dev cluster. The tests create throwaway users and tests, so it's dropped first.
+      MONGO_URL: ${{ secrets.MONGO_URL_CI }}
+      DB_NAME: vidya_ci
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else-000000
+      ADMIN_EMAIL: admin@vidya.com
+      ADMIN_PASSWORD: admin123
+      REACT_APP_BACKEND_URL: http://localhost:8011
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r backend/requirements.txt
+      - name: Empty the CI database
+        working-directory: backend
+        run: python -c "import os,certifi; from pymongo import MongoClient; MongoClient(os.environ['MONGO_URL'], tlsCAFile=certifi.where()).drop_database(os.environ['DB_NAME'])"
+      - name: Start the API
+        working-directory: backend
+        run: |
+          uvicorn server:app --port 8011 > /tmp/api.log 2>&1 &
+          for _ in $(seq 1 30); do curl -fs localhost:8011/api/health && break; sleep 2; done
+          curl -fs localhost:8011/api/health
+      - run: pytest backend/tests/ -n 0 -q
+      - name: API log
+        if: failure()
+        run: tail -100 /tmp/api.log
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - run: yarn install --frozen-lockfile
+        working-directory: frontend
+      # CI=true makes lint warnings fail the build, as they will on Cloudflare Pages
+      - run: yarn build
+        working-directory: frontend
+        env:
+          CI: true
+
+  deploy-backend:
+    # The frontend deploys itself: Cloudflare Pages builds main. Needs the DEPLOY_* secrets, set in the repo.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh "deploy@$HOST" /opt/som/app/deploy/deploy.sh

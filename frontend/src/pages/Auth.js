@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { formatApiErrorDetail } from "../lib/api";
+import { api, formatApiErrorDetail } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -22,6 +22,8 @@ export default function Auth() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pendingMessage, setPendingMessage] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [resetSent, setResetSent] = useState("");
 
   useEffect(() => { if (user) nav("/dashboard", { replace: true }); }, [user, nav]);
 
@@ -30,11 +32,17 @@ export default function Auth() {
     setBusy(true);
     setError("");
     setPendingMessage("");
+    setResetSent("");
     try {
+      if (mode === "forgot") {
+        const res = await api.post("/auth/forgot-password", { email: form.email });
+        setResetSent(res.data.message);
+        return;
+      }
       if (mode === "login") {
         await login(form.email, form.password);
       } else {
-        const res = await register({ ...form, role });
+        const res = await register({ ...form, role, consent });
         if (res?.pendingApproval) {
           setPendingMessage(res.message);
           setMode("login");
@@ -75,7 +83,7 @@ export default function Auth() {
               <button
                 key={m}
                 data-testid={`tab-${m}`}
-                onClick={() => setMode(m)}
+                onClick={() => { setMode(m); setError(""); setResetSent(""); }}
                 className={`flex-1 py-2 rounded-full text-xs font-head font-bold uppercase tracking-wider transition-all ${
                   mode === m
                     ? "bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
@@ -91,6 +99,17 @@ export default function Auth() {
             <div role="status" data-testid="teacher-pending" className="mb-5 rounded-2xl bg-[#EAF7EE] border-2 border-[#2F8A5F] p-4 text-sm text-[#1E293B]">
               <p className="font-head font-bold">Request sent</p>
               <p className="mt-1">{pendingMessage}</p>
+            </div>
+          )}
+          {mode === "forgot" && (
+            <div className="mb-4">
+              <p className="font-head font-bold text-[#1E293B]">Forgot your password?</p>
+              <p className="text-sm text-[#64748B] mt-1">Enter your email and we'll send you a link to choose a new one.</p>
+            </div>
+          )}
+          {resetSent && (
+            <div role="status" data-testid="reset-sent" className="mb-5 rounded-2xl bg-[#EAF7EE] border-2 border-[#2F8A5F] p-4 text-sm text-[#1E293B]">
+              {resetSent}
             </div>
           )}
           <form onSubmit={submit} className="space-y-4">
@@ -147,21 +166,50 @@ export default function Auth() {
                 placeholder="you@example.com"
               />
             </div>
-            <div>
-              <Label htmlFor="password" className="text-xs font-head font-bold uppercase text-[#1E293B]">Password</Label>
-              <Input
-                id="password"
-                data-testid="password-input"
-                type="password"
-                required
-                minLength={mode === "register" ? 6 : undefined}
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-                className="mt-1"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder="••••••••"
-              />
-            </div>
+            {mode !== "forgot" && (
+              <div>
+                <Label htmlFor="password" className="text-xs font-head font-bold uppercase text-[#1E293B]">Password</Label>
+                <Input
+                  id="password"
+                  data-testid="password-input"
+                  type="password"
+                  required
+                  minLength={mode === "register" ? 6 : undefined}
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  className="mt-1"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder="••••••••"
+                />
+              </div>
+            )}
+            {mode === "login" && (
+              <button
+                type="button"
+                data-testid="forgot-password-link"
+                onClick={() => { setMode("forgot"); setError(""); setPendingMessage(""); }}
+                className="min-h-11 text-sm font-bold text-[#3E7CB1] hover:underline"
+              >
+                Forgot password?
+              </button>
+            )}
+            {mode === "register" && (
+              <label className="flex items-start gap-3 min-h-11 cursor-pointer text-sm text-[#1E293B]">
+                <input
+                  type="checkbox"
+                  required
+                  data-testid="consent-checkbox"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-[#3E7CB1]"
+                />
+                <span>
+                  I agree to the <Link to="/terms" target="_blank" className="font-bold underline">Terms</Link> and{" "}
+                  <Link to="/privacy" target="_blank" className="font-bold underline">Privacy Policy</Link>. If I'm under 18,
+                  my parent or guardian has read them and agrees too.
+                </span>
+              </label>
+            )}
             {error && (
               <p role="alert" data-testid="auth-error" className="text-sm font-bold text-[#E04A3C]">{error}</p>
             )}
@@ -174,8 +222,18 @@ export default function Auth() {
               disabled={busy}
               className="hub-btn hub-btn-yellow w-full h-11 text-sm uppercase tracking-wider mt-2 font-black active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
             >
-              {busy ? "Please wait…" : mode === "login" ? "Log in to Hub" : "Create Account"}
+              {busy ? "Please wait…" : mode === "login" ? "Log in to Hub" : mode === "forgot" ? "Send reset link" : "Create Account"}
             </Button>
+            {mode === "forgot" && (
+              <button
+                type="button"
+                data-testid="back-to-login"
+                onClick={() => { setMode("login"); setError(""); setResetSent(""); }}
+                className="block w-full min-h-11 text-sm font-bold text-[#3E7CB1] hover:underline"
+              >
+                Back to log in
+              </button>
+            )}
           </form>
           {mode === "login" && process.env.NODE_ENV === "development" && (
             <button

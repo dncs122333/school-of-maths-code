@@ -16,6 +16,22 @@ JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
 APP_NAME = "vidya"
 
+IS_PRODUCTION = (os.environ.get("ENV") or "").strip().lower() == "production"
+APP_URL = (os.environ.get("APP_URL") or "http://localhost:3000").strip().rstrip("/")  # used in emailed links
+BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
+EMAIL_FROM = (os.environ.get("EMAIL_FROM") or "").strip()  # must be a sender verified in Brevo
+SENTRY_DSN = (os.environ.get("SENTRY_DSN") or "").strip()
+
+if IS_PRODUCTION:
+    if len(JWT_SECRET) < 32:
+        logger.error("JWT_SECRET is shorter than 32 characters: anyone who guesses it can log in as any user")
+    if "localhost" in (os.environ.get("CORS_ORIGINS") or "localhost"):
+        logger.error("CORS_ORIGINS is unset or contains localhost: set it to the production app address")
+    if "localhost" in APP_URL:
+        logger.error("APP_URL is unset or contains localhost: password reset links will not work")
+    if not (BREVO_API_KEY and EMAIL_FROM):
+        logger.error("BREVO_API_KEY or EMAIL_FROM is not set: password reset emails cannot be sent")
+
 # S3-compatible object storage (Cloudflare R2, AWS S3, MinIO). When any of the four required
 # values is missing, uploads are stored on local disk under backend/local_storage/ instead.
 # R2 endpoint: https://<account_id>.r2.cloudflarestorage.com, region "auto".

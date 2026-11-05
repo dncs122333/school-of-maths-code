@@ -1,5 +1,5 @@
 import "@/App.css";
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -10,20 +10,58 @@ import Navbar from "./components/Navbar";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 
+// A page already open can ask for a code file that a newer release has replaced, so when one fails to load,
+// reload once to pick up the current release. The flag stops a reload loop when the device is simply offline.
+const lazyPage = (load) => lazy(() => load().then((m) => {
+  sessionStorage.removeItem("vidya_chunk_reload");
+  return m;
+}, (err) => {
+  if (navigator.onLine && !sessionStorage.getItem("vidya_chunk_reload")) {
+    sessionStorage.setItem("vidya_chunk_reload", "1");
+    window.location.reload();
+    return new Promise(() => {});
+  }
+  throw err;
+}));
+
 // Pages load on demand: the public landing page and login no longer download the whole app
 // (PDF viewer, charts, test builder) before showing anything
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const QuizList = lazy(() => import("./pages/QuizList"));
-const QuizRunner = lazy(() => import("./pages/QuizRunner"));
-const CreateQuiz = lazy(() => import("./pages/CreateQuiz"));
-const Batches = lazy(() => import("./pages/Batches"));
-const Materials = lazy(() => import("./pages/Materials"));
-const Mastery = lazy(() => import("./pages/Mastery"));
-const Reports = lazy(() => import("./pages/Reports"));
-const DataSourceStatus = lazy(() => import("./pages/DataSourceStatus"));
-const AdminTeachers = lazy(() => import("./pages/AdminTeachers"));
-const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
-const QuestionBank = lazy(() => import("./pages/QuestionBank"));
+const Dashboard = lazyPage(() => import("./pages/Dashboard"));
+const QuizList = lazyPage(() => import("./pages/QuizList"));
+const QuizRunner = lazyPage(() => import("./pages/QuizRunner"));
+const CreateQuiz = lazyPage(() => import("./pages/CreateQuiz"));
+const Batches = lazyPage(() => import("./pages/Batches"));
+const Materials = lazyPage(() => import("./pages/Materials"));
+const Mastery = lazyPage(() => import("./pages/Mastery"));
+const Reports = lazyPage(() => import("./pages/Reports"));
+const DataSourceStatus = lazyPage(() => import("./pages/DataSourceStatus"));
+const AdminTeachers = lazyPage(() => import("./pages/AdminTeachers"));
+const TeacherDashboard = lazyPage(() => import("./pages/TeacherDashboard"));
+const QuestionBank = lazyPage(() => import("./pages/QuestionBank"));
+const ResetPassword = lazyPage(() => import("./pages/ResetPassword"));
+const Privacy = lazyPage(() => import("./pages/Legal").then((m) => ({ default: m.Privacy })));
+const Terms = lazyPage(() => import("./pages/Legal").then((m) => ({ default: m.Terms })));
+
+function OfflineBanner() {
+  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && !navigator.onLine);
+  useEffect(() => {
+    const update = () => setOffline(!navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  if (!offline) return null;
+  return (
+    <div role="status" data-testid="offline-banner" className="sticky top-0 z-50 bg-[#1E293B] text-white text-center text-xs font-bold px-4 py-2">
+      You're offline. We'll pick up again when your connection is back.
+    </div>
+  );
+}
+
+const standalone = (el) => <Suspense fallback={<PageLoading />}>{el}</Suspense>;
 
 function PageLoading() {
   return (
@@ -36,6 +74,7 @@ function PageLoading() {
 function Shell({ children }) {
   return (
     <div className="min-h-screen classroom-bg text-[#1E293B]">
+      <OfflineBanner />
       <Navbar />
       {/* Bottom padding clears the phone tab bar and the home indicator */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-28 lg:pb-10">
@@ -78,6 +117,9 @@ function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/reset-password" element={standalone(<ResetPassword />)} />
+                <Route path="/privacy" element={standalone(<Privacy />)} />
+                <Route path="/terms" element={standalone(<Terms />)} />
                 <Route path="/dashboard" element={page(<Dashboard />)} />
                 <Route path="/teacher/dashboard" element={page(<TeacherDashboard />, STAFF)} />
                 <Route path="/materials" element={page(<Materials />)} />

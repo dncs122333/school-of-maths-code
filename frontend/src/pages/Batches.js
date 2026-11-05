@@ -4,6 +4,7 @@ import { api, formatApiErrorDetail } from "../lib/api";
 import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ConfirmDialog";
+import { useAuth } from "../context/AuthContext";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
@@ -92,6 +93,8 @@ const newIdempotencyKey = () =>
 
 export default function Batches() {
   const confirm = useConfirm();
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.role === "admin";
   const [searchParams, setSearchParams] = useSearchParams();
   const initialBatchId = searchParams.get("batch_id") || "";
 
@@ -814,6 +817,28 @@ export default function Batches() {
       await loadBatches();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to remove student");
+    } finally {
+      setStatusBusyId(null);
+    }
+  };
+
+  // A data deletion request: unlike Remove, this can't be undone
+  const handleEraseStudent = async (student) => {
+    if (!student) return;
+    if (!await confirm({
+      title: `Permanently erase ${student.name}?`,
+      description: "This deletes their account, test results, attendance and fee records for good, in every batch. Use it only when the student or their guardian has asked. It can't be undone.",
+      confirmLabel: "Erase everything",
+      destructive: true,
+    })) return;
+    setStatusBusyId(student.id);
+    try {
+      await api.delete(`/admin/students/${student.id}`);
+      toast.success(`Erased ${student.name}'s data`);
+      await loadBatchStudents(selectedBatchId);
+      await loadBatches();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to erase student data");
     } finally {
       setStatusBusyId(null);
     }
@@ -1857,6 +1882,22 @@ export default function Batches() {
                                   >
                                     <Trash2 className="h-3.5 w-3.5" /> Remove
                                   </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      data-testid={`erase-student-btn-${st.id}`}
+                                      disabled={statusBusyId === st.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEraseStudent(st);
+                                      }}
+                                      className="h-8 px-2 rounded-xl border-2 border-[#1E293B] text-white bg-[#E04A3C] hover:bg-[#C93A2D] text-xs font-bold shadow-[1px_1px_0_#1E293B] flex items-center gap-1 transition-all"
+                                      title="Permanently delete this student's account and all their data"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" /> Erase data
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
                           </div>

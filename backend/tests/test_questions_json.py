@@ -86,7 +86,7 @@ class TestQuestionJsonImport:
         for it in items:
             self.state["created_ids"].append(it["id"])
             assert it["class_level"] == "10"
-            assert it["subject"] == f"Maths_{tag}"
+            assert it["subject"] == f"Maths_{tag}".title()  # subjects are stored title-cased
             assert it["chapter"] == f"Quadratic_{tag}"
 
         q1 = next(x for x in items if "discriminant" in x["question"].lower())
@@ -171,8 +171,8 @@ class TestQuestionJsonImport:
         assert r.status_code == 200, r.text
         hierarchy = r.json()
         assert "10" in hierarchy
-        assert f"Maths_{tag}" in hierarchy["10"]
-        chap_info = next(c for c in hierarchy["10"][f"Maths_{tag}"] if c["chapter"] == f"Quadratic_{tag}")
+        assert f"Maths_{tag}".title() in hierarchy["10"]
+        chap_info = next(c for c in hierarchy["10"][f"Maths_{tag}".title()] if c["chapter"] == f"Quadratic_{tag}")
         assert chap_info["count"] >= 2
         assert "Discriminant" in chap_info["topics"]
 

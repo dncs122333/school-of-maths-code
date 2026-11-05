@@ -27,8 +27,11 @@ def _users():
 
 def _approving_request(self, method, url, *args, **kwargs):
     headers = kwargs.get("headers") or {}
-    res = _original_request(self, method, url, *args, **kwargs)
     body = kwargs.get("json") or {}
+    # Sign-ups need consent; tests that aren't about consent shouldn't each have to say so
+    if method.upper() == "POST" and str(url).endswith("/auth/register") and "consent" not in body:
+        body = kwargs["json"] = {**body, "consent": True}
+    res = _original_request(self, method, url, *args, **kwargs)
     if (method.upper() == "POST" and str(url).endswith("/auth/register") and body.get("role") == "teacher"
             and res.status_code == 200 and res.json().get("pending_approval")
             and headers.get("X-Test-Keep-Pending") != "1"):

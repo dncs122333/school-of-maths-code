@@ -91,9 +91,12 @@ async def extract_questions_from_media(
         "tts", "audio", "embed", "bidi", "realtime", "imagen", "search",
         "whisper", "transcribe", "aqa", "banana", "robotics", "computer-use", "argon"
     )
+    # In a header, not the URL: request errors quote the URL, and those end up in logs and error messages
+    key_header = {"x-goog-api-key": api_key.strip()}
     try:
         m_resp = requests.get(
-            f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key.strip()}",
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            headers=key_header,
             timeout=5
         )
         if m_resp.status_code == 200:
@@ -143,7 +146,7 @@ async def extract_questions_from_media(
     had_high_demand = False
 
     for target_model in candidate_models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key.strip()}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent"
         req_body = {
             "contents": [
                 {
@@ -168,7 +171,7 @@ async def extract_questions_from_media(
         }
 
         try:
-            resp = requests.post(url, json=req_body, timeout=120)
+            resp = requests.post(url, json=req_body, headers=key_header, timeout=120)
             if resp.status_code == 200:
                 result_json = resp.json()
                 candidates = result_json.get("candidates") or []

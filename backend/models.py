@@ -5,13 +5,23 @@ from pydantic import BaseModel, EmailStr, Field
 class RegisterInput(BaseModel):
     name: str
     email: EmailStr
-    password: str
+    password: str = Field(min_length=6, max_length=128)
     role: str = "student"
+    consent: bool = False  # agreed to the terms and privacy policy (with a guardian, if under 18)
 
 
 class LoginInput(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordInput(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordInput(BaseModel):
+    token: str
+    password: str = Field(min_length=6, max_length=128)
 
 
 class BatchInput(BaseModel):

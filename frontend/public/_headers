@@ -1,0 +1,20 @@
+# Cloudflare Pages response headers. API addresses are https: in connect-src because the API's address is
+# set per environment at build time.
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+# Named by content hash, so they never change
+/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Must be checked every time, or releases would never reach installed apps
+/index.html
+  Cache-Control: no-cache
+/service-worker.js
+  Cache-Control: no-cache
+/manifest.json
+  Cache-Control: no-cache

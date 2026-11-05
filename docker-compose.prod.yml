@@ -1,0 +1,38 @@
+# The production server. The frontend isn't here: Cloudflare Pages hosts it.
+# Run through deploy/deploy.sh, which picks the image tag and checks the result.
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - API_DOMAIN=${API_DOMAIN:?set API_DOMAIN in /opt/som/.env.compose}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backend:
+    build: ./backend
+    image: som-backend:${TAG:-latest}
+    restart: always
+    env_file:
+      - /opt/som/.env
+    environment:
+      - ENV=production
+      - PORT=8001
+    expose:
+      - "8001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  caddy_data:
+  caddy_config:

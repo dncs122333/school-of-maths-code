@@ -1,25 +1,5 @@
-# Runtime: only what the app imports (versions match the working local .venv).
-# The AI question extractor calls the Gemini REST API with `requests`; no Google SDK is needed.
-# boto3 backs S3-compatible object storage (Cloudflare R2) when S3_* env vars are set.
-fastapi==0.110.1
-starlette==0.37.2
-uvicorn==0.25.0
-motor==3.3.1
-pymongo==4.6.3
-pydantic==2.13.4
-email-validator==2.3.0
-bcrypt==4.1.3
-PyJWT==2.13.0
-requests==2.34.2
-python-dotenv==1.2.2
-python-multipart==0.0.32
-pypdf==6.16.1
-python-docx==1.2.0
-reportlab==5.0.1
-pillow==12.3.0
-certifi==2026.7.22
-Jinja2==3.1.6
-boto3==1.43.72
+# Runtime packages live in requirements-docker.txt, which is what the production image installs.
+-r requirements-docker.txt
 
 # Tests
 pytest==9.1.1
