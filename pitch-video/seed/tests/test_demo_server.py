@@ -21,3 +21,12 @@ def test_demo_server_refuses_without_som_demo():
     out = subprocess.run([str(PY), str(ROOT / "pitch-video" / "demo_server.py"), "--print-db"],
                          cwd=ROOT / "backend", env=env, capture_output=True, text=True, timeout=60)
     assert out.returncode == 2
+
+
+def test_demo_backend_never_sends_real_email():
+    """Sign-ups email parents through Brevo; the demo signs up made-up students, so its mail must stay off."""
+    env = {**os.environ, "DB_NAME": "som_demo", "BREVO_API_KEY": "real-looking-key", "EMAIL_FROM": "real@example.com"}
+    out = subprocess.run([str(PY), str(ROOT / "pitch-video" / "demo_server.py"), "--print-mail"],
+                         cwd=ROOT / "backend", env=env, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip().splitlines()[-1] == "mail off"

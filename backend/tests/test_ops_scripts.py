@@ -133,9 +133,9 @@ def test_mailer_sends_the_link_through_brevo_and_hides_failures(monkeypatch, cap
     monkeypatch.setattr(mailer, "EMAIL_FROM", "noreply@example.com")
     monkeypatch.setattr(mailer, "APP_URL", "https://app.example.com")
     monkeypatch.setattr(mailer.requests, "post", fake_post)
-    asyncio.run(mailer.send_password_reset("s@example.com", "<Aarav>", "tok123"))
+    asyncio.run(mailer.send_password_reset("s@mail.test", "<Aarav>", "tok123"))
     assert sent["url"] == mailer.BREVO_SEND_URL and sent["headers"]["api-key"] == "key"
-    assert sent["json"]["to"][0]["email"] == "s@example.com"
+    assert sent["json"]["to"][0]["email"] == "s@mail.test"
     assert "https://app.example.com/reset-password?token=tok123" in sent["json"]["textContent"]
     assert "&lt;Aarav&gt;" in sent["json"]["htmlContent"]
 
@@ -143,7 +143,7 @@ def test_mailer_sends_the_link_through_brevo_and_hides_failures(monkeypatch, cap
         raise RuntimeError("secret detail https://api.example/?key=abc")
 
     monkeypatch.setattr(mailer.requests, "post", failing_post)
-    asyncio.run(mailer.send_password_reset("s@example.com", "A", "tok123"))  # doesn't raise
+    asyncio.run(mailer.send_password_reset("s@mail.test", "A", "tok123"))  # doesn't raise
     assert "secret detail" not in caplog.text and "RuntimeError" in caplog.text
 
 

@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import WaitingForConsent from "./WaitingForConsent";
 
 export default function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -10,6 +11,7 @@ export default function ProtectedRoute({ children, roles }) {
     </div>
   );
   if (!user) return <Navigate to="/auth" replace />;
+  if (user.role === "student" && ["pending", "withdrawn"].includes(user.parent_consent_status)) return <WaitingForConsent />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
   return children;
 }

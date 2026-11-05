@@ -4,3 +4,4 @@ export CORS_ORIGINS=http://localhost:3011
 export ENABLE_WATERMARKING=true
 export DEMO_API=http://localhost:8011/api
 export DEMO_UI=http://localhost:3011
+export APP_URL=http://localhost:3011

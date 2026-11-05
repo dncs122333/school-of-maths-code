@@ -31,7 +31,8 @@ export function Privacy() {
       <p>School of Maths runs this app for its students and teachers. Many of our students are under 18, so we collect only what running classes needs.</p>
       <h2>What we collect</h2>
       <ul>
-        <li><strong>Account:</strong> name, email and password. Passwords are stored in scrambled form that nobody can read, including us.</li>
+        <li><strong>Account:</strong> name, email, mobile number and password. Passwords are stored in scrambled form that nobody can read, including us.</li>
+        <li><strong>Parent or guardian:</strong> name, mobile number and email, given when a student signs up.</li>
         <li><strong>Classes:</strong> your batches, test and practice answers, scores and time taken, and which class tests you attended.</li>
         <li><strong>Fees:</strong> the fee records your teacher enters for your batch. We don't collect card or bank details.</li>
         <li><strong>Technical:</strong> your network address, for security and to stop password guessing, and error reports with no personal details.</li>
@@ -39,7 +40,7 @@ export function Privacy() {
       <h2>How we use it</h2>
       <p>To run tests, show you and your teacher your progress, keep fee records, and keep accounts secure. Notes you open show your name and email as a watermark, to discourage copying. We don't sell your data, show ads, or use it for anything else.</p>
       <h2>Who can see it</h2>
-      <p>You, your batch's teachers and the School of Maths admin. These services store or carry data for us, under their own security terms:</p>
+      <p>You, your batch's teachers and the School of Maths admin. Teachers use phone numbers to contact students and parents. Other students can't see them. These services store or carry data for us, under their own security terms:</p>
       <ul>
         <li>MongoDB Atlas (database, in India)</li>
         <li>DigitalOcean (app server, in India)</li>
@@ -49,9 +50,9 @@ export function Privacy() {
         <li>Google Gemini, only when a teacher imports questions from a question paper they upload. Student data isn't included.</li>
       </ul>
       <h2>Children and parents</h2>
-      <p>A student under 18 needs a parent or guardian's agreement to use this app. Parents and guardians can ask to see, correct or delete their child's data.</p>
+      <p>Every student needs a parent or guardian's agreement before they can use this app. We email the parent a link to agree, or the parent can sign a form at the centre. We save a record of the agreement: who it was sent to, when it was given, the wording agreed to, and the network address and browser used. Parents and guardians can withdraw their agreement, and can ask to see, correct or delete their child's data.</p>
       <h2>How long we keep it</h2>
-      <p>While you're a student here, and until you ask us to delete it. Deleting removes your account and results straight away. Encrypted-at-rest backups are overwritten within about 30 days.</p>
+      <p>While you're a student here, and until you ask us to delete it. Deleting removes your account, results and contact details straight away. We keep only anonymous proof that agreement was given: the dates and the version of the wording, with no name or contact details. Backups are overwritten within about 30 days.</p>
       <h2>Your rights</h2>
       <p>You can ask to see your data, correct it, delete it, or withdraw your agreement, and you can raise a complaint with us. Contact <Contact />.</p>
     </LegalPage>
@@ -61,7 +62,7 @@ export function Privacy() {
 export function Terms() {
   return (
     <LegalPage title="Terms of Use">
-      <p>By creating an account you agree to these terms. If you're under 18, a parent or guardian must agree too.</p>
+      <p>By creating an account you agree to these terms. A student's parent or guardian must agree too, before the student can start.</p>
       <h2>Your account</h2>
       <ul>
         <li>Use your own real name and email, and keep your password private.</li>

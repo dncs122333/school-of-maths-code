@@ -5,6 +5,7 @@ import { isConfirmedWeak, isConfirmedStrong } from "../lib/mastery";
 import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useAuth } from "../context/AuthContext";
+import StudentContactActions, { isWaitingForConsent } from "../components/StudentContactActions";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
@@ -1584,6 +1585,10 @@ export default function Batches() {
                       <div className="text-xs text-[#1E293B]/60 font-mono truncate">
                         {req.student_email} · asked {req.requested_at ? new Date(req.requested_at).toLocaleDateString() : ""}
                       </div>
+                      <div className="mt-1.5">
+                        <StudentContactActions batchId={selectedBatchId} isAdmin={isAdmin} onChanged={() => { loadBatchStudents(selectedBatchId); loadJoinRequests(selectedBatchId); }}
+                          student={{ id: req.student_id, name: req.student_name, phone: req.phone, parent: req.parent, parent_consent_status: req.parent_consent_status }} />
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" disabled={joinRequestBusy !== null}
@@ -1637,7 +1642,14 @@ export default function Batches() {
                 </div>
 
                 <div className="space-y-2.5">
-                  {rosterStudents.map((st) => {
+                  {rosterStudents.some(isWaitingForConsent) && (
+                    <div data-testid="waiting-for-parent-banner" className="rounded-2xl border-2 border-[#B45309] bg-[#F5C842]/15 p-3 text-sm text-[#1E293B]">
+                      <strong>{rosterStudents.filter(isWaitingForConsent).length} waiting for a parent to agree.</strong> They can't open notes or tests yet.
+                      Call or WhatsApp the parent, resend the email, or record a signed form.
+                    </div>
+                  )}
+                  {/* Students waiting on a parent come first: they're the ones who can't start yet */}
+                  {[...rosterStudents].sort((a, b) => isWaitingForConsent(b) - isWaitingForConsent(a)).map((st) => {
                     const isPaid = st.status === "paid" || st.due_fee === 0;
                     const isPartial = st.status === "partial" || (st.paid_fee > 0 && st.due_fee > 0);
 
@@ -1808,7 +1820,7 @@ export default function Batches() {
                               </Button>
 
                               {/* Student Account Controls: Disable/Enable and Block/Unblock */}
-                              <div className="flex items-center gap-1.5 border-l-2 border-[#1E293B]/20 pl-2">
+                              <div className="flex flex-wrap items-center gap-1.5 border-l-2 border-[#1E293B]/20 pl-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -1901,6 +1913,10 @@ export default function Batches() {
                                 </div>
                               </div>
                           </div>
+                        </div>
+
+                        <div className="pt-3">
+                          <StudentContactActions student={st} batchId={selectedBatchId} isAdmin={isAdmin} onChanged={() => { loadBatchStudents(selectedBatchId); loadJoinRequests(selectedBatchId); }} />
                         </div>
 
                         {/* Month-by-Month Status & Green-Dot Fee Schedule */}

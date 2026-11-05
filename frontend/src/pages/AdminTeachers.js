@@ -83,6 +83,7 @@ export default function AdminTeachers() {
               <div className="min-w-0">
                 <p className="font-head font-bold text-[#1E293B] truncate">{t.name}</p>
                 <p className="text-sm text-[#64748B] break-all">{t.email}</p>
+                {t.phone && <a href={`tel:+91${t.phone}`} className="text-sm font-bold text-[#3E7CB1] hover:underline">{t.phone}</a>}
                 <p className="text-xs text-[#64748B] mt-0.5">Signed up {displayDate(t.created_at)}</p>
               </div>
               <div className="flex gap-2 shrink-0">

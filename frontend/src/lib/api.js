@@ -48,6 +48,10 @@ api.interceptors.response.use(
     const isBlockedOrDisabled = res?.status === 403 && typeof res?.data?.detail === "string" && (
       res.data.detail.toLowerCase().includes("disabled") || res.data.detail.toLowerCase().includes("blocked")
     );
+    // A parent has withdrawn their agreement while the app was open: the saved user is out of date
+    if (res?.status === 403 && typeof res?.data?.detail === "string" && res.data.detail.startsWith("Waiting for your parent")) {
+      window.dispatchEvent(new CustomEvent("som:consent-needed"));
+    }
     if ((res?.status === 401 || isBlockedOrDisabled) && !isAuthAttempt && localStorage.getItem("som_token")) {
       localStorage.removeItem("som_token");
       // AuthContext signs out in place and the route guards send the user to /auth. No full-page

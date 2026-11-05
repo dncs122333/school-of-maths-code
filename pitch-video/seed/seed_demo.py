@@ -69,7 +69,7 @@ def reset(db):
     """Empty every collection (indexes stay), keeping only the startup-seeded admin."""
     for name in db.list_collection_names():
         if name == "users":
-            db.users.delete_many({"role": {"$ne": "admin"}})
+            db.users.delete_many({"email": {"$ne": ADMIN[0]}})
         elif not name.startswith("system."):
             db[name].delete_many({})
 
@@ -109,7 +109,7 @@ def build_base(db):
     admin = login(*ADMIN)
     # Teachers: one approved (runs the centre), one left pending for the approval shot
     for t in (roster.TEACHER, PENDING_TEACHER):
-        Api().call("POST", "/auth/register", json={**t, "password": roster.DEMO_PASSWORD, "role": "teacher"})
+        Api().call("POST", "/auth/register", json={**t, "password": roster.DEMO_PASSWORD, "role": "teacher", "consent": True, "phone": "9876543210"})
     tid = str(db.users.find_one({"email": roster.TEACHER["email"]})["_id"])
     admin.call("POST", f"/admin/teachers/{tid}/approve")
     teacher = login(roster.TEACHER["email"], roster.DEMO_PASSWORD)
@@ -124,7 +124,10 @@ def build_base(db):
     students = {}
     for s in roster.STUDENTS:
         tok = Api().call("POST", "/auth/register",
-                         json={"name": s["name"], "email": s["email"], "password": roster.DEMO_PASSWORD})["token"]
+                         json={"name": s["name"], "email": s["email"], "password": roster.DEMO_PASSWORD, "consent": True,
+                               "phone": "9876543210", "parent_name": "Parent of " + s["name"], "parent_phone": "9876501234",
+                               "parent_email": "parent." + s["email"]})["token"]
+        db.users.update_one({"email": s["email"]}, {"$set": {"parent_consent_status": "confirmed"}})
         api = Api(tok)
         api.call("POST", "/batches/join", json={"code": batches[s["batch"]]["code"]})
         students[s["email"]] = {"api": api, "id": str(db.users.find_one({"email": s["email"]})["_id"]), **s}

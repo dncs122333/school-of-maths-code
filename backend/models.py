@@ -7,12 +7,31 @@ class RegisterInput(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     role: str = "student"
-    consent: bool = False  # agreed to the terms and privacy policy (with a guardian, if under 18)
+    consent: bool = False  # agreed to the terms and privacy policy
+    phone: Optional[str] = None  # required; checked in the route so the message is readable
+    parent_name: Optional[str] = None  # the parent's fields are required for students only
+    parent_phone: Optional[str] = None
+    parent_email: Optional[EmailStr] = None
 
 
 class LoginInput(BaseModel):
     email: EmailStr
     password: str
+
+
+class ConsentTokenInput(BaseModel):
+    token: str
+
+
+class ParentEmailInput(BaseModel):
+    parent_email: EmailStr
+
+
+class StudentContactInput(BaseModel):
+    phone: Optional[str] = None
+    parent_name: Optional[str] = None
+    parent_phone: Optional[str] = None
+    parent_email: Optional[EmailStr] = None
 
 
 class ForgotPasswordInput(BaseModel):

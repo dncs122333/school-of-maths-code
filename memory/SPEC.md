@@ -31,6 +31,12 @@ from the server ends the session. Login, sign-up and reset attempts are limited 
 sessions through `password_changed_at`. Sign-up requires `consent` (saved as `consent_at`). `DELETE /admin/students/{id}` erases
 a student and all their data. The in-memory batch-join limiter is per uvicorn worker, so its tests need a single-worker server.
 
+Sign-up collects a mobile number from everyone, and from students a parent's name, mobile and email (numbers aren't verified yet). A student's
+`parent_consent_status` is `pending` until a parent agrees through the emailed link (`/parent-consent`), or a teacher records a signed form. While it's
+`pending` or `withdrawn`, `get_current_user` allows only `/api/auth/me`, `/api/consent/*` and `/api/batches/join*`; accounts with no status predate this
+and aren't gated. Tests auto-confirm students unless they send `X-Test-Keep-Consent-Pending: 1`. `consent_records` is add-only: code never edits an entry
+(erasing a student swaps their entries for anonymous ones). Change `CONSENT_VERSION` in `backend/parent_consent.py` whenever the wording, Terms or Privacy Policy change.
+
 Deployment: `docs/DEPLOYMENT_PLAN.md`, `deploy/README.md`.
 
 ## Atlas-only data source guardrails

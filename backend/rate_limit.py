@@ -19,6 +19,8 @@ REGISTER_IP = ("register:ip", 60, ONE_HOUR)  # sign-ups per address (a whole cla
 FORGOT_EMAIL = ("forgot:email", 3, ONE_HOUR)  # reset emails per account
 FORGOT_IP = ("forgot:ip", 30, ONE_HOUR)
 RESET_IP = ("reset:ip", 20, ONE_HOUR)  # failed reset attempts per address
+CONSENT_SEND = ("consent:student", 5, ONE_HOUR)  # parent emails per student
+CONSENT_IP = ("consent:ip", 20, ONE_HOUR)  # failed consent-link attempts per address
 
 # The dev server and test suite connect from this machine and create hundreds of accounts; in production the
 # address always comes from the proxy's forwarded header, so these never match a real client.

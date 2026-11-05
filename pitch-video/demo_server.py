@@ -21,10 +21,15 @@ load_backend()
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--print-db", action="store_true")
+    ap.add_argument("--print-mail", action="store_true")
     ap.add_argument("--port", type=int, default=8011)
     a = ap.parse_args()
     if a.print_db:
         print(os.environ["DB_NAME"])
+        raise SystemExit(0)
+    if a.print_mail:
+        import config
+        print("mail on" if config.BREVO_API_KEY else "mail off")
         raise SystemExit(0)
     import uvicorn
     import server  # noqa: F401

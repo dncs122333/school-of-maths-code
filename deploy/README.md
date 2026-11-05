@@ -59,6 +59,7 @@ In the GitHub repo settings:
   Then drop `som_restore_check` in Atlas. Repeat monthly.
 - Rehearsal: run through the walk-through in section 6 of the plan on a cheap Android phone, plus a 150-student load test.
 - Admin: log in, change the password, and remove `ADMIN_PASSWORD` from `/opt/som/.env`.
+- Consent: keep paper consent forms ready for the first day, and tell parents to expect an email. Without working Brevo email, no student can open the app unless a teacher records a signed form. A lawyer should check the consent wording (`backend/parent_consent.py`) and method, and how long to keep the records.
 - Legal: have the Privacy Policy and Terms (`frontend/src/pages/Legal.js`) reviewed. They name DigitalOcean, so update them if you pick another provider.
 
 ## Everyday use

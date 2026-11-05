@@ -53,7 +53,12 @@ export function AuthProvider({ children }) {
       if (e.detail?.reason) toast.error(e.detail.reason === "Token expired" ? "Your session expired. Please log in again." : e.detail.reason);
     };
     window.addEventListener("som:signed-out", onSignedOut);
-    return () => window.removeEventListener("som:signed-out", onSignedOut);
+    const onConsentNeeded = () => { api.get("/auth/me").then((r) => setUser(r.data)).catch(() => {}); };
+    window.addEventListener("som:consent-needed", onConsentNeeded);
+    return () => {
+      window.removeEventListener("som:signed-out", onSignedOut);
+      window.removeEventListener("som:consent-needed", onConsentNeeded);
+    };
   }, []);
 
   const persist = (data) => {

@@ -26,7 +26,15 @@ The agreed home page design is version 22 of the mockup: `.superpowers/brainstor
 - [ ] Permission to use a real student's report instead of the "Sample" one, or keep the sample
 - [ ] Which optional ideas to add: free maths check-up, Google reviews, a section for students, ready-written WhatsApp message, local Google search, Hindi
 
+**Questions for the lawyer (parent consent)**
+- [ ] Is an email link, or a signed form, enough as verifiable parental consent under India's data protection law? A student could enter a second email of their own as the parent's.
+- [ ] Is the consent wording right? It's in `backend/parent_consent.py`.
+- [ ] How long must consent records be kept, and is the anonymous record kept after a student is erased acceptable?
+- [ ] Prepare a paper consent form for parents without email. The app records that one was received; the centre keeps the original.
+
 **Work that follows**
+- [ ] Verify phone numbers by SMS OTP once DLT sender registration is done
+- [ ] Send the weekly report to parents: one-tap WhatsApp and automatic email
 - [ ] Watch `test_class_tests::test_per_student_order_still_grades_correctly`: it failed once in a full run (5 Nov 2026), then passed 40+ repeat runs. The cause is unknown and it checks class-test scoring, so capture the error if it happens again.
 - [ ] Add Class 11–12 maths to the syllabus; the app only covers Class 9–10 today
 - [ ] Sales site for other centres' owners, on its own web address, after SOM Academy is live. The old front page's text can be its starting point.

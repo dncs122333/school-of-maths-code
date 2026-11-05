@@ -39,6 +39,7 @@ const AdminTeachers = lazyPage(() => import("./pages/AdminTeachers"));
 const TeacherDashboard = lazyPage(() => import("./pages/TeacherDashboard"));
 const QuestionBank = lazyPage(() => import("./pages/QuestionBank"));
 const ResetPassword = lazyPage(() => import("./pages/ResetPassword"));
+const ParentConsent = lazyPage(() => import("./pages/ParentConsent"));
 const Privacy = lazyPage(() => import("./pages/Legal").then((m) => ({ default: m.Privacy })));
 const Terms = lazyPage(() => import("./pages/Legal").then((m) => ({ default: m.Terms })));
 
@@ -118,6 +119,7 @@ function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/reset-password" element={standalone(<ResetPassword />)} />
+                <Route path="/parent-consent" element={standalone(<ParentConsent />)} />
                 <Route path="/privacy" element={standalone(<Privacy />)} />
                 <Route path="/terms" element={standalone(<Terms />)} />
                 <Route path="/dashboard" element={page(<Dashboard />)} />

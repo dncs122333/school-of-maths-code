@@ -31,6 +31,18 @@ async def verify_password_async(plain: str, hashed: str) -> bool:
     return await asyncio.to_thread(verify_password, plain, hashed)
 
 
+PARENT_CONSENT_MESSAGE = "Waiting for your parent to agree. Please ask them to check their email."
+CONSENT_GATE_STATUSES = ("pending", "withdrawn")  # accounts from before parent consent existed have no status
+# All a waiting student can reach: their own account, the consent actions, and joining a batch so the teacher can see them
+_OPEN_BEFORE_CONSENT = ("/api/auth/me", "/api/consent/", "/api/batches/join")
+
+
+def _check_parent_consent(user: dict, request: Request) -> None:
+    if (user.get("role") == "student" and user.get("parent_consent_status") in CONSENT_GATE_STATUSES
+            and not request.url.path.startswith(_OPEN_BEFORE_CONSENT)):
+        raise HTTPException(status_code=403, detail=PARENT_CONSENT_MESSAGE)
+
+
 TEACHER_PENDING_MESSAGE = "Your teacher account is waiting for admin approval. You can log in once it's approved."
 TEACHER_REJECTED_MESSAGE = "Your teacher account request was not approved. Contact the admin."
 
@@ -77,6 +89,7 @@ async def get_current_user(request: Request) -> dict:
             raise HTTPException(status_code=401, detail="User not found")
         check_account_access(user)
         _check_session_current(user, payload)
+        _check_parent_consent(user, request)
         user["id"] = str(user["_id"])
         user.pop("_id", None)
         user.pop("password_hash", None)

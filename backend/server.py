@@ -31,12 +31,14 @@ from config import (admin_password_allowed, logger, DIFFICULTIES, _VALID_STATUSE
                     IS_PRODUCTION, SENTRY_DSN)
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
-from models import (RegisterInput, LoginInput, ForgotPasswordInput, ResetPasswordInput, BatchInput, BatchUpdateInput,
+from models import (RegisterInput, LoginInput, ForgotPasswordInput, ResetPasswordInput, ConsentTokenInput, ParentEmailInput,
+                    StudentContactInput, BatchInput, BatchUpdateInput,
                     JoinInput, StudentStatusInput, GenerateTestInput,
                     SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, hash_password_async, verify_password_async, create_access_token,
-                  get_current_user, require_role, require_claim_role, check_account_access, TEACHER_PENDING_MESSAGE)
+                  get_current_user, require_role, require_claim_role, check_account_access, TEACHER_PENDING_MESSAGE, CONSENT_GATE_STATUSES)
 from mailer import send_password_reset, RESET_LINK_MINUTES
+import parent_consent
 import rate_limit
 from ai import extract_questions_from_media
 from storage import init_storage, put_object, get_object
@@ -108,12 +110,26 @@ async def register(body: RegisterInput, request: Request):
         raise HTTPException(status_code=400, detail="Invalid role")
     if not body.consent:
         raise HTTPException(status_code=400, detail="Please agree to the Terms and Privacy Policy to create an account.")
+    phone = parent_consent.clean_phone(body.phone, "yourself")
+    parent = None
+    if body.role == "student":
+        if not (body.parent_name or "").strip():
+            raise HTTPException(status_code=400, detail="Enter your parent's name.")
+        if not body.parent_email:
+            raise HTTPException(status_code=400, detail="Enter your parent's email.")
+        if body.parent_email.lower() == email:
+            raise HTTPException(status_code=400, detail="Enter your parent's own email, not the one you're signing up with.")
+        parent = {"name": body.parent_name.strip()[:120], "email": body.parent_email.lower(),
+                  "phone": parent_consent.clean_phone(body.parent_phone, "your parent")}
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
     await rate_limit.record(rate_limit.REGISTER_IP, ip)
     now_iso = datetime.now(timezone.utc).isoformat()
     doc = {"name": body.name, "email": email, "password_hash": await hash_password_async(body.password),
-           "role": body.role, "batch_ids": [], "created_at": now_iso, "consent_at": now_iso}
+           "role": body.role, "batch_ids": [], "created_at": now_iso, "consent_at": now_iso, "phone": phone}
+    if parent:
+        doc["parent"] = parent
+        doc["parent_consent_status"] = "pending"  # nothing else opens until a parent agrees
     if body.role == "teacher":
         # Teacher accounts get the question bank and student data: an admin approves them first
         doc["teacher_status"] = "pending"
@@ -121,8 +137,10 @@ async def register(body: RegisterInput, request: Request):
     uid = str(res.inserted_id)
     if body.role == "teacher":
         return {"pending_approval": True, "message": TEACHER_PENDING_MESSAGE}
+    await parent_consent.send_consent_request({**doc, "_id": res.inserted_id}, request)
     token = create_access_token(uid, email, body.role)
-    return {"token": token, "user": {"id": uid, "name": body.name, "email": email, "role": body.role, "batch_ids": []}}
+    return {"token": token, "user": {"id": uid, "name": body.name, "email": email, "role": body.role, "batch_ids": [],
+                                     "phone": phone, "parent": parent, "parent_consent_status": "pending"}}
 
 
 @api_router.post("/auth/login")
@@ -143,12 +161,144 @@ async def login(body: LoginInput, request: Request):
     return {"token": token, "user": {"id": uid, "name": user["name"], "email": email,
                                      "role": user["role"], "batch_ids": user.get("batch_ids", []),
                                      "is_disabled": bool(user.get("is_disabled", False)),
-                                     "is_blocked": bool(user.get("is_blocked", False))}}
+                                     "is_blocked": bool(user.get("is_blocked", False)),
+                                     "parent_consent_status": user.get("parent_consent_status"),
+                                     "parent": user.get("parent")}}
 
 
 @api_router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+# ------------------------- Parent consent -------------------------
+@api_router.post("/consent/details")
+async def consent_details(body: ConsentTokenInput, request: Request):
+    """For the parent's page: no login, only the emailed link. Shows what they're agreeing to and changes nothing,
+    so an email scanner opening the link can't give consent."""
+    ip = rate_limit.client_ip(request)
+    await rate_limit.enforce(rate_limit.CONSENT_IP, ip)
+    try:
+        student = await parent_consent.student_for_token(body.token)
+    except HTTPException:
+        await rate_limit.record(rate_limit.CONSENT_IP, ip)
+        raise
+    return {"student_name": student.get("name"), "parent_name": (student.get("parent") or {}).get("name"),
+            "wording": parent_consent.wording_for(student.get("name") or "the student"),
+            "wording_version": parent_consent.CONSENT_VERSION}
+
+
+@api_router.post("/consent/confirm")
+async def consent_confirm(body: ConsentTokenInput, request: Request):
+    ip = rate_limit.client_ip(request)
+    await rate_limit.enforce(rate_limit.CONSENT_IP, ip)
+    try:
+        student = await parent_consent.confirm_with_token(body.token, request)
+    except HTTPException:
+        await rate_limit.record(rate_limit.CONSENT_IP, ip)
+        raise
+    return {"student_name": student.get("name")}
+
+
+async def _waiting_student(user: dict) -> dict:
+    if user.get("role") != "student" or user.get("parent_consent_status") not in CONSENT_GATE_STATUSES:
+        raise HTTPException(status_code=400, detail="Your parent has already agreed.")
+    return await db.users.find_one({"_id": ObjectId(user["id"])})
+
+
+@api_router.post("/consent/resend")
+async def consent_resend(request: Request, user: dict = Depends(require_role("student"))):
+    await parent_consent.send_consent_request(await _waiting_student(user), request)
+    return {"sent_to": user["parent"]["email"]}
+
+
+@api_router.put("/consent/parent-email")
+async def consent_change_parent_email(body: ParentEmailInput, request: Request, user: dict = Depends(require_role("student"))):
+    student = await _waiting_student(user)
+    new_email = body.parent_email.lower()
+    if new_email == student["email"]:
+        raise HTTPException(status_code=400, detail="Enter your parent's own email, not the one you signed up with.")
+    student["parent"]["email"] = new_email
+    await db.users.update_one({"_id": student["_id"]}, {"$set": {"parent.email": new_email}})
+    await parent_consent.send_consent_request(student, request)
+    return {"sent_to": new_email}
+
+
+async def _student_in_batch(batch_id: str, student_id: str, user: dict) -> dict:
+    """A student the teacher may act on: enrolled in their batch, or waiting to join it."""
+    await _owned_batch(batch_id, user)
+    student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"}) if ObjectId.is_valid(student_id) else None
+    enrolled = student and batch_id in (student.get("batch_ids") or [])
+    if not enrolled and not (student and await db.join_requests.find_one(
+            {"batch_id": batch_id, "student_id": student_id, "status": "pending"}, {"_id": 1})):
+        raise HTTPException(status_code=404, detail="Student not found in this batch")
+    return student
+
+
+@api_router.post("/batches/{batch_id}/students/{student_id}/consent/resend")
+async def teacher_resend_consent(batch_id: str, student_id: str, request: Request,
+                                 user: dict = Depends(require_role("teacher", "admin"))):
+    student = await _student_in_batch(batch_id, student_id, user)
+    if student.get("parent_consent_status") not in CONSENT_GATE_STATUSES or not student.get("parent"):
+        raise HTTPException(status_code=400, detail="This student's parent has already agreed.")
+    await parent_consent.send_consent_request(student, request, actor=user)
+    return {"sent_to": student["parent"]["email"]}
+
+
+@api_router.post("/batches/{batch_id}/students/{student_id}/consent/signed-form")
+async def teacher_record_signed_form(batch_id: str, student_id: str, request: Request,
+                                     user: dict = Depends(require_role("teacher", "admin"))):
+    student = await _student_in_batch(batch_id, student_id, user)
+    if student.get("parent_consent_status") not in CONSENT_GATE_STATUSES:
+        raise HTTPException(status_code=400, detail="This student's parent has already agreed.")
+    await parent_consent.mark_confirmed(student, "signed_form", request, actor=user)
+    return {"parent_consent_status": "confirmed"}
+
+
+@api_router.put("/batches/{batch_id}/students/{student_id}/contact")
+async def teacher_correct_contact(batch_id: str, student_id: str, body: StudentContactInput, request: Request,
+                                  user: dict = Depends(require_role("teacher", "admin"))):
+    student = await _student_in_batch(batch_id, student_id, user)
+    update = {}
+    if body.phone is not None:
+        update["phone"] = parent_consent.clean_phone(body.phone, "the student")
+    if body.parent_phone is not None:
+        update["parent.phone"] = parent_consent.clean_phone(body.parent_phone, "the parent")
+    if body.parent_name is not None:
+        if not body.parent_name.strip():
+            raise HTTPException(status_code=400, detail="Enter the parent's name.")
+        update["parent.name"] = body.parent_name.strip()[:120]
+    email_changed = False
+    if body.parent_email is not None:
+        new_email = body.parent_email.lower()
+        email_changed = new_email != (student.get("parent") or {}).get("email")
+        if new_email == student.get("email"):
+            raise HTTPException(status_code=400, detail="That's the student's own email. Enter the parent's.")
+        # After consent, the email is part of what was agreed: withdraw and ask again rather than edit it
+        if email_changed and student.get("parent_consent_status") not in CONSENT_GATE_STATUSES:
+            raise HTTPException(status_code=400, detail="This parent has already agreed, so their email can't be changed here.")
+        update["parent.email"] = new_email
+    if update:
+        await db.users.update_one({"_id": student["_id"]}, {"$set": update})
+    if email_changed:
+        await parent_consent.send_consent_request(await db.users.find_one({"_id": student["_id"]}), request, actor=user)
+    return {"updated": sorted(update)}
+
+
+@api_router.get("/admin/students/{student_id}/consent-records")
+async def admin_consent_records(student_id: str, _: dict = Depends(require_role("admin"))):
+    return [r async for r in db.consent_records.find({"student_ref": student_id}, {"_id": 0}).sort("at", 1)]
+
+
+@api_router.post("/admin/students/{student_id}/consent/withdraw")
+async def admin_withdraw_consent(student_id: str, request: Request, user: dict = Depends(require_role("admin"))):
+    """A parent has withdrawn their agreement: the student's access closes until a parent agrees again."""
+    student = await db.users.find_one({"_id": ObjectId(student_id), "role": "student"}) if ObjectId.is_valid(student_id) else None
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    await parent_consent.add_record(student, "withdrawn", request, actor=user)
+    await db.users.update_one({"_id": student["_id"]}, {"$set": {"parent_consent_status": "withdrawn"}})
+    return {"parent_consent_status": "withdrawn"}
 
 
 _background_emails = set()  # asyncio keeps only weak references to tasks
@@ -1021,7 +1171,19 @@ async def my_join_requests(user: dict = Depends(require_role("student"))):
 @api_router.get("/batches/{batch_id}/join-requests")
 async def list_join_requests(batch_id: str, status: str = "pending", user: dict = Depends(require_role("teacher", "admin"))):
     await _owned_batch(batch_id, user)
-    return [r async for r in db.join_requests.find({"batch_id": batch_id, "status": status}, {"_id": 0}).sort("requested_at", 1)]
+    requests_list = [r async for r in db.join_requests.find({"batch_id": batch_id, "status": status}, {"_id": 0}).sort("requested_at", 1)]
+    ids = [ObjectId(r["student_id"]) for r in requests_list if ObjectId.is_valid(r.get("student_id", ""))]
+    contacts = {str(u["_id"]): u async for u in db.users.find(
+        {"_id": {"$in": ids}}, {"phone": 1, "parent": 1, "parent_consent_status": 1})}
+    for r in requests_list:
+        r.update(_student_contact(contacts.get(r.get("student_id"), {})))
+    return requests_list
+
+
+def _student_contact(student: dict) -> dict:
+    """Contact details for the student's own teachers and the admin only."""
+    return {"phone": student.get("phone"), "parent": student.get("parent"),
+            "parent_consent_status": student.get("parent_consent_status")}
 
 
 async def _decide_join_request(batch: dict, req: dict, approve: bool, user: dict) -> None:
@@ -1198,6 +1360,7 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "id": sid,
             "name": s.get("name", "Unnamed Student"),
             "email": s.get("email", ""),
+            **_student_contact(s),
             "is_disabled": is_student_disabled,
             "is_blocked": is_student_blocked,
             "joined_at": _enrolled_at(s, batch_id),
@@ -4352,9 +4515,9 @@ async def list_teacher_accounts(status: str = "pending", _: dict = Depends(requi
         raise HTTPException(status_code=400, detail="status must be pending, approved or rejected")
     q = {"role": "teacher"}
     q["teacher_status"] = {"$in": ["approved", None]} if status == "approved" else status
-    users = await db.users.find(q, {"name": 1, "email": 1, "created_at": 1, "teacher_status": 1,
+    users = await db.users.find(q, {"name": 1, "email": 1, "phone": 1, "created_at": 1, "teacher_status": 1,
                                     "teacher_decided_at": 1}).sort("created_at", -1).to_list(500)
-    return [{"id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "created_at": u.get("created_at"),
+    return [{"id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "phone": u.get("phone"), "created_at": u.get("created_at"),
              "status": u.get("teacher_status") or "approved", "decided_at": u.get("teacher_decided_at")} for u in users]
 
 
@@ -4392,7 +4555,9 @@ async def delete_student_data(student_id: str, _: dict = Depends(require_role("a
     await db.batches.update_many({"$or": [{"student_ids": student_id}, {"archived_student_ids": student_id}]},
                                  {"$pull": {"student_ids": student_id, "archived_student_ids": student_id}})
     await db.password_resets.delete_many({"user_id": student_id})
-    await db.auth_limits.delete_many({"key": {"$in": [f"login:email:{student['email']}", f"forgot:email:{student['email']}"]}})
+    await db.auth_limits.delete_many({"key": {"$in": [f"login:email:{student['email']}", f"forgot:email:{student['email']}",
+                                                      f"consent:student:{student_id}"]}})
+    await parent_consent.anonymise_records(student_id)
     await db.users.delete_one({"_id": ObjectId(student_id)})
     logger.info(f"Deleted student {student_id}: {removed}")
     return {"success": True, "removed": removed}
@@ -4493,6 +4658,9 @@ async def startup():
         ("auth_limits", "expire_at", {"expireAfterSeconds": 0}),
         ("password_resets", "token_hash", {"unique": True}),
         ("password_resets", "expire_at", {"expireAfterSeconds": 0}),
+        ("parent_consent_tokens", "token_hash", {"unique": True}),
+        ("parent_consent_tokens", "expire_at", {"expireAfterSeconds": 0}),
+        ("consent_records", [("student_ref", 1), ("at", 1)], {}),
     ]
     for coll, keys, opts in indexes:
         try:

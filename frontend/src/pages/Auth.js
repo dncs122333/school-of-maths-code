@@ -14,7 +14,8 @@ export default function Auth() {
   const nav = useNavigate();
   const [mode, setMode] = useState(params.get("mode") === "register" ? "register" : "login");
   const [role, setRole] = useState(params.get("role") === "teacher" ? "teacher" : "student");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", phone: "", parent_name: "", parent_phone: "", parent_email: "" });
+  const [sameAsParent, setSameAsParent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pendingMessage, setPendingMessage] = useState("");
@@ -38,7 +39,10 @@ export default function Auth() {
       if (mode === "login") {
         await login(form.email, form.password);
       } else {
-        const res = await register({ ...form, role, consent });
+        const { name, email, password, phone, parent_name, parent_phone, parent_email } = form;
+        const res = await register(role === "student"
+          ? { name, email, password, role, consent, phone: sameAsParent ? parent_phone : phone, parent_name, parent_phone, parent_email }
+          : { name, email, password, role, consent, phone });
         if (res?.pendingApproval) {
           setPendingMessage(res.message);
           setMode("login");
@@ -189,6 +193,47 @@ export default function Auth() {
                 Forgot password?
               </button>
             )}
+            {mode === "register" && role === "teacher" && (
+              <div>
+                <Label htmlFor="phone" className="text-xs font-head font-bold uppercase text-[#1E293B]">Your mobile number</Label>
+                <Input id="phone" data-testid="phone-input" type="tel" required autoComplete="tel" className="mt-1" value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="98765 43210" />
+              </div>
+            )}
+            {mode === "register" && role === "student" && (
+              <>
+                <div>
+                  <Label htmlFor="phone" className="text-xs font-head font-bold uppercase text-[#1E293B]">Your mobile number</Label>
+                  {!sameAsParent && (
+                    <Input id="phone" data-testid="phone-input" type="tel" required autoComplete="tel" className="mt-1" value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="98765 43210" />
+                  )}
+                  <label className="flex items-center gap-2 min-h-11 cursor-pointer text-sm text-[#1E293B]">
+                    <input type="checkbox" data-testid="same-as-parent" checked={sameAsParent} onChange={(e) => setSameAsParent(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#3E7CB1]" />
+                    I use my parent's number
+                  </label>
+                </div>
+                <fieldset className="rounded-2xl border-2 border-[#1E293B] p-4 space-y-3">
+                  <legend className="px-1 text-xs font-head font-black uppercase text-[#1E293B]">Parent or guardian</legend>
+                  <div>
+                    <Label htmlFor="parent-name" className="text-xs font-head font-bold uppercase text-[#1E293B]">Name</Label>
+                    <Input id="parent-name" data-testid="parent-name-input" required className="mt-1" value={form.parent_name}
+                      onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="parent-phone" className="text-xs font-head font-bold uppercase text-[#1E293B]">Mobile number</Label>
+                    <Input id="parent-phone" data-testid="parent-phone-input" type="tel" required className="mt-1" value={form.parent_phone}
+                      onChange={(e) => setForm({ ...form, parent_phone: e.target.value })} placeholder="98765 43210" />
+                  </div>
+                  <div>
+                    <Label htmlFor="parent-email" className="text-xs font-head font-bold uppercase text-[#1E293B]">Email</Label>
+                    <Input id="parent-email" data-testid="parent-email-input" type="email" required inputMode="email" autoCapitalize="none" className="mt-1" value={form.parent_email}
+                      onChange={(e) => setForm({ ...form, parent_email: e.target.value })} placeholder="parent@example.com" />
+                    <p className="mt-1 text-xs text-[#64748B]">We'll email them to ask for their agreement. Your teacher can see these details.</p>
+                  </div>
+                </fieldset>
+              </>
+            )}
             {mode === "register" && (
               <label className="flex items-start gap-3 min-h-11 cursor-pointer text-sm text-[#1E293B]">
                 <input
@@ -201,8 +246,8 @@ export default function Auth() {
                 />
                 <span>
                   I agree to the <Link to="/terms" target="_blank" className="font-bold underline">Terms</Link> and{" "}
-                  <Link to="/privacy" target="_blank" className="font-bold underline">Privacy Policy</Link>. If I'm under 18,
-                  my parent or guardian has read them and agrees too.
+                  <Link to="/privacy" target="_blank" className="font-bold underline">Privacy Policy</Link>.
+                  {role === "student" && " We'll email your parent to ask for their agreement before you can start."}
                 </span>
               </label>
             )}
