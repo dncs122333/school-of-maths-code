@@ -145,3 +145,12 @@ def test_mailer_sends_the_link_through_brevo_and_hides_failures(monkeypatch, cap
     monkeypatch.setattr(mailer.requests, "post", failing_post)
     asyncio.run(mailer.send_password_reset("s@example.com", "A", "tok123"))  # doesn't raise
     assert "secret detail" not in caplog.text and "RuntimeError" in caplog.text
+
+
+def test_production_refuses_the_known_dev_password_or_a_short_one():
+    from config import admin_password_allowed
+    assert admin_password_allowed("admin123", production=False)
+    assert not admin_password_allowed("admin123", production=True)
+    assert not admin_password_allowed("xAdmin123-padded-out", production=True)
+    assert not admin_password_allowed("short-pass1", production=True)
+    assert admin_password_allowed("a-long-unguessable-phrase", production=True)

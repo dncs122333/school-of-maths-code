@@ -1,9 +1,6 @@
 # SPEC — School of Maths
 
-FastAPI + MongoDB backend, React 19 (CRA + craco) frontend. Cloned from
-`dncs122333/school-of-maths-code` branch `correct-docs` and run in-pod.
-
-Public URL: https://correct-docs-preview.preview.emergentagent.com
+FastAPI + MongoDB backend, React 19 (CRA + craco) frontend.
 
 ## Layout / run
 

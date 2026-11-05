@@ -18,8 +18,6 @@ function makeDevServerV5Compatible(devServerConfig) {
       : https
         ? "https"
         : "http";
-  // The preview ingress reaches the dev server with a non-localhost Host header
-  compatibleConfig.allowedHosts = "all";
   compatibleConfig.headers = {
     ...compatibleConfig.headers,
     "Cross-Origin-Resource-Policy": "same-origin",

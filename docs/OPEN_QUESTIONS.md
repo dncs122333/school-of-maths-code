@@ -2,8 +2,37 @@
 
 Decisions still to make, and work set aside on purpose. Update this when one is settled.
 
+## To discuss with SOM Academy (home page and launch)
+The agreed home page design is version 22 of the mockup: `.superpowers/brainstorm/77416-1793870948/content/home-page-a-v22.html` (on this computer only; not in git). The app still shows the old page. The new page can be built with blanks, but must not go live until these are filled in.
+
+**Details to get from the client**
+- [ ] Logo and brand colours
+- [ ] Phone number and WhatsApp number
+- [ ] Area, city, address, map and centre hours
+- [ ] Class days and timings
+- [ ] Teacher photo, name, subject, qualification and experience
+- [ ] Board results (name, score, year, photo), with each family's permission
+- [ ] Real quotes from parents and students, with permission
+- [ ] Confirm the figures: 40 years, 20,000 students, max 40 per batch
+- [ ] Contact email for the Privacy and Terms pages
+- [ ] Sign-off on the Privacy Policy and Terms
+
+**Decisions to make with the client**
+- [ ] Is there really a test every week? The page promises it.
+- [ ] How do parents get the weekly report: a private WhatsApp link (suggested) or their own login? Parents can't see reports in the app today.
+- [ ] How do teachers act on weak topics? The page says "Teaching follows the gaps".
+- [ ] Which name everywhere: "free trial" (suggested) or "free demo class"?
+- [ ] Where do booking requests go: an admin list plus an email (suggested)?
+- [ ] Permission to use a real student's report instead of the "Sample" one, or keep the sample
+- [ ] Which optional ideas to add: free maths check-up, Google reviews, a section for students, ready-written WhatsApp message, local Google search, Hindi
+
+**Work that follows**
+- [ ] Watch `test_class_tests::test_per_student_order_still_grades_correctly`: it failed once in a full run (5 Nov 2026), then passed 40+ repeat runs. The cause is unknown and it checks class-test scoring, so capture the error if it happens again.
+- [ ] Add Class 11–12 maths to the syllabus; the app only covers Class 9–10 today
+- [ ] Sales site for other centres' owners, on its own web address, after SOM Academy is live. The old front page's text can be its starting point.
+
 ## Accounts
-- **Password reset / phone (OTP) login** — skipped for now (Nov 2026). Needs an email or SMS provider (cost + account). Options: email reset link (Resend/SMTP), SMS OTP (MSG91/Twilio), or teacher-set temporary passwords (no provider).
+- **Phone (OTP) login** — skipped for now (Nov 2026; password reset by email is built). SMS needs a provider such as MSG91 or Twilio, plus cost.
 - **Change own password / edit profile** — not built yet.
 - **Session length** — tokens last 7 days with no refresh; phone users get logged out weekly. Decide on refresh tokens before the store app.
 
@@ -34,7 +63,6 @@ Decisions still to make, and work set aside on purpose. Update this when one is 
 - Academic year rollover for batches and fee schedules.
 - Scoring with marks and negative marks (fields exist; scoring ignores them).
 - Topper ranking rules.
-- Rotating secrets (JWT secret, DB credentials) before launch.
 - Splitting the long `chore/remove-emergent` branch into separate PRs.
 - "morning maths class 9" data fix.
 - Restore UI and fee-history UI for archived batches/students.

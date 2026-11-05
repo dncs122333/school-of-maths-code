@@ -207,6 +207,17 @@ Branch protection keeps `main` green.
 | 4. Soft launch | Change the admin password, remove `ADMIN_PASSWORD`. One batch for one week. Check Sentry daily. | 1 week |
 | 5. Open up | All batches. Monthly restore drill and dependency updates. | ongoing |
 
+**Moving existing data from local to Cloudflare R2** (only if the client wants existing notes carried over; a production start with no old notes skips this):
+1. Decide with the client which batches and notes to keep. The dev database lists 481 uploads, many of them test files, and some of those files aren't on this computer.
+2. Copy the matching database records into `som_prod`. The script below moves only the files, and a note needs both its record and its file.
+3. Set the `S3_*` variables locally, pointing at the bucket, then preview the copy:
+   ```bash
+   cd backend && .venv/bin/python scripts/migrate_to_r2.py --dry-run
+   ```
+4. Run the same command without `--dry-run`. It keeps the same file paths, skips files already in R2 and deletes nothing from disk.
+5. Open a sample of notes in the app, logged in as a student, to confirm they load and are watermarked. Anything listed but not on this computer needs uploading again.
+6. Do this on staging first (`som-files-staging`), because the script hasn't run against a real bucket yet. Keep the local copies until the production check passes.
+
 **The rehearsal walk-through covers:**
 1. Teacher signs up.
 2. Admin approves the teacher.

@@ -23,7 +23,7 @@ Where v2.0 and this document conflict, **this document wins**.
 | Backend | Node.js + Fastify | **FastAPI (Python)** |
 | Database | PostgreSQL + Redis | **MongoDB** (Motor, async) |
 | Auth | Phone OTP + JWT | **Email/password (bcrypt) + JWT** (7-day), roles student/teacher/admin |
-| File storage | Cloudflare R2 | **Emergent Object Storage** |
+| File storage | Cloudflare R2 | **Cloudflare R2** (S3-compatible; local disk in development) |
 | Question source | "Platform bank (external)" | **Hand-seeded `question_bank` collection** (+ optional AI draft → review) |
 | AI | none (MCQ-only) | **Gemini 3.1 Pro** (existing — retained for notes; optional for question drafting) |
 | Payments | Razorpay | **Deferred** (out of MVP) |

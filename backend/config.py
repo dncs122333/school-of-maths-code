@@ -5,8 +5,8 @@ import logging
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent
-# The pod may expose a stale local MONGO_URL through supervisor. The checked runtime
-# configuration is authoritative so Atlas-only validation in db.py cannot be bypassed.
+# backend/.env, when present, wins over the shell, so a stale local MONGO_URL can't bypass the
+# Atlas-only check in db.py. Production has no .env file and uses the server's environment.
 load_dotenv(ROOT_DIR / '.env', override=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -21,6 +21,12 @@ APP_URL = (os.environ.get("APP_URL") or "http://localhost:3000").strip().rstrip(
 BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
 EMAIL_FROM = (os.environ.get("EMAIL_FROM") or "").strip()  # must be a sender verified in Brevo
 SENTRY_DSN = (os.environ.get("SENTRY_DSN") or "").strip()
+
+
+def admin_password_allowed(password: str, production: bool = IS_PRODUCTION) -> bool:
+    """The dev password is written in this project's docs, so it must never protect a live admin account."""
+    return not production or (len(password) >= 12 and "admin123" not in password.lower())
+
 
 if IS_PRODUCTION:
     if len(JWT_SECRET) < 32:

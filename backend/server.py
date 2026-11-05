@@ -27,7 +27,7 @@ from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
 from starlette.middleware.cors import CORSMiddleware
 
-from config import (logger, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE,
+from config import (admin_password_allowed, logger, DIFFICULTIES, _VALID_STATUSES, ROOT_DIR, APP_NAME, ENABLE_WATERMARKING, APP_TIMEZONE,
                     IS_PRODUCTION, SENTRY_DSN)
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
@@ -4556,6 +4556,9 @@ async def startup():
     # admin's password is never overwritten unless ADMIN_PASSWORD_RESET=1 is set for a one-off recovery.
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@somacademy.example.com").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD")
+    if admin_pw and not admin_password_allowed(admin_pw):
+        logger.error("ADMIN_PASSWORD was ignored: in production it needs 12+ characters and can't be the dev password")
+        admin_pw = None
     existing = await db.users.find_one({"email": admin_email})
     if not admin_pw:
         if existing is None:
