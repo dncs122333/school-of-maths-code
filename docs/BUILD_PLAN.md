@@ -1,4 +1,4 @@
-# VidyaLab — MVP Build Plan & Status
+# School of Maths — MVP Build Plan & Status
 
 **Source of truth:** `docs/SPEC_v3.0.md` (Consolidated Technical Specification v3.0).  
 **Branch:** `fix-test-race-condition-and-media-auth`  

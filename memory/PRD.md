@@ -1,10 +1,10 @@
-# VidyaLab — Product Requirements Document
+# School of Maths — Product Requirements Document
 
 ## Original Problem Statement
 Build an EdTech platform for CBSE Class 9 & 10 students with notes, DPP, and timed tests. Tuition teachers upload rough notes that are converted into beautiful, memorable notes (no concept missing) with concept images. Teachers upload test sheets for a batch; a test is chosen via dropdown by class/subject/chapter/topic(optional) and converted into a timed competitive MCQ test valid only for a certain duration from activation (set by the teacher).
 
 ## Architecture
-- **Frontend**: React 19, Tailwind, Shadcn UI, Framer Motion. JWT stored in localStorage (`vidya_token`), Bearer header via axios interceptor.
+- **Frontend**: React 19, Tailwind, Shadcn UI, Framer Motion. JWT stored in localStorage (`som_token`), Bearer header via axios interceptor.
 - **Backend**: FastAPI + MongoDB (motor). All routes under `/api`.
 - **AI**: Gemini, called directly with the teacher's own API key, for MCQ extraction from uploaded papers.
 - **Storage**: Cloudflare R2 (S3-compatible, `backend/storage.py`) or local disk when `S3_*` is unset; served via `/api/media/{path}` and resource downloads.
@@ -12,7 +12,7 @@ Build an EdTech platform for CBSE Class 9 & 10 students with notes, DPP, and tim
 ## User Personas
 - **Teacher**: creates batches, uploads notes/test sheets, launches timed tests & DPPs.
 - **Student**: joins batches by code, reads notes, takes timed tests, practices DPPs.
-- **Admin**: platform overview (admin@vidya.com).
+- **Admin**: platform overview (admin@somacademy.example.com).
 
 ## Core Requirements (static)
 1. Rough notes -> beautiful structured notes with sections, key points, concept images, mnemonics, quick revision.

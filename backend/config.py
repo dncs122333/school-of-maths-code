@@ -10,11 +10,11 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env', override=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("vidya")
+logger = logging.getLogger("som")
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
-APP_NAME = "vidya"
+APP_NAME = "som"
 
 IS_PRODUCTION = (os.environ.get("ENV") or "").strip().lower() == "production"
 APP_URL = (os.environ.get("APP_URL") or "http://localhost:3000").strip().rstrip("/")  # used in emailed links

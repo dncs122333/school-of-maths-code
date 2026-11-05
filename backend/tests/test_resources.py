@@ -38,10 +38,10 @@ class TestResources:
 
     @pytest.fixture(scope="class", autouse=True)
     def setup(self):
-        teacher = _login("teacher@vidya.com", "teacher123")
-        student = _login("student@vidya.com", "student123")
+        teacher = _login("teacher@somacademy.example.com", "teacher123")
+        student = _login("student@somacademy.example.com", "student123")
         # outsider student (fresh account not in the batch)
-        outsider_email = f"TEST_out_{uuid.uuid4().hex[:8]}@vidya.com"
+        outsider_email = f"TEST_out_{uuid.uuid4().hex[:8]}@somacademy.example.com"
         r = requests.post(f"{API}/auth/register", json={
             "name": "TEST Outsider", "email": outsider_email,
             "password": "pass1234", "role": "student"}, timeout=15)
@@ -204,7 +204,7 @@ class TestResources:
 
     def test_16_other_teacher_cannot_upload_to_batch_403(self):
         s = self.state
-        email = f"TEST_tb_{uuid.uuid4().hex[:8]}@vidya.com"
+        email = f"TEST_tb_{uuid.uuid4().hex[:8]}@somacademy.example.com"
         r = requests.post(f"{API}/auth/register", json={
             "name": "TEST Teacher B", "email": email, "password": "pass1234", "role": "teacher"}, timeout=15)
         assert r.status_code == 200, r.text

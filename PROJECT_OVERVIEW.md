@@ -1,4 +1,4 @@
-# VidyaLab (School of Maths) — Project Overview
+# School of Maths — Project Overview
 
 > An EdTech platform for CBSE **Class 9 & 10** coaching/tuition centres. Teachers turn rough notes into beautiful, exam-accurate study notes, share original files with a batch, and run timed competitive MCQ tests & daily practice — all organised by class, subject, chapter and batch with real-time mastery telemetry.
 
@@ -83,7 +83,7 @@
 
 ### 2.2 Architecture
 - **Routing:** all backend routes are prefixed with `/api`. Default local ports: Backend on `:8001`, Frontend on `:3000`.
-- **Frontend → backend:** requests use `REACT_APP_BACKEND_URL`; JWT is stored in `localStorage` (`vidya_token`) and sent as `Authorization: Bearer <token>`.
+- **Frontend → backend:** requests use `REACT_APP_BACKEND_URL`; JWT is stored in `localStorage` (`som_token`) and sent as `Authorization: Bearer <token>`.
 - **Auth:** email/password with bcrypt hashing and JWT (7-day expiry). Roles: `student`, `teacher`, `admin`. Admin is seeded idempotently on startup from env.
 - **Async jobs:** `POST /api/notes` and `POST /api/tests` return immediately with a `processing` status ID; the frontend polls until the document becomes `ready`.
 - **Mastery Engine (`backend/lib/mastery.py`):** Pure functional mastery calculation:
@@ -183,8 +183,8 @@
 ## 3. Test Accounts
 | Role | Email | Password |
 |---|---|---|
-| Admin | admin@vidya.com | admin123 |
-| Teacher | teacher@vidya.com | teacher123 |
-| Student | student@vidya.com | student123 |
+| Admin | admin@somacademy.example.com | admin123 |
+| Teacher | teacher@somacademy.example.com | teacher123 |
+| Student | student@somacademy.example.com | student123 |
 
 *(Admin is seeded automatically on startup from `backend/.env`.)*

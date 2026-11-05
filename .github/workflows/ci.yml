@@ -16,9 +16,9 @@ jobs:
     env:
       # A separate database on the dev cluster. The tests create throwaway users and tests, so it's dropped first.
       MONGO_URL: ${{ secrets.MONGO_URL_CI }}
-      DB_NAME: vidya_ci
+      DB_NAME: som_ci
       JWT_SECRET: ci-only-secret-not-used-anywhere-else-000000
-      ADMIN_EMAIL: admin@vidya.com
+      ADMIN_EMAIL: admin@somacademy.example.com
       ADMIN_PASSWORD: admin123
       REACT_APP_BACKEND_URL: http://localhost:8011
     steps:

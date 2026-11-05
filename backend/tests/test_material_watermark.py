@@ -48,8 +48,8 @@ class TestMaterialWatermark:
 
     @pytest.fixture(scope="class", autouse=True)
     def setup(self):
-        teacher = _login("teacher@vidya.com", "teacher123")
-        student = _login("student@vidya.com", "student123")
+        teacher = _login("teacher@somacademy.example.com", "teacher123")
+        student = _login("student@somacademy.example.com", "student123")
         th = {"Authorization": f"Bearer {teacher['token']}"}
         sh = {"Authorization": f"Bearer {student['token']}"}
 
@@ -146,7 +146,7 @@ class TestMaterialWatermark:
     def test_09_each_student_gets_their_own_mark(self):
         """Two different recipients must not receive byte-identical copies."""
         s = self.state
-        email = f"TEST_wm_{uuid.uuid4().hex[:8]}@vidya.com"
+        email = f"TEST_wm_{uuid.uuid4().hex[:8]}@somacademy.example.com"
         r = requests.post(f"{API}/auth/register", json={
             "name": "TEST WM Second Student", "email": email,
             "password": "pass1234", "role": "student"}, timeout=15)

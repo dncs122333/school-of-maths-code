@@ -13,11 +13,11 @@ export function DatabaseAvailabilityProvider({ children }) {
   const markDatabaseAvailable = useCallback(() => setUnavailable(false), []);
 
   useEffect(() => {
-    window.addEventListener("vidya:database-unavailable", markDatabaseUnavailable);
-    window.addEventListener("vidya:database-available", markDatabaseAvailable);
+    window.addEventListener("som:database-unavailable", markDatabaseUnavailable);
+    window.addEventListener("som:database-available", markDatabaseAvailable);
     return () => {
-      window.removeEventListener("vidya:database-unavailable", markDatabaseUnavailable);
-      window.removeEventListener("vidya:database-available", markDatabaseAvailable);
+      window.removeEventListener("som:database-unavailable", markDatabaseUnavailable);
+      window.removeEventListener("som:database-available", markDatabaseAvailable);
     };
   }, [markDatabaseAvailable, markDatabaseUnavailable]);
 

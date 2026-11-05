@@ -32,7 +32,7 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
   const [copied, setCopied] = useState(false);
 
   // AI Vision state
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("vidya_gemini_api_key") || "");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("som_gemini_api_key") || "");
   const [showKey, setShowKey] = useState(false);
   const [rememberKey, setRememberKey] = useState(true);
   const [aiClass, setAiClass] = useState("10");
@@ -132,9 +132,9 @@ export default function ImportQuestionsModal({ open, onOpenChange, onSuccess, on
     }
 
     if (rememberKey) {
-      localStorage.setItem("vidya_gemini_api_key", apiKey.trim());
+      localStorage.setItem("som_gemini_api_key", apiKey.trim());
     } else {
-      localStorage.removeItem("vidya_gemini_api_key");
+      localStorage.removeItem("som_gemini_api_key");
     }
 
     setExtracting(true);

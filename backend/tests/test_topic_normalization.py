@@ -26,8 +26,8 @@ class TestTopicNormalization:
 
     @classmethod
     def setup_class(cls):
-        cls.state["th"] = _login("teacher@vidya.com", "teacher123")
-        cls.state["sh"] = _login("student@vidya.com", "student123")
+        cls.state["th"] = _login("teacher@somacademy.example.com", "teacher123")
+        cls.state["sh"] = _login("student@somacademy.example.com", "student123")
         cls.state["tag"] = uuid.uuid4().hex[:8]
         cls.state["created_qids"] = []
 

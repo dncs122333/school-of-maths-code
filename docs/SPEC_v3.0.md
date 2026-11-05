@@ -1,23 +1,23 @@
-# VidyaLab (School of Maths) — Consolidated Technical Specification v3.0
+# School of Maths — Consolidated Technical Specification v3.0
 
 **Status:** Adapted for the existing codebase — locked for the MVP build
 **Date:** 2026-08-30
 **Replaces:** `consolidated_spec_v2.0-2.pdf` (the Flutter / Node / Postgres direction) and `system_architecture_v1.0.pdf`
 **Target:** Single-teacher coaching centers · Classes 9–10 · CBSE · 100 students (MVP)
 
-> **Build decision (2026-08-30):** *Evolve the existing VidyaLab codebase* (FastAPI + MongoDB + React 19), **hand-seeded MCQ bank** (user supplies sample questions for the MVP), and a **web mobile-responsive** frontend. The v2.0 spec's Flutter/Node/Postgres/Redis/R2/phone-OTP/Razorpay stack is **not** adopted.
+> **Build decision (2026-08-30):** *Evolve the existing codebase* (FastAPI + MongoDB + React 19), **hand-seeded MCQ bank** (user supplies sample questions for the MVP), and a **web mobile-responsive** frontend. The v2.0 spec's Flutter/Node/Postgres/Redis/R2/phone-OTP/Razorpay stack is **not** adopted.
 
 ---
 
 ## 1. Purpose & Source of Truth
 
-This document is the single consolidated specification for the MVP. It keeps the v2.0 **product scope** (auth, notes, class tests, chapter practice, results/review, basic dashboard) but re-expresses it on the **existing VidyaLab stack**, so we build on working code instead of rewriting it.
+This document is the single consolidated specification for the MVP. It keeps the v2.0 **product scope** (auth, notes, class tests, chapter practice, results/review, basic dashboard) but re-expresses it on the **existing School of Maths stack**, so we build on working code instead of rewriting it.
 
 Where v2.0 and this document conflict, **this document wins**.
 
 ### 1.1 Stack mapping (v2.0 → v3.0)
 
-| Concern | v2.0 (not adopted) | v3.0 (existing VidyaLab) |
+| Concern | v2.0 (not adopted) | v3.0 (existing codebase) |
 |---|---|---|
 | Frontend | Flutter (Android native) | **React 19** (web, mobile-responsive) + Tailwind + shadcn/ui |
 | Backend | Node.js + Fastify | **FastAPI (Python)** |

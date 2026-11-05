@@ -149,7 +149,7 @@ def test_only_admin_can_delete_a_student_and_everything_about_them_goes():
     other_teacher = {"Authorization": f"Bearer {_register('teacher')[1]['token']}"}
     assert requests.delete(f"{API}/admin/students/{sid}", headers=other_teacher, timeout=15).status_code == 403
 
-    admin = requests.post(f"{API}/auth/login", json={"email": os.environ.get("ADMIN_EMAIL", "admin@vidya.com"),
+    admin = requests.post(f"{API}/auth/login", json={"email": os.environ.get("ADMIN_EMAIL", "admin@somacademy.example.com"),
                                                       "password": os.environ["ADMIN_PASSWORD"]}, timeout=15).json()["token"]
     headers = {"Authorization": f"Bearer {admin}"}
     r = requests.delete(f"{API}/admin/students/{sid}", headers=headers, timeout=30)
@@ -172,7 +172,7 @@ def test_a_note_whose_file_is_missing_gets_a_clear_404_not_a_server_error():
     headers = {"Authorization": f"Bearer {data['token']}"}
     res_id = uuid.uuid4().hex
     db.resources.insert_one({"id": res_id, "teacher_id": data["user"]["id"], "batch_id": "x", "filename": "gone.pdf", "is_deleted": False,
-                             "storage_path": f"vidya/resources/missing/{res_id}.pdf", "content_type": "application/pdf"})
+                             "storage_path": f"som/resources/missing/{res_id}.pdf", "content_type": "application/pdf"})
     try:
         r = requests.get(f"{API}/resources/{res_id}/file", headers=headers, timeout=15)
         assert r.status_code == 404 and "no longer available" in r.json()["detail"]

@@ -13,11 +13,11 @@ import Auth from "./pages/Auth";
 // A page already open can ask for a code file that a newer release has replaced, so when one fails to load,
 // reload once to pick up the current release. The flag stops a reload loop when the device is simply offline.
 const lazyPage = (load) => lazy(() => load().then((m) => {
-  sessionStorage.removeItem("vidya_chunk_reload");
+  sessionStorage.removeItem("som_chunk_reload");
   return m;
 }, (err) => {
-  if (navigator.onLine && !sessionStorage.getItem("vidya_chunk_reload")) {
-    sessionStorage.setItem("vidya_chunk_reload", "1");
+  if (navigator.onLine && !sessionStorage.getItem("som_chunk_reload")) {
+    sessionStorage.setItem("som_chunk_reload", "1");
     window.location.reload();
     return new Promise(() => {});
   }

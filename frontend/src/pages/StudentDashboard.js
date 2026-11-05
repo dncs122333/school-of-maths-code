@@ -66,7 +66,7 @@ export default function StudentDashboard() {
   const [reminderDismissed, setReminderDismissed] = useState(() => {
     try {
       // Dismissal lasts for the current week only, so the weekly reminder comes back next week
-      return localStorage.getItem("vidya_weekly_reminder_dismissed") === currentWeekKey();
+      return localStorage.getItem("som_weekly_reminder_dismissed") === currentWeekKey();
     } catch {
       return false;
     }
@@ -230,7 +230,7 @@ export default function StudentDashboard() {
 
   const handleDismissReminder = () => {
     try {
-      localStorage.setItem("vidya_weekly_reminder_dismissed", currentWeekKey());
+      localStorage.setItem("som_weekly_reminder_dismissed", currentWeekKey());
     } catch {}
     setReminderDismissed(true);
     toast.success("Weekly reminder marked done!");

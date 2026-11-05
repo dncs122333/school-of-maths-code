@@ -33,7 +33,7 @@ from guard import DEMO_DB, require_demo_db  # noqa: E402
 from server import _option_seed, _question_order, _shuffled_order  # noqa: E402
 
 API = os.environ.get("DEMO_API", "http://localhost:8011/api")
-ADMIN = ("admin@vidya.com", "admin123")  # seeded by the backend on startup (AGENTS.md)
+ADMIN = ("admin@somacademy.example.com", "admin123")  # seeded by the backend on startup (AGENTS.md)
 PENDING_TEACHER = {"name": "Rahul Verma", "email": f"rahul.verma@{roster.DOMAIN}"}
 CSV_PATH = HERE / "demo_questions.csv"
 ENROLLED = datetime(2026, 4, 6, 10, 0, tzinfo=timezone.utc)

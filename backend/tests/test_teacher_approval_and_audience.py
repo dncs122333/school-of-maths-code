@@ -19,7 +19,7 @@ KEEP_PENDING = {"X-Test-Keep-Pending": "1"}
 
 
 def _admin():
-    r = requests.post(f"{API}/auth/login", json={"email": os.environ.get("ADMIN_EMAIL", "admin@vidya.com"),
+    r = requests.post(f"{API}/auth/login", json={"email": os.environ.get("ADMIN_EMAIL", "admin@somacademy.example.com"),
                                                  "password": os.environ["ADMIN_PASSWORD"]}, timeout=15)
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}

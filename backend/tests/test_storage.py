@@ -39,44 +39,44 @@ def s3_stub(monkeypatch):
 
 def test_local_round_trip(local_store):
     assert storage.init_storage() == "local"
-    assert storage.put_object("vidya/notes/a.pdf", b"%PDF-1.4 data", "application/pdf") == {"path": "vidya/notes/a.pdf"}
-    assert (local_store / "vidya/notes/a.pdf").read_bytes() == b"%PDF-1.4 data"
+    assert storage.put_object("som/notes/a.pdf", b"%PDF-1.4 data", "application/pdf") == {"path": "som/notes/a.pdf"}
+    assert (local_store / "som/notes/a.pdf").read_bytes() == b"%PDF-1.4 data"
 
-    data, ct = storage.get_object("vidya/notes/a.pdf")
+    data, ct = storage.get_object("som/notes/a.pdf")
     assert data == b"%PDF-1.4 data"
     assert ct == "application/pdf"
 
-    storage.delete_object("vidya/notes/a.pdf")
+    storage.delete_object("som/notes/a.pdf")
     with pytest.raises(FileNotFoundError):
-        storage.get_object("vidya/notes/a.pdf")
+        storage.get_object("som/notes/a.pdf")
     # Deleting an already-missing object is a no-op locally
-    storage.delete_object("vidya/notes/a.pdf")
+    storage.delete_object("som/notes/a.pdf")
 
 
 def test_s3_put_get_delete(s3_stub):
     s3_stub.add_response(
         "put_object", {},
-        {"Bucket": "test-bucket", "Key": "vidya/img.png", "Body": b"png-bytes", "ContentType": "image/png"},
+        {"Bucket": "test-bucket", "Key": "som/img.png", "Body": b"png-bytes", "ContentType": "image/png"},
     )
-    assert storage.put_object("vidya/img.png", b"png-bytes", "image/png") == {"path": "vidya/img.png"}
+    assert storage.put_object("som/img.png", b"png-bytes", "image/png") == {"path": "som/img.png"}
 
     from botocore.response import StreamingBody
     s3_stub.add_response(
         "get_object",
         {"Body": StreamingBody(io.BytesIO(b"png-bytes"), len(b"png-bytes")), "ContentType": "image/png"},
-        {"Bucket": "test-bucket", "Key": "vidya/img.png"},
+        {"Bucket": "test-bucket", "Key": "som/img.png"},
     )
-    assert storage.get_object("vidya/img.png") == (b"png-bytes", "image/png")
+    assert storage.get_object("som/img.png") == (b"png-bytes", "image/png")
 
-    s3_stub.add_response("delete_object", {}, {"Bucket": "test-bucket", "Key": "vidya/img.png"})
-    storage.delete_object("vidya/img.png")
+    s3_stub.add_response("delete_object", {}, {"Bucket": "test-bucket", "Key": "som/img.png"})
+    storage.delete_object("som/img.png")
 
 
 def test_s3_missing_object_raises_file_not_found(s3_stub):
     s3_stub.add_client_error("get_object", service_error_code="NoSuchKey", http_status_code=404,
-                             expected_params={"Bucket": "test-bucket", "Key": "vidya/gone.pdf"})
+                             expected_params={"Bucket": "test-bucket", "Key": "som/gone.pdf"})
     with pytest.raises(FileNotFoundError):
-        storage.get_object("vidya/gone.pdf")
+        storage.get_object("som/gone.pdf")
 
 
 def test_s3_other_errors_propagate(s3_stub):
@@ -84,7 +84,7 @@ def test_s3_other_errors_propagate(s3_stub):
 
     s3_stub.add_client_error("get_object", service_error_code="AccessDenied", http_status_code=403)
     with pytest.raises(ClientError):
-        storage.get_object("vidya/secret.pdf")
+        storage.get_object("som/secret.pdf")
 
 
 def test_s3_init_checks_bucket(s3_stub):

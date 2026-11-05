@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 
 export default function WatermarkOverlay({
   studentName = "Student",
-  studentEmail = "student@vidya.com",
+  studentEmail = "student@somacademy.example.com",
   showFloatingBadge = true,
 }) {
   const displayText = useMemo(() => {

@@ -1,4 +1,4 @@
-# VidyaLab — Setup & Run Guide
+# School of Maths — Setup & Run Guide
 
 This guide covers running the app locally on your machine during development.
 
@@ -20,7 +20,7 @@ MONGO_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=tr
 DB_NAME="test_database"
 CORS_ORIGINS="*"
 JWT_SECRET="dev_secret_key_1234567890"
-ADMIN_EMAIL="admin@vidya.com"
+ADMIN_EMAIL="admin@somacademy.example.com"
 ADMIN_PASSWORD="admin123"
 # Optional: Cloudflare R2 / S3-compatible storage for uploads.
 # Leave unset to store files on local disk in backend/local_storage/.
@@ -86,7 +86,7 @@ curl -s "http://localhost:8001/api/catalog" | head -c 100
 # login and hit a protected route
 API="http://localhost:8001"
 TOKEN=$(curl -s -X POST "$API/api/auth/login" -H "Content-Type: application/json" \
-  -d '{"email":"admin@vidya.com","password":"admin123"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+  -d '{"email":"admin@somacademy.example.com","password":"admin123"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
 curl -s "$API/api/stats" -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -95,6 +95,6 @@ curl -s "$API/api/stats" -H "Authorization: Bearer $TOKEN"
 ## 6. Test Accounts
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | admin@vidya.com | admin123 |
-| Teacher | teacher@vidya.com | teacher123 |
-| Student | student@vidya.com | student123 |
+| Admin | admin@somacademy.example.com | admin123 |
+| Teacher | teacher@somacademy.example.com | teacher123 |
+| Student | student@somacademy.example.com | student123 |

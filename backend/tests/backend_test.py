@@ -1,4 +1,4 @@
-"""VidyaLab backend integration tests.
+"""School of Maths backend integration tests.
 
 Uses external REACT_APP_BACKEND_URL. All stateful flows are inside a single
 class so pytest-xdist loadscope keeps them on one worker.
@@ -37,17 +37,17 @@ class TestAuthBasics:
 
     def test_admin_login_me(self):
         s = requests.Session()
-        d = _login(s, "admin@vidya.com", "admin123")
+        d = _login(s, "admin@somacademy.example.com", "admin123")
         h = {"Authorization": f"Bearer {d['token']}"}
         me = s.get(f"{API}/auth/me", headers=h, timeout=15)
         assert me.status_code == 200
         j = me.json()
-        assert j["email"] == "admin@vidya.com" and j["role"] == "admin"
+        assert j["email"] == "admin@somacademy.example.com" and j["role"] == "admin"
         assert "id" in j and "_id" not in j and "password_hash" not in j
 
     def test_login_invalid(self):
         r = requests.post(f"{API}/auth/login",
-                          json={"email": "admin@vidya.com", "password": "wrong"}, timeout=15)
+                          json={"email": "admin@somacademy.example.com", "password": "wrong"}, timeout=15)
         assert r.status_code == 401
 
     def test_me_no_token(self):
@@ -81,14 +81,14 @@ class TestFullFlow:
     def setup_users(self, request):
         s = requests.Session()
         # Fresh teacher
-        t_email = f"TEST_t_{uuid.uuid4().hex[:8]}@vidya.com"
+        t_email = f"TEST_t_{uuid.uuid4().hex[:8]}@somacademy.example.com"
         r = s.post(f"{API}/auth/register",
                    json={"name": "TEST Teacher", "email": t_email, "password": "pass1234", "role": "teacher"},
                    timeout=30)
         assert r.status_code == 200, r.text
         td = r.json()
 
-        st_email = f"TEST_s_{uuid.uuid4().hex[:8]}@vidya.com"
+        st_email = f"TEST_s_{uuid.uuid4().hex[:8]}@somacademy.example.com"
         r = s.post(f"{API}/auth/register",
                    json={"name": "TEST Student", "email": st_email, "password": "pass1234", "role": "student"},
                    timeout=30)
@@ -318,6 +318,6 @@ class TestFullFlow:
 
     def test_52_stats_admin(self):
         s = requests.Session()
-        tok = _login(s, "admin@vidya.com", "admin123")["token"]
+        tok = _login(s, "admin@somacademy.example.com", "admin123")["token"]
         r = s.get(f"{API}/stats", headers={"Authorization": f"Bearer {tok}"}, timeout=15)
         assert r.status_code == 200

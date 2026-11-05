@@ -1,4 +1,4 @@
-"""Idempotent demo seed: teacher@vidya.com / student@vidya.com.
+"""Idempotent demo seed: teacher@somacademy.example.com / student@somacademy.example.com.
 
 These accounts are required by backend/tests/test_resources.py, test_tests_bank.py,
 test_questions.py and test_mastery.py (they log in as teacher/student) and give the
@@ -16,8 +16,8 @@ from db import db  # noqa: E402  (needs MONGO_URL/DB_NAME loaded first)
 from auth import hash_password  # noqa: E402
 
 USERS = [
-    {"name": "Demo Teacher", "email": "teacher@vidya.com", "password": "teacher123", "role": "teacher"},
-    {"name": "Demo Student", "email": "student@vidya.com", "password": "student123", "role": "student"},
+    {"name": "Demo Teacher", "email": "teacher@somacademy.example.com", "password": "teacher123", "role": "teacher"},
+    {"name": "Demo Student", "email": "student@somacademy.example.com", "password": "student123", "role": "student"},
 ]
 
 

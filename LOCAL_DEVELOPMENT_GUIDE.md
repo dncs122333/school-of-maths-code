@@ -1,4 +1,4 @@
-# VidyaLab (School of Maths) — Local Development & Architecture Guide
+# School of Maths — Local Development & Architecture Guide
 
 This document contains startup commands, connection details, architecture overview, and requirements to resume development quickly.
 
@@ -38,7 +38,7 @@ MONGO_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=tr
 DB_NAME="test_database"
 CORS_ORIGINS="*"
 JWT_SECRET="dev_secret_key_1234567890"
-ADMIN_EMAIL="admin@vidya.com"
+ADMIN_EMAIL="admin@somacademy.example.com"
 ADMIN_PASSWORD="admin123"
 # Optional: Cloudflare R2 / S3-compatible storage for uploads.
 # Leave unset to store files on local disk in backend/local_storage/.
@@ -57,7 +57,7 @@ REACT_APP_BACKEND_URL=http://localhost:8001
 
 ### Default Admin Account
 Created automatically on startup from `backend/.env`:
-- **Email:** `admin@vidya.com`
+- **Email:** `admin@somacademy.example.com`
 - **Password:** `admin123`
 
 ---
@@ -73,7 +73,7 @@ Created automatically on startup from `backend/.env`:
 
 ### System Flow & Lifecycle
 1. **Client-Server Communication:** React frontend calls `/api/*` on the FastAPI server with Axios.
-2. **Auth Flow:** Stateless JWTs stored in `localStorage` (`vidya_token`) sent via `Authorization: Bearer <token>` header.
+2. **Auth Flow:** Stateless JWTs stored in `localStorage` (`som_token`) sent via `Authorization: Bearer <token>` header.
 3. **Async Job Processing:** For multi-pass AI note generation (`POST /api/notes`) and test generation (`POST /api/tests`), the server immediately returns a `processing` status ID and spins off a background task. The frontend polls until status becomes `ready`.
 4. **Mastery Engine:** Built in `backend/lib/mastery.py`. Derives topic retention scores on read from student submissions using difficulty weights and recency decay.
 

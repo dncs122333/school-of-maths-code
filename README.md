@@ -1,4 +1,4 @@
-# VidyaLab (School of Maths)
+# School of Maths
 
 A coaching-center platform for **CBSE Classes 9–10**. Teachers create batches, publish AI-generated study notes and materials, and launch bank-driven tests and daily practice (DPP). Students take timed tests, practice, and see a difficulty- and recency-weighted **mastery map** that highlights their weak topics.
 
@@ -80,7 +80,7 @@ cd frontend
 yarn start
 ```
 
-Open **http://localhost:3000** — the default admin is `admin@vidya.com` / `admin123`.
+Open **http://localhost:3000** — the default admin is `admin@somacademy.example.com` / `admin123`.
 
 ## Seeding the question bank
 

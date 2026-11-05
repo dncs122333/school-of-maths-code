@@ -9,7 +9,7 @@ export const API = process.env.DEMO_API || "http://localhost:8011/api";
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const DEMO_PASSWORD = "DemoPass#2026"; // pitch-video/seed/roster.py
 export const PEOPLE = {
-  admin: ["admin@vidya.com", "admin123"],
+  admin: ["admin@somacademy.example.com", "admin123"],
   teacher: ["meera.iyer@schoolofmaths.demo", DEMO_PASSWORD],
   hero: ["aarav.sharma@schoolofmaths.demo", DEMO_PASSWORD],
   tara: ["tara.pillai@schoolofmaths.demo", DEMO_PASSWORD],
@@ -42,7 +42,7 @@ export async function open({ who, layout = "desktop", video = null, browser = nu
   });
   if (who) {
     const t = await token(who);
-    await ctx.addInitScript((tok) => localStorage.setItem("vidya_token", tok), t);
+    await ctx.addInitScript((tok) => localStorage.setItem("som_token", tok), t);
   }
   const page = await ctx.newPage();
   const consoleErrors = [];

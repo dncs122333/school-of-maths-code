@@ -14,7 +14,7 @@ API = f"{BASE_URL}/api"
 
 def _register(role: str, name: str = None):
     tag = uuid.uuid4().hex[:8]
-    email = f"test_{role}_{tag}@vidya.com"
+    email = f"test_{role}_{tag}@somacademy.example.com"
     r = requests.post(f"{API}/auth/register", json={
         "name": name or f"User {tag}",
         "email": email,

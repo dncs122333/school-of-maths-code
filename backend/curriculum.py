@@ -568,10 +568,10 @@ def generate_gemini_prompt(class_level: str, subject: str, chapter: str) -> str:
     topics = get_canonical_topics(class_level, subject, chapter)
     topics_formatted = "\n".join(f"  - \"{t}\"" for t in topics) if topics else "  - [Extract main concepts cleanly]"
 
-    return f"""You are a senior CBSE curriculum digitization specialist for VidyaLab.
+    return f"""You are a senior CBSE curriculum digitization specialist for School of Maths.
 
 TASK:
-Convert the provided question paper / questions into our exact VidyaLab question bank JSON format.
+Convert the provided question paper / questions into our exact School of Maths question bank JSON format.
 
 CRITICAL TOPIC RESTRICTION (MANDATORY):
 To ensure database consistency and avoid fragmented analytics, each question's `topics` array MUST ONLY contain topics chosen from this APPROVED LIST for this chapter. DO NOT invent or paraphrase new topic names:

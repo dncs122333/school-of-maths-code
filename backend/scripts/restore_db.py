@@ -3,9 +3,9 @@
 Refuses to write into a database that already has data, unless --replace is given. To check a backup, restore
 it into a scratch database. To use a restored database, point DB_NAME at it and restart: the app rebuilds indexes.
 
-    python scripts/restore_db.py backup.tar --target-db vidya_restore_check
-    python scripts/restore_db.py --from-bucket vidya_prod-2026-11-05-0200.tar --target-db vidya_restore_check
-    python scripts/restore_db.py backup.tar --target-url mongodb+srv://... --target-db vidya_staging --replace
+    python scripts/restore_db.py backup.tar --target-db som_restore_check
+    python scripts/restore_db.py --from-bucket som_prod-2026-11-05-0200.tar --target-db som_restore_check
+    python scripts/restore_db.py backup.tar --target-url mongodb+srv://... --target-db som_staging --replace
 """
 import argparse
 import gzip

@@ -5,11 +5,11 @@ import { api } from "../lib/api";
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
-const USER_KEY = "vidya_user";
+const USER_KEY = "som_user";
 
 function readSavedUser() {
   try {
-    if (!localStorage.getItem("vidya_token")) return null;
+    if (!localStorage.getItem("som_token")) return null;
     return JSON.parse(localStorage.getItem(USER_KEY) || "null");
   } catch {
     return null;
@@ -27,11 +27,11 @@ export function AuthProvider({ children }) {
   // The last known user shows the app straight away, even on a bad network, while the server confirms it.
   // Screens fetch their own data, and the server still checks every request.
   const [user, setUserState] = useState(readSavedUser);
-  const [loading, setLoading] = useState(() => !!localStorage.getItem("vidya_token") && !readSavedUser());
+  const [loading, setLoading] = useState(() => !!localStorage.getItem("som_token") && !readSavedUser());
   const setUser = (next) => { saveUser(next); setUserState(next); };
 
   useEffect(() => {
-    const token = localStorage.getItem("vidya_token");
+    const token = localStorage.getItem("som_token");
     if (!token) { setLoading(false); return; }
     api.get("/auth/me")
       .then((r) => setUser(r.data))
@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
         // Only the server saying no ends the session. A dropped connection or a server restart must not log
         // a student out. (A 401 has already been handled by the API client.)
         if (err.response?.status === 401 || err.response?.status === 403) {
-          localStorage.removeItem("vidya_token");
+          localStorage.removeItem("som_token");
           setUser(null);
         }
       })
@@ -52,12 +52,12 @@ export function AuthProvider({ children }) {
       setUser(null);
       if (e.detail?.reason) toast.error(e.detail.reason === "Token expired" ? "Your session expired. Please log in again." : e.detail.reason);
     };
-    window.addEventListener("vidya:signed-out", onSignedOut);
-    return () => window.removeEventListener("vidya:signed-out", onSignedOut);
+    window.addEventListener("som:signed-out", onSignedOut);
+    return () => window.removeEventListener("som:signed-out", onSignedOut);
   }, []);
 
   const persist = (data) => {
-    localStorage.setItem("vidya_token", data.token);
+    localStorage.setItem("som_token", data.token);
     setUser(data.user);
     return data.user;
   };
@@ -69,7 +69,7 @@ export function AuthProvider({ children }) {
     if (data.pending_approval) return { pendingApproval: true, message: data.message };
     return persist(data);
   };
-  const logout = () => { localStorage.removeItem("vidya_token"); setUser(null); };
+  const logout = () => { localStorage.removeItem("som_token"); setUser(null); };
   const refreshUser = async () => { const r = await api.get("/auth/me"); setUser(r.data); return r.data; };
 
   return (

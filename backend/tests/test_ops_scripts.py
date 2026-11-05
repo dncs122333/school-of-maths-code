@@ -90,19 +90,19 @@ def test_prune_keeps_recent_backups_and_at_least_seven():
 
 
 def test_migration_uses_the_same_keys_and_content_types_and_can_be_rerun(tmp_path):
-    folder = tmp_path / "vidya" / "resources" / "abc"
+    folder = tmp_path / "som" / "resources" / "abc"
     folder.mkdir(parents=True)
     (folder / "a.pdf").write_bytes(b"%PDF")
     (folder / "a.pdf.ct").write_text("application/pdf")
     (folder / "b.png").write_bytes(b"png")
-    assert [f[0] for f in local_files(tmp_path)] == ["vidya/resources/abc/a.pdf", "vidya/resources/abc/b.png"]
+    assert [f[0] for f in local_files(tmp_path)] == ["som/resources/abc/a.pdf", "som/resources/abc/b.png"]
 
-    s3 = FakeBucket(["vidya/resources/abc/b.png"])
+    s3 = FakeBucket(["som/resources/abc/b.png"])
     assert migrate(tmp_path, s3, "bucket", dry_run=True) == {"uploaded": 1, "already_there": 1}
-    assert "vidya/resources/abc/a.pdf" not in s3.objects
+    assert "som/resources/abc/a.pdf" not in s3.objects
 
     assert migrate(tmp_path, s3, "bucket") == {"uploaded": 1, "already_there": 1}
-    assert s3.objects["vidya/resources/abc/a.pdf"]["ContentType"] == "application/pdf"
+    assert s3.objects["som/resources/abc/a.pdf"]["ContentType"] == "application/pdf"
     assert migrate(tmp_path, s3, "bucket") == {"uploaded": 0, "already_there": 2}
 
 

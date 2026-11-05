@@ -16,7 +16,7 @@ export default function Auth() {
   const [role, setRole] = useState(params.get("role") === "teacher" ? "teacher" : "student");
   const [form, setForm] = useState({
     name: "",
-    email: process.env.NODE_ENV === "development" ? "admin@vidya.com" : "",
+    email: process.env.NODE_ENV === "development" ? "admin@somacademy.example.com" : "",
     password: process.env.NODE_ENV === "development" ? "admin123" : ""
   });
   const [busy, setBusy] = useState(false);
@@ -239,10 +239,10 @@ export default function Auth() {
             <button
               type="button"
               id="quick-demo-fill"
-              onClick={() => setForm({ email: "admin@vidya.com", password: "admin123" })}
+              onClick={() => setForm({ email: "admin@somacademy.example.com", password: "admin123" })}
               className="block w-full text-xs text-[#3E7CB1] hover:text-[#1E293B] hover:underline text-center mt-4 font-mono font-bold cursor-pointer p-1"
             >
-              Teacher Demo: admin@vidya.com / admin123 (Click to fill)
+              Teacher Demo: admin@somacademy.example.com / admin123 (Click to fill)
             </button>
           )}
         </div>

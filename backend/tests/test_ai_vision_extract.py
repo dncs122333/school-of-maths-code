@@ -181,8 +181,8 @@ class TestAIExtractionAPI:
 
     @classmethod
     def setup_class(cls):
-        teacher = _login("teacher@vidya.com", "teacher123")
-        student = _login("student@vidya.com", "student123")
+        teacher = _login("teacher@somacademy.example.com", "teacher123")
+        student = _login("student@somacademy.example.com", "student123")
         cls.state = {
             "th": {"Authorization": f"Bearer {teacher['token']}"},
             "sh": {"Authorization": f"Bearer {student['token']}"},

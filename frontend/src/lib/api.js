@@ -12,7 +12,7 @@ function notifyDatabaseAvailability(eventName) {
 }
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("vidya_token");
+  const token = localStorage.getItem("som_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -22,7 +22,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => {
     if (!(res.config?.url || "").includes("/admin/data-source-status") || res.data?.available !== false) {
-      notifyDatabaseAvailability("vidya:database-available");
+      notifyDatabaseAvailability("som:database-available");
     }
     return res;
   },
@@ -43,16 +43,16 @@ api.interceptors.response.use(
     const url = err.config?.url || "";
     const isAuthAttempt = url.includes("/auth/login") || url.includes("/auth/register");
     if (res?.status === 503 && res?.data?.detail === DATABASE_UNAVAILABLE_MESSAGE) {
-      notifyDatabaseAvailability("vidya:database-unavailable");
+      notifyDatabaseAvailability("som:database-unavailable");
     }
     const isBlockedOrDisabled = res?.status === 403 && typeof res?.data?.detail === "string" && (
       res.data.detail.toLowerCase().includes("disabled") || res.data.detail.toLowerCase().includes("blocked")
     );
-    if ((res?.status === 401 || isBlockedOrDisabled) && !isAuthAttempt && localStorage.getItem("vidya_token")) {
-      localStorage.removeItem("vidya_token");
+    if ((res?.status === 401 || isBlockedOrDisabled) && !isAuthAttempt && localStorage.getItem("som_token")) {
+      localStorage.removeItem("som_token");
       // AuthContext signs out in place and the route guards send the user to /auth. No full-page
       // reload: inside an installed or native app shell a reload would restart the whole app.
-      window.dispatchEvent(new CustomEvent("vidya:signed-out", {
+      window.dispatchEvent(new CustomEvent("som:signed-out", {
         detail: { reason: typeof res?.data?.detail === "string" ? res.data.detail : null },
       }));
     }

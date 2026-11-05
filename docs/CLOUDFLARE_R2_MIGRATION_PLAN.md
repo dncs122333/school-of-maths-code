@@ -15,7 +15,7 @@
 | **Presigned URL Expiry** | **24 hours (86,400 seconds)** | Extended viewing window for students reading multipage PDFs and revision materials offline. |
 | **Upload Pipeline** | Backend multipart upload via `POST /api/resources` | Keeps file type/size validation and quota enforcement on the server; requires no frontend changes. |
 | **Fallback & Continuity** | **Graceful Fallback** | Backend attempts to fetch from R2; if not found or if R2 is unconfigured, it seamlessly falls back to `backend/local_storage`. |
-| **Existing Data** | One-off CLI migration script (`backend/scripts/migrate_to_r2.py`) | Bulk uploads existing files from `local_storage/vidya/resources/` to R2 while retaining existing storage paths. |
+| **Existing Data** | One-off CLI migration script (`backend/scripts/migrate_to_r2.py`) | Bulk uploads existing files from `local_storage/som/resources/` to R2 while retaining existing storage paths. |
 
 ---
 
@@ -80,7 +80,7 @@ R2_BUCKET_NAME="your_r2_bucket_name"
 
 ### Phase 4: Migration CLI Script
 - [ ] Create `backend/scripts/migrate_to_r2.py`:
-  - Reads `backend/local_storage/vidya/resources/`.
+  - Reads `backend/local_storage/som/resources/`.
   - Iterates through all PDFs and images.
   - Uses `boto3` to upload missing files to the R2 bucket.
   - Logs upload status and summary report.

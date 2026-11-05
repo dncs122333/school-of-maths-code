@@ -9,5 +9,5 @@ if [ ! -d ".venv" ]; then
     exit 1
 fi
 
-echo "🚀 Starting VidyaLab FastAPI Backend on http://localhost:8001 (Atlas Cloud DB)..."
+echo "🚀 Starting School of Maths FastAPI Backend on http://localhost:8001 (Atlas Cloud DB)..."
 exec .venv/bin/uvicorn server:app --host 0.0.0.0 --port 8001 --reload

@@ -23,7 +23,7 @@ FULL_YEAR_AY = f"{_ay_start}-{_ay_start + 1}"
 
 def _register(role: str, name: str = None):
     tag = uuid.uuid4().hex[:8]
-    email = f"test_{role}_{tag}@vidya.com"
+    email = f"test_{role}_{tag}@somacademy.example.com"
     r = requests.post(f"{API}/auth/register", json={
         "name": name or f"User {tag}",
         "email": email,
@@ -40,7 +40,7 @@ def _register(role: str, name: str = None):
 
 
 def _login_admin():
-    r = requests.post(f"{API}/auth/login", json={"email": "admin@vidya.com", "password": "admin123"}, timeout=15)
+    r = requests.post(f"{API}/auth/login", json={"email": "admin@somacademy.example.com", "password": "admin123"}, timeout=15)
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
 

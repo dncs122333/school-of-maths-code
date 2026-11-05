@@ -33,8 +33,8 @@ class TestQuestionBank:
 
     @pytest.fixture(scope="class", autouse=True)
     def setup(self):
-        teacher = _login("teacher@vidya.com", "teacher123")
-        student = _login("student@vidya.com", "student123")
+        teacher = _login("teacher@somacademy.example.com", "teacher123")
+        student = _login("student@somacademy.example.com", "student123")
         th = {"Authorization": f"Bearer {teacher['token']}"}
         sh = {"Authorization": f"Bearer {student['token']}"}
         TestQuestionBank.state = {"th": th, "sh": sh, "tag": uuid.uuid4().hex[:10], "created": []}

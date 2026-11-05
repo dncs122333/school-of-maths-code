@@ -1,4 +1,4 @@
-# SPEC — School of Maths (VidyaLab)
+# SPEC — School of Maths
 
 FastAPI + MongoDB backend, React 19 (CRA + craco) frontend. Cloned from
 `dncs122333/school-of-maths-code` branch `correct-docs` and run in-pod.
@@ -23,11 +23,11 @@ sets `allowedHosts: "all"` because the ingress arrives with a non-localhost Host
 
 ## Roles & auth
 
-JWT bearer token in `localStorage.vidya_token`, sent via an axios request interceptor;
+JWT bearer token in `localStorage.som_token`, sent via an axios request interceptor;
 `get_current_user` also accepts an `access_token` cookie. Roles: `student`, `teacher`, `admin`.
 Login page `/auth`. Credentials: see `memory/test_credentials.md`.
 
-The last known user is kept in `localStorage.vidya_user`, so the app opens straight away on a bad network; only a 401/403
+The last known user is kept in `localStorage.som_user`, so the app opens straight away on a bad network; only a 401/403
 from the server ends the session. Login, sign-up and reset attempts are limited by `backend/rate_limit.py` (stored in
 `auth_limits`; requests from localhost skip the per-IP limits). Password reset: `/auth/forgot-password` emails a single-use
 30-minute link (Brevo, `backend/mailer.py`; without a key, non-production servers log the link), and a reset ends all earlier

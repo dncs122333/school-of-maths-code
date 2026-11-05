@@ -17,7 +17,7 @@ def _login(email: str, password: str) -> str:
 
 
 def test_admin_can_inspect_atlas_status():
-    token = _login("admin@vidya.com", "admin123")
+    token = _login("admin@somacademy.example.com", "admin123")
     response = requests.get(
         f"{API}/admin/data-source-status",
         headers={"Authorization": f"Bearer {token}"},
@@ -33,7 +33,7 @@ def test_admin_can_inspect_atlas_status():
 
 
 def test_teacher_cannot_access_data_source_diagnostics():
-    token = _login("teacher@vidya.com", "teacher123")
+    token = _login("teacher@somacademy.example.com", "teacher123")
     response = requests.get(
         f"{API}/admin/data-source-status",
         headers={"Authorization": f"Bearer {token}"},

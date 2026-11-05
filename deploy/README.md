@@ -5,7 +5,7 @@ The plan and costs are in [docs/DEPLOYMENT_PLAN.md](../docs/DEPLOYMENT_PLAN.md).
 ## 1. Accounts (about half a day)
 
 1. **Domain:** buy it and move its DNS to Cloudflare.
-2. **MongoDB Atlas:** create a free M0 cluster on AWS Mumbai, and a database user with read/write on `vidya_prod` only. Keep the connection string.
+2. **MongoDB Atlas:** create a free M0 cluster on AWS Mumbai, and a database user with read/write on `som_prod` only. Keep the connection string.
 3. **Cloudflare R2:** create private buckets `som-files` and `som-backups`, plus an API token with Object Read & Write on those two.
 4. **Brevo:** create an account, verify your sender address or domain, and create an API key.
 5. **Sentry (optional):** create one backend and one frontend project.
@@ -45,7 +45,7 @@ In Atlas, under Network Access, allow only this server's IP address.
 
 In the GitHub repo settings:
 
-- Secret `MONGO_URL_CI`: the dev cluster's connection string (CI uses and empties a database called `vidya_ci`).
+- Secret `MONGO_URL_CI`: the dev cluster's connection string (CI uses and empties a database called `som_ci`).
 - To turn on backend deploys: variable `DEPLOY_ENABLED=true`, plus secrets `DEPLOY_HOST`, `DEPLOY_SSH_KEY` (a key allowed on the `deploy` user) and `DEPLOY_KNOWN_HOSTS` (from `ssh-keyscan <server-ip>`).
 - Protect `main` so pull requests need the `backend` and `frontend` checks to pass.
 
@@ -54,9 +54,9 @@ In the GitHub repo settings:
 - Uploads: if you're carrying over existing notes, set the `S3_*` variables locally and run `backend/scripts/migrate_to_r2.py --dry-run`, then without `--dry-run`.
 - Backups: run `/opt/som/app/deploy/backup.sh` once, then restore it to check it works:
   ```bash
-  docker compose --env-file /opt/som/.env.compose -f /opt/som/app/docker-compose.prod.yml exec backend python scripts/restore_db.py --from-bucket <file-name> --target-db vidya_restore_check
+  docker compose --env-file /opt/som/.env.compose -f /opt/som/app/docker-compose.prod.yml exec backend python scripts/restore_db.py --from-bucket <file-name> --target-db som_restore_check
   ```
-  Then drop `vidya_restore_check` in Atlas. Repeat monthly.
+  Then drop `som_restore_check` in Atlas. Repeat monthly.
 - Rehearsal: run through the walk-through in section 6 of the plan on a cheap Android phone, plus a 150-student load test.
 - Admin: log in, change the password, and remove `ADMIN_PASSWORD` from `/opt/som/.env`.
 - Legal: have the Privacy Policy and Terms (`frontend/src/pages/Legal.js`) reviewed. They name DigitalOcean, so update them if you pick another provider.

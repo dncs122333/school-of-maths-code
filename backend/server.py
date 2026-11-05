@@ -1,4 +1,4 @@
-"""VidyaLab API entrypoint (FastAPI). Routes + startup; core logic lives in modules."""
+"""School of Maths API entrypoint (FastAPI). Routes + startup; core logic lives in modules."""
 import os
 import uuid
 import json
@@ -4554,7 +4554,7 @@ async def startup():
         logger.error(f"join_requests indexes: {e}")
     # Seed the admin once. No default password (a known default is a public admin login), and an existing
     # admin's password is never overwritten unless ADMIN_PASSWORD_RESET=1 is set for a one-off recovery.
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@vidya.com").lower()
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@somacademy.example.com").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD")
     existing = await db.users.find_one({"email": admin_email})
     if not admin_pw:

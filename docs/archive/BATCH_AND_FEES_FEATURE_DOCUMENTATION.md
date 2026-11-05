@@ -204,7 +204,7 @@ Teachers can perform multiple granular financial actions:
   4. Student card updates to display the **Disabled** badge.
   5. Any subsequent login attempt by the student returns `403 Forbidden` (`"Your account has been disabled. Please contact your teacher."`).
   6. If the student was already logged in, any API request evaluated by `get_current_user` rejects the token with `403 Forbidden`.
-  7. The frontend Axios interceptor wipes `localStorage.removeItem("vidya_token")` and redirects to `/auth`.
+  7. The frontend Axios interceptor wipes `localStorage.removeItem("som_token")` and redirects to `/auth`.
   8. Clicking **Enable** sets `is_disabled: false`, allowing login immediately.
 
 ### 5.2 Block / Unblock Account & Automatic Batch Code Regeneration

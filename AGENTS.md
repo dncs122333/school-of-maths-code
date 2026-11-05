@@ -46,5 +46,5 @@ This document provides mandatory operational instructions for AI coding agents (
 
 ### 4. Admin Credentials & Auth
 - Default administrator is seeded automatically on startup:
-  - **Email:** `admin@vidya.com`
+  - **Email:** `admin@somacademy.example.com`
   - **Password:** `admin123`

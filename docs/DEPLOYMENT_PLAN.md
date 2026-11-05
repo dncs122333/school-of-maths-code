@@ -133,9 +133,9 @@ All done, except that the parts needing real accounts or a real server have not 
 
 | | Frontend | Backend | Database | Files |
 | :--- | :--- | :--- | :--- | :--- |
-| Local | `localhost:3000` | `localhost:8001` | Atlas dev cluster, `vidya_dev` | local disk |
+| Local | `localhost:3000` | `localhost:8001` | Atlas dev cluster, `som_dev` | local disk |
 | Staging | Pages preview (`staging` branch) | same server, second container on another port, `api-staging.<domain>` | **second free M0 cluster** (Atlas allows one per project, so use a second project) | `som-files-staging` |
-| Production | `app.<domain>` | `api.<domain>` | M0 Mumbai, `vidya_prod` | `som-files` |
+| Production | `app.<domain>` | `api.<domain>` | M0 Mumbai, `som_prod` | `som-files` |
 
 Staging shares the production server, so it costs nothing extra. It is stopped except while rehearsing.
 
@@ -148,7 +148,7 @@ They live in `/opt/som/.env` on the server (`chmod 600`) and are never committed
 ```env
 ENV=production
 MONGO_URL=mongodb+srv://<prod-user>:<pw>@<cluster>.mongodb.net/?retryWrites=true&w=majority
-DB_NAME=vidya_prod
+DB_NAME=som_prod
 JWT_SECRET=<python -c "import secrets;print(secrets.token_urlsafe(48))">
 CORS_ORIGINS=https://app.<domain>
 ADMIN_EMAIL=<real admin email>

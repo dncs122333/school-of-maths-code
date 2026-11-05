@@ -28,8 +28,8 @@ class TestBankDrivenTests:
 
     @pytest.fixture(scope="class", autouse=True)
     def setup(self):
-        self.state["th"] = _login("teacher@vidya.com", "teacher123")
-        self.state["sh"] = _login("student@vidya.com", "student123")
+        self.state["th"] = _login("teacher@somacademy.example.com", "teacher123")
+        self.state["sh"] = _login("student@somacademy.example.com", "student123")
         tag = uuid.uuid4().hex[:10]
         self.state["tag"] = tag
         rows = [f'{i},Class 9,Maths,"Chapter {tag}","Topic {tag}","Q{i} {tag}?","A","B","C","D",Option B,"expl","medium"'

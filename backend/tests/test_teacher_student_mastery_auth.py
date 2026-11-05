@@ -12,7 +12,7 @@ API = f"{BASE_URL}/api"
 
 def _register(role: str, name: str = None):
     tag = uuid.uuid4().hex[:8]
-    email = f"test_{role}_{tag}@vidya.com"
+    email = f"test_{role}_{tag}@somacademy.example.com"
     r = requests.post(f"{API}/auth/register", json={
         "name": name or f"User {tag}",
         "email": email,
@@ -95,7 +95,7 @@ class TestTeacherStudentMasteryAuth:
 
     def test_admin_can_view_any_student(self):
         """Admin role bypasses the batch check and can inspect any student's mastery."""
-        admin = _login("admin@vidya.com", "admin123")
+        admin = _login("admin@somacademy.example.com", "admin123")
         sid = self.student_in_t1["id"]
         res = requests.get(f"{API}/mastery/teacher/student/{sid}", headers=admin["headers"], timeout=15)
         assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"

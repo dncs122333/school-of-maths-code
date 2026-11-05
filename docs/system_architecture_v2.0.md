@@ -1,4 +1,4 @@
-# VidyaLab (School of Maths) — System Architecture v2.0
+# School of Maths — System Architecture v2.0
 
 **Version:** 2.0
 **Date:** 2026-08-30
@@ -14,7 +14,7 @@
 
 ## 1. Executive Summary
 
-VidyaLab is a single-teacher coaching-center platform (Classes 9–10, CBSE) delivered as a
+School of Maths is a single-teacher coaching-center platform (Classes 9–10, CBSE) delivered as a
 **mobile-responsive web app**. It evolved from an existing codebase rather than a rewrite:
 the MVP keeps the working FastAPI backend, MongoDB database, and React 19 frontend, and layers the
 new question-bank / test / mastery features on top.
@@ -238,7 +238,7 @@ And a behavior change: `POST /tests` → async + bank-sampling (see §9).
 
 ## 6. Frontend Application
 
-Single-page app; routing via react-router-dom. Auth token stored in `localStorage` (`vidya_token`)
+Single-page app; routing via react-router-dom. Auth token stored in `localStorage` (`som_token`)
 and attached as `Authorization: Bearer` by an axios interceptor (`frontend/src/lib/api.js`).
 
 | Route | Page | Access |
@@ -308,7 +308,7 @@ explanation-vs-key `Option X` mismatch is detected).
 | `MONGO_URL` | yes | MongoDB connection string |
 | `DB_NAME` | yes | database name |
 | `JWT_SECRET` | yes | HS256 signing secret |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | no (defaults) | seeded admin (`admin@vidya.com` / `admin123`) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | no (defaults) | seeded admin (`admin@somacademy.example.com` / `admin123`) |
 | `CORS_ORIGINS` | no (default `*`) | allowed origins |
 | `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` | no (local disk if unset) | Cloudflare R2 / S3-compatible storage |
 | `S3_REGION` | no (default `auto`) | S3 region (`auto` for R2) |

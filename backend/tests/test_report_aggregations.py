@@ -165,8 +165,8 @@ class TestReportsAPI:
 
     @classmethod
     def setup_class(cls):
-        cls.state["th"] = _login("teacher@vidya.com", "teacher123")
-        cls.state["sh"] = _login("student@vidya.com", "student123")
+        cls.state["th"] = _login("teacher@somacademy.example.com", "teacher123")
+        cls.state["sh"] = _login("student@somacademy.example.com", "student123")
         # Find an existing batch and test
         b_res = requests.get(f"{API}/batches", headers=cls.state["th"], timeout=15)
         assert b_res.status_code == 200
