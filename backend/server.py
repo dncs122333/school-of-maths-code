@@ -22,6 +22,7 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from pydantic import BaseModel
 
+from fastapi.exceptions import RequestValidationError
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query, Request
 from fastapi.responses import Response, JSONResponse
 from urllib.parse import quote
@@ -32,13 +33,14 @@ from config import (admin_password_allowed, logger, DIFFICULTIES, _VALID_STATUSE
 from db import (db, client, api_router, ATLAS_UNAVAILABLE_MESSAGE, atlas_connection_status,
                 mark_atlas_unavailable)
 from models import (RegisterInput, LoginInput, ForgotPasswordInput, ResetPasswordInput, ConsentTokenInput, ParentEmailInput,
-                    StudentContactInput, BatchInput, BatchUpdateInput,
+                    StudentContactInput, StudentReportPauseInput, BatchInput, BatchUpdateInput,
                     JoinInput, StudentStatusInput, GenerateTestInput,
-                    SubmitInput, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
+                    SubmitInput, QuestionTime, DataSourceStatusResponse, QuestionInput, QuestionBatchImportInput)
 from auth import (hash_password, verify_password, hash_password_async, verify_password_async, create_access_token,
                   get_current_user, require_role, require_claim_role, check_account_access, TEACHER_PENDING_MESSAGE, CONSENT_GATE_STATUSES)
-from mailer import send_password_reset, RESET_LINK_MINUTES
+from mailer import render_weekly_report, send_password_reset, RESET_LINK_MINUTES
 import parent_consent
+import parent_reports
 import rate_limit
 from ai import extract_questions_from_media
 from storage import init_storage, put_object, get_object
@@ -50,6 +52,8 @@ from watermark import apply_watermark, watermarked_media_type, WATERMARKABLE_EXT
 from curriculum import (CURRICULUM, get_canonical_topics, generate_gemini_prompt,
                         normalize_taxonomy, normalize_key, canonicalize_topic_title, infer_subject_and_chapter,
                         normalize_class_level)
+from reports.aggregations import _attendance
+from lib.class_tests import assign_ranks, batch_class_tests, class_rank_score, drop_uncounted_class_tests
 from reports.router import router as reports_router
 
 if SENTRY_DSN:
@@ -79,6 +83,13 @@ async def atlas_only_guard(request: Request, call_next):
                 headers={"Retry-After": "5"},
             )
     return await call_next(request)
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(_: Request, exc: RequestValidationError):
+    """FastAPI's default repeats what was sent. That can be a password, or an infinite number that can't be
+    written back as JSON and would turn a rejected request into a 500."""
+    return JSONResponse(status_code=422, content={"detail": [{k: e[k] for k in ("type", "loc", "msg") if k in e} for e in exc.errors()]})
 
 
 @app.exception_handler(PyMongoError)
@@ -283,6 +294,48 @@ async def teacher_correct_contact(batch_id: str, student_id: str, body: StudentC
     if email_changed:
         await parent_consent.send_consent_request(await db.users.find_one({"_id": student["_id"]}), request, actor=user)
     return {"updated": sorted(update)}
+
+
+# ------------------------- Weekly reports to parents -------------------------
+@api_router.get("/batches/{batch_id}/reports/status")
+async def weekly_report_status(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    return await parent_reports.batch_status(db, await _owned_batch(batch_id, user), datetime.now(timezone.utc))
+
+
+@api_router.get("/batches/{batch_id}/reports/preview")
+async def weekly_report_preview(batch_id: str, student_id: Optional[str] = None,
+                                user: dict = Depends(require_role("teacher", "admin"))):
+    """What a report would say if it went out now, without sending anything. Any student, or the first."""
+    batch = await _owned_batch(batch_id, user)
+    reports = await parent_reports.preview_batch_reports(db, batch, datetime.now(timezone.utc))
+    if not reports:
+        return {"has_report": False, "reason": "no_class_test"}
+    if student_id:
+        await _student_in_batch(batch_id, student_id, user)
+    report = reports.get(student_id) if student_id else next(iter(reports.values()))
+    if not report:
+        return {"has_report": False, "reason": "joined_after_tests"}
+    subject, html, _ = render_weekly_report(report)
+    return {"has_report": True, "subject": subject, "html": html, "report": report,
+            "students": [{"id": sid, "name": r["student_name"]} for sid, r in reports.items()]}
+
+
+@api_router.put("/batches/{batch_id}/students/{student_id}/report-pause")
+async def weekly_report_pause_student(batch_id: str, student_id: str, body: StudentReportPauseInput,
+                                      user: dict = Depends(require_role("teacher", "admin"))):
+    """Stop or restart one student's weekly report, say when a parent asks, without affecting the batch."""
+    student = await _student_in_batch(batch_id, student_id, user)
+    change = {"$addToSet": {"report_paused_batch_ids": batch_id}} if body.paused else {"$pull": {"report_paused_batch_ids": batch_id}}
+    await db.users.update_one({"_id": student["_id"]}, change)
+    return {"report_paused": body.paused}
+
+
+@api_router.post("/batches/{batch_id}/reports/retry")
+async def weekly_report_retry(batch_id: str, user: dict = Depends(require_role("teacher", "admin"))):
+    await _owned_batch(batch_id, user)
+    res = await db.parent_reports.update_many({"batch_id": batch_id, "status": "failed"},
+                                              {"$set": {"status": "queued", "attempts": 0}})
+    return {"requeued": res.modified_count}
 
 
 @api_router.get("/admin/students/{student_id}/consent-records")
@@ -965,6 +1018,15 @@ async def update_batch(batch_id: str, body: BatchUpdateInput, user: dict = Depen
         fee_changed = True
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if body.report_weekday is not None:
+        if body.report_weekday not in (-1, *range(7)):
+            raise HTTPException(status_code=400, detail="Report day must be Monday to Sunday.")
+        update_fields["report_weekday"] = None if body.report_weekday == -1 else body.report_weekday
+    if body.reports_paused is not None:
+        update_fields["reports_paused"] = body.reports_paused
+    if body.report_note is not None:
+        update_fields["report_note"] = body.report_note.strip()[:300]
+
     await db.batches.update_one({"id": batch_id}, {"$set": update_fields})
 
     # When batch fees change, update all batch_fees records that don't have a custom override
@@ -1267,6 +1329,9 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
 
     students = [s async for s in db.users.find({"role": "student", "batch_ids": batch_id}).sort("name", 1)]
     student_ids = [str(s["_id"]) for s in students]
+    last_run = await db.parent_report_runs.find_one({"batch_id": batch_id, "status": "queued"}, {"_id": 0, "week": 1}, sort=[("week", -1)])
+    report_status = {r["student_id"]: r["status"] async for r in db.parent_reports.find(
+        {"batch_id": batch_id, "week": last_run["week"]}, {"_id": 0, "student_id": 1, "status": 1})} if last_run else {}
 
     fee_records = {}
     if student_ids:
@@ -1361,6 +1426,8 @@ async def list_batch_students(batch_id: str, user: dict = Depends(require_role("
             "name": s.get("name", "Unnamed Student"),
             "email": s.get("email", ""),
             **_student_contact(s),
+            "report_status": report_status.get(sid),
+            "report_paused": batch_id in (s.get("report_paused_batch_ids") or []),
             "is_disabled": is_student_disabled,
             "is_blocked": is_student_blocked,
             "joined_at": _enrolled_at(s, batch_id),
@@ -2975,7 +3042,7 @@ async def _auto_submit_loop():
 
 class DraftInput(BaseModel):
     answers: List[int]
-    times: Optional[List[float]] = None
+    times: Optional[List[QuestionTime]] = None
 
 
 @api_router.put("/tests/{test_id}/draft")
@@ -3057,10 +3124,15 @@ async def leaderboard(test_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Test not found")
     if user["role"] == "student":
         await _ensure_student_can_access_test(test, user)
+        # Only class tests rank students. Teachers still get practice attempts here, to review them.
+        if test.get("kind") != "test" or test.get("student_id"):
+            raise HTTPException(status_code=403, detail="Only class tests have a ranking.")
     else:
         _ensure_teacher_owns_test(test, user)
     subs = await db.submissions.find({"test_id": test_id}, {"_id": 0}).sort("score", -1).to_list(200)
+    ranked = test.get("kind") == "test" and not test.get("student_id")
     return [{
+        "rank": 1 + sum(1 for other in subs if other["score"] > s["score"]) if ranked else None,
         "student_id": s.get("student_id"),
         "submission_id": s.get("id"),
         "student_name": s["student_name"],
@@ -4012,7 +4084,8 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
     if top or chap or subj:
         class_level, subj, chap, top, _ = normalize_taxonomy(class_level, subj, chap, top, [])
     is_targeted = bool(top or chap)
-    kind = "dpp" if is_targeted else (body.kind or "diagnostic")
+    # Never a student's choice beyond these two: "test" would make their own class test, and count in ranks
+    kind = "dpp" if is_targeted or body.kind == "dpp" else "diagnostic"
 
     # Resume an unfinished sprint for the same target instead of creating another test document each click
     now = datetime.now(timezone.utc)
@@ -4063,6 +4136,7 @@ async def create_diagnostic(body: DiagnosticInput, user: dict = Depends(require_
 async def my_mastery(full: bool = False, format: str = None, user: dict = Depends(require_role("student"))):
     # Newest first so the 2000 cap drops the oldest (least-weighted) attempts, not the most recent
     subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    subs = await drop_uncounted_class_tests(db, subs)
     class_levels = []
     if user.get("class_level"):
         class_levels.append(user["class_level"])
@@ -4122,8 +4196,8 @@ async def teacher_mastery(batch_id: str, user: dict = Depends(require_role("teac
     own_scores = []
     per_student = {}
     if student_ids:
-        cursor = db.submissions.find(sub_query, {"_id": 0}).sort("created_at", -1)
-        async for s in cursor:
+        batch_subs = await db.submissions.find(sub_query, {"_id": 0}).sort("created_at", -1).to_list(None)
+        for s in await drop_uncounted_class_tests(db, batch_subs):
             per_student.setdefault(s["student_id"], []).extend(_flatten_attempts([s]))
             # Class tests only (practice tests assigned to the batch don't move the class average)
             if (s.get("test_id") in own_test_ids and s.get("score") is not None
@@ -4271,6 +4345,7 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
             {"$or": [{"teacher_id": user["id"]}, {"student_id": student_id, "teacher_id": None}]}, {"_id": 0, "id": 1})]
         sub_q["test_id"] = {"$in": visible_test_ids}
     subs = await db.submissions.find(sub_q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    subs = await drop_uncounted_class_tests(db, subs)
     class_levels = []
     if student.get("class_level"):
         class_levels.append(student["class_level"])
@@ -4300,8 +4375,8 @@ async def teacher_student_mastery(student_id: str, user: dict = Depends(require_
 @api_router.get("/stats")
 async def stats(user: dict = Depends(get_current_user)):
     if user["role"] == "student":
-        subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0, "created_at": 1, "score": 1, "kind": 1}).to_list(1000)
-        test_subs = [s for s in subs if s.get("kind") == "test"]
+        subs = await db.submissions.find({"student_id": user["id"]}, {"_id": 0, "created_at": 1, "score": 1, "kind": 1, "test_id": 1}).to_list(1000)
+        test_subs = [s for s in await drop_uncounted_class_tests(db, subs) if s.get("kind") == "test"]
         avg = round(sum(s.get("score", 0) for s in test_subs) / len(test_subs), 1) if test_subs else 0
         # Only batches the student can actually open (not disabled/blocked there)
         student_batches = active_batch_ids(user)
@@ -4407,11 +4482,13 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
         if batch.get("teacher_id") != user["id"]:
             raise HTTPException(status_code=403, detail="You do not own this batch")
 
-    students = await db.users.find({"role": "student", "batch_ids": batch_id}, {"_id": 1, "name": 1}).to_list(500)
+    students = await db.users.find({"role": "student", "batch_ids": batch_id}, {"_id": 1, "name": 1, "batch_enrolled_at": 1}).to_list(500)
     student_map = {str(s["_id"]): s.get("name", "Student") for s in students}
     for s in students:
         if "id" in s:
             student_map[str(s["id"])] = s.get("name", "Student")
+
+    enrolled_at = {str(s["_id"]): (s.get("batch_enrolled_at") or {}).get(batch_id) for s in students}
 
     if not student_map:
         return {"topper": None}
@@ -4427,9 +4504,13 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
 
     cursor = db.submissions.find(
         sub_query,
-        {"_id": 0, "student_id": 1, "student_name": 1, "score": 1, "created_at": 1}
-    ).sort("created_at", -1)
+        {"_id": 0, "student_id": 1, "student_name": 1, "score": 1, "created_at": 1, "test_id": 1, "kind": 1}
+    ).sort("created_at", 1)
 
+    # Scores come from counted class tests only, first attempt per test. Other work still counts for the streak.
+    class_tests = await batch_class_tests(db, batch_id, batch.get("teacher_id"))
+    class_test_ids = {t["id"] for t in class_tests}
+    seen_attempts = set()
     student_stats = {}
     async for sub in cursor:
         sid = sub.get("student_id")
@@ -4437,8 +4518,11 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
             continue
         if sid not in student_stats:
             sname = sub.get("student_name") or student_map.get(sid, "Student")
-            student_stats[sid] = {"name": sname, "scores": [], "dates": set()}
-        student_stats[sid]["scores"].append(sub.get("score", 0))
+            student_stats[sid] = {"name": sname, "scores": [], "taken": [], "dates": set()}
+        if sub.get("test_id") in class_test_ids and source_weight(sub.get("kind")) > 0 and (sid, sub["test_id"]) not in seen_attempts:
+            seen_attempts.add((sid, sub["test_id"]))
+            student_stats[sid]["scores"].append(sub.get("score", 0))
+            student_stats[sid]["taken"].append(sub)
         ca = sub.get("created_at")
         if ca:
             try:
@@ -4449,17 +4533,19 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
             except Exception:
                 pass
 
-    if not student_stats:
-        return {"topper": None}
-
     toppers = []
+    now_utc = datetime.now(timezone.utc)
     today = datetime.now(APP_TIMEZONE).date()
     yesterday = today - timedelta(days=1)
+    # Every student on the roster gets a row, including anyone with no submissions at all
+    for sid, name in student_map.items():
+        student_stats.setdefault(sid, {"name": name, "scores": [], "taken": [], "dates": set()})
     for sid, data in student_stats.items():
-        if not data["scores"]:
+        if sid not in student_map:
             continue
+        assigned = _attendance(sid, data["taken"], class_tests, enrolled_at.get(sid), now_utc)["tests_assigned"]
+        avg = class_rank_score(data["scores"], assigned)
         total_score = round(sum(data["scores"]), 1)
-        avg = sum(data["scores"]) / len(data["scores"])
         streak = 0
         active_dates = data["dates"]
         if today in active_dates:
@@ -4478,32 +4564,22 @@ async def batch_topper(batch_id: str, user: dict = Depends(get_current_user)):
             "name": data["name"],
             "batch_name": batch.get("name", "Batch"),
             "total_score": total_score,
-            "avg_score": round_half_up(avg, 1),
-            "accuracy": round_half_up(avg),
+            "avg_score": round_half_up(avg, 1) if avg is not None else None,
+            "accuracy": round_half_up(avg) if avg is not None else 0,
             "tests_taken": len(data["scores"]),
+            "tests_assigned": assigned,
             "streak_days": streak,
         })
-
-    for sid, name in student_map.items():
-        if sid not in student_stats:
-            toppers.append({
-                "student_id": sid,
-                "name": name,
-                "batch_name": batch.get("name", "Batch"),
-                "total_score": 0.0,
-                "avg_score": 0.0,
-                "accuracy": 0,
-                "tests_taken": 0,
-                "streak_days": 0,
-            })
 
     if not toppers:
         return {"topper": None, "leaderboard": []}
 
-    toppers.sort(key=lambda t: (t["total_score"], t["avg_score"], t["tests_taken"], t["streak_days"]), reverse=True)
-    for idx, t in enumerate(toppers):
-        t["rank"] = idx + 1
-    top_student = toppers[0] if toppers and toppers[0]["tests_taken"] > 0 else None
+    # Same rule as the term report: average across class tests, missed counts as 0, ties share a rank
+    toppers.sort(key=lambda t: (t["avg_score"] is None, -(t["avg_score"] or 0), t["name"]))
+    assign_ranks(toppers, "avg_score")
+    top_student = toppers[0] if toppers[0]["tests_taken"] > 0 else None
+    for t in toppers:
+        t["avg_score"] = t["avg_score"] or 0.0  # screens show a number; `rank` is empty for students with no tests
     return {"topper": top_student, "leaderboard": toppers}
 
 
@@ -4558,6 +4634,7 @@ async def delete_student_data(student_id: str, _: dict = Depends(require_role("a
     await db.auth_limits.delete_many({"key": {"$in": [f"login:email:{student['email']}", f"forgot:email:{student['email']}",
                                                       f"consent:student:{student_id}"]}})
     await parent_consent.anonymise_records(student_id)
+    await db.parent_reports.delete_many({"student_id": student_id})
     await db.users.delete_one({"_id": ObjectId(student_id)})
     logger.info(f"Deleted student {student_id}: {removed}")
     return {"success": True, "removed": removed}
@@ -4625,11 +4702,15 @@ CATALOG = {
 }
 
 
+_report_loop_task = []  # asyncio keeps only weak references to tasks
+
+
 @app.on_event("startup")
 async def startup():
     # Auto-submit class-test attempts whose time ran out with the tab closed (autosaved answers are kept).
     # Started first: the loop survives a database outage, and tests must still close if Atlas was down at boot.
     asyncio.create_task(_auto_submit_loop())
+    _report_loop_task.append(asyncio.create_task(parent_reports.weekly_report_loop(db)))
     status = await atlas_connection_status(force=True)
     if not status["available"]:
         logger.error("MongoDB Atlas unavailable at startup; database-backed routes are fail-closed")
@@ -4661,6 +4742,11 @@ async def startup():
         ("parent_consent_tokens", "token_hash", {"unique": True}),
         ("parent_consent_tokens", "expire_at", {"expireAfterSeconds": 0}),
         ("consent_records", [("student_ref", 1), ("at", 1)], {}),
+        ("parent_reports", [("batch_id", 1), ("student_id", 1), ("week", 1)], {"unique": True}),
+        ("parent_reports", [("status", 1), ("created_at", 1)], {}),
+        ("parent_reports", [("status", 1), ("sent_on", 1)], {}),
+        ("parent_reports", "student_id", {}),
+        ("parent_report_runs", [("batch_id", 1), ("week", 1)], {"unique": True}),
     ]
     for coll, keys, opts in indexes:
         try:

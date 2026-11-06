@@ -4,9 +4,11 @@ import statistics
 from typing import Dict, List, Optional, Any
 
 try:
+    from lib.class_tests import assign_ranks, class_rank_score
     from lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered, source_weight
     from curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 except ImportError:
+    from ..lib.class_tests import assign_ranks, class_rank_score
     from ..lib.mastery import round_half_up, band, compute_topic_mastery, is_confirmed_weak, is_confirmed_strong, is_answered, source_weight
     from ..curriculum import CURRICULUM, normalize_key, canonicalize_topic_title, subjects_match, normalize_subject, normalize_class_level
 
@@ -714,18 +716,17 @@ def compute_term_report(
         }
         if class_tests is not None:
             row.update(_attendance(sid, s_list, class_tests, (enrolled_at or {}).get(sid), now))
+            class_test_ids = {t["id"] for t in class_tests}
+            scores = [float(s.get("score", 0)) for s in s_list if s.get("test_id") in class_test_ids and _counts_as_class_test(s)]
+            rank_score = class_rank_score(scores, row["tests_assigned"])
+            row["rank_score"] = round_half_up(rank_score, 1) if rank_score is not None else None
+        else:
+            row["rank_score"] = avg_score
         student_summaries.append(row)
 
-    # Rank by average (ties share a rank); students with no class tests go last, unranked, by name
-    student_summaries.sort(key=lambda s: (s["avg_score"] is None, -(s["avg_score"] or 0), s["name"]))
-    prev_avg, prev_rank = None, 0
-    for pos, s in enumerate(student_summaries, start=1):
-        if s["avg_score"] is None:
-            s["rank"] = None
-            continue
-        if s["avg_score"] != prev_avg:
-            prev_avg, prev_rank = s["avg_score"], pos
-        s["rank"] = prev_rank
+    # Rank across class tests, with a missed test as 0 (ties share a rank); students with no tests go last, unranked
+    student_summaries.sort(key=lambda s: (s["rank_score"] is None, -(s["rank_score"] or 0), s["name"]))
+    assign_ranks(student_summaries, "rank_score")
 
     return {
         "batch_id": batch_id,

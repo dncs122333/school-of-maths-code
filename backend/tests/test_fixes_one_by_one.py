@@ -467,6 +467,9 @@ class TestFixesOneByOne:
         # One hit student submits only 1 test: 100% (avg 100%, total 100)
         submit(s_one_hit, test_ids[0], 2)
 
+        # Once the tests close, the four the one-hit student missed count as 0 (average 20%)
+        db.tests.update_many({"id": {"$in": test_ids}}, {"$set": {"valid_until": (now - timedelta(minutes=1)).isoformat()}})
+
         # Check topper
         r_top = requests.get(f"{API}/batches/{bid}/topper", headers=teacher["headers"], timeout=15)
         assert r_top.status_code == 200, r_top.text

@@ -37,6 +37,13 @@ Sign-up collects a mobile number from everyone, and from students a parent's nam
 and aren't gated. Tests auto-confirm students unless they send `X-Test-Keep-Consent-Pending: 1`. `consent_records` is add-only: code never edits an entry
 (erasing a student swaps their entries for anonymous ones). Change `CONSENT_VERSION` in `backend/parent_consent.py` whenever the wording, Terms or Privacy Policy change.
 
+Averages and ranks count only tests in `lib/class_tests.py`: teacher-set class tests, not deleted or draft. Class rank is the average across class
+tests, with a missed test as 0 and an excused one left out; `rank_score` holds it, while `avg_score` stays the average of tests taken. The term report and topper use the same rule.
+
+Weekly parent reports: `parent_reports.py`. A batch's `report_weekday` sets the day (6 pm IST); `reports_paused` holds it. Reports are saved in `parent_reports`
+(once per batch, student and week; runs in `parent_report_runs`), then sent up to `REPORT_DAILY_EMAIL_CAP` (250) a day, oldest first. Only parents with confirmed consent
+get one, and only tests with results out and all make-ups closed are included. Example.com addresses are never emailed. Bounces aren't detected yet.
+
 Deployment: `docs/DEPLOYMENT_PLAN.md`, `deploy/README.md`.
 
 ## Atlas-only data source guardrails

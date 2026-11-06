@@ -21,6 +21,9 @@ APP_URL = (os.environ.get("APP_URL") or "http://localhost:3000").strip().rstrip(
 BREVO_API_KEY = (os.environ.get("BREVO_API_KEY") or "").strip()
 EMAIL_FROM = (os.environ.get("EMAIL_FROM") or "").strip()  # must be a sender verified in Brevo
 SENTRY_DSN = (os.environ.get("SENTRY_DSN") or "").strip()
+CONTACT_EMAIL = (os.environ.get("CONTACT_EMAIL") or "").strip()  # shown to parents in report emails
+# Weekly reports stop here each day; the rest of Brevo's 300 a day stays free for consent and reset emails
+REPORT_DAILY_EMAIL_CAP = int(os.environ.get("REPORT_DAILY_EMAIL_CAP") or 250)
 
 
 def admin_password_allowed(password: str, production: bool = IS_PRODUCTION) -> bool:

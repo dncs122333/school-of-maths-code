@@ -206,11 +206,11 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFF9E8] hover:bg-[#FBEFC8] border-2 border-[#1E293B] font-head font-bold text-xs text-[#1E293B] shadow-[1.5px_1.5px_0_#1E293B] cursor-pointer"
             >
               <ChevronLeft className="h-4 w-4" />
-              <span>Back to Leaderboard</span>
+              <span>{test?.kind === "test" ? "Back to Leaderboard" : "Back to Attempts"}</span>
             </button>
             <div className="flex items-center gap-2">
               <span className="font-head font-black text-xs px-2.5 py-1 rounded-lg bg-[#FFF9E8] border border-[#1E293B]">
-                {selectedStudent.medal} Rank #{selectedStudent.rank}
+                {selectedStudent.rank ? `${selectedStudent.medal} Rank #${selectedStudent.rank}` : "Practice attempt"}
               </span>
               <span className="font-head font-black text-xs px-2.5 py-1 rounded-lg bg-[#F5C842] border-2 border-[#1E293B] text-[#1E293B] shadow-[1px_1px_0_#1E293B]">
                 {selectedStudent.score}%
@@ -252,7 +252,7 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
                 }`}
               >
                 <Trophy className="h-4 w-4 text-[#F5C842]" />
-                <span>Leaderboard</span>
+                <span>{test?.kind === "test" ? "Leaderboard" : "Attempts"}</span>
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-white border border-[#1E293B] font-bold">
                   {leaderboard ? leaderboard.length : "…"}
                 </span>
@@ -644,11 +644,13 @@ function TestStudentsModal({ testData, onClose, isTeacher }) {
                 ) : (
                   <div className="space-y-1.5">
                     {filteredLeaderboard.map((r, i) => {
-                      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`;
+                      // Practice attempts aren't ranked; class-test ties share a rank (from the server)
+                      const place = r.rank;
+                      const medal = !place ? "•" : place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : `#${place}`;
                       return (
                         <div
                           key={i}
-                          onClick={() => isTeacher && handleSelectStudent(r, medal, i + 1)}
+                          onClick={() => isTeacher && handleSelectStudent(r, medal, place)}
                           className={`flex items-center justify-between p-2.5 rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] shadow-[1px_1px_0_#1E293B] text-xs transition-all ${
                             isTeacher && r.student_id
                               ? "hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#1E293B] hover:bg-[#FBEFC8] cursor-pointer"
@@ -1052,6 +1054,8 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
         )}
       </div>
       {/* Student Standings (Leaderboard) & Missed Test Modal Buttons */}
+      {/* Only class tests rank students: practice shows students no ranking, and teachers its attempts */}
+      {(isTeacher || t.kind === "test") && (
       <div className="mt-3 pt-2.5 border-t border-[#1E293B]/10 grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -1060,7 +1064,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
           className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-[#FFF9E8] hover:bg-[#FBEFC8] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B] text-xs font-head font-bold text-[#1E293B] transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
         >
           <Trophy className="h-3.5 w-3.5 text-[#F5C842]" />
-          <span>Leaderboard</span>
+          <span>{t.kind === "test" ? "Leaderboard" : "Attempts"}</span>
         </button>
         {isTeacher ? (
           <button
@@ -1082,6 +1086,7 @@ function TestCard({ t, isTeacher, isDpp, i, onEdit, onDelete, deleting, onReuse,
           </button>
         )}
       </div>
+      )}
     </motion.div>
   );
 }

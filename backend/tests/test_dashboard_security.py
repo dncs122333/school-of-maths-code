@@ -49,7 +49,7 @@ class TestDashboardSecurity:
             requests.post(f"{API}/batches/join", json={"code": b["code"]}, headers=cls.student["headers"], timeout=15)
         cls.test_a = _test_with_submission(cls.teacher_a["id"], cls.student["id"], "Teacher A test", cls.teacher_a["batch"]["id"])
         cls.test_b = _test_with_submission(cls.teacher_b["id"], cls.student["id"], "Teacher B test", cls.teacher_b["batch"]["id"])
-        cls.diag = _test_with_submission(None, cls.student["id"], "Self diagnostic")
+        cls.diag = _test_with_submission(None, cls.student["id"], "Self diagnostic", kind="diagnostic")
 
     def test_teacher_cannot_list_another_teachers_submissions(self):
         assert requests.get(f"{API}/tests/{self.test_b}/submissions", headers=self.teacher_a["headers"], timeout=15).status_code == 403

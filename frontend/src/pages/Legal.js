@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 // First drafts, written to match what the app actually does. Have them reviewed before launch,
 // and set REACT_APP_CONTACT_EMAIL for the build so people have somewhere to write.
-const LAST_UPDATED = "5 November 2026";
+const LAST_UPDATED = "7 November 2026";
 const CONTACT_EMAIL = process.env.REACT_APP_CONTACT_EMAIL;
 
 function Contact() {
@@ -45,10 +45,12 @@ export function Privacy() {
         <li>MongoDB Atlas (database, in India)</li>
         <li>DigitalOcean (app server, in India)</li>
         <li>Cloudflare (website delivery and file storage)</li>
-        <li>Brevo (password-reset emails)</li>
+        <li>Brevo (password-reset, consent and weekly report emails)</li>
         <li>Sentry (error reports)</li>
         <li>Google Gemini, only when a teacher imports questions from a question paper they upload. Student data isn't included.</li>
       </ul>
+      <h2>Weekly reports to parents</h2>
+      <p>Once a parent has agreed, they get a weekly email about their child's class tests: marks, class average, class rank, attendance and topics to work on. It never names other students or includes questions and answers. To stop these emails, contact <Contact />.</p>
       <h2>Children and parents</h2>
       <p>Every student needs a parent or guardian's agreement before they can use this app. We email the parent a link to agree, or the parent can sign a form at the centre. We save a record of the agreement: who it was sent to, when it was given, the wording agreed to, and the network address and browser used. Parents and guardians can withdraw their agreement, and can ask to see, correct or delete their child's data.</p>
       <h2>How long we keep it</h2>
@@ -74,6 +76,8 @@ export function Terms() {
       <p>Notes, questions and other material belong to School of Maths or its teachers. They're for your own study. Don't copy, share or sell them. Copies are watermarked with your name and email.</p>
       <h2>Teachers</h2>
       <p>Teacher accounts need admin approval. Upload only material you have the right to use, and use student data only for teaching.</p>
+      <h2>Reports and ranks</h2>
+      <p>Class averages and ranks count only the class tests your teacher sets. Practice doesn't count. A missed class test counts as 0 unless your teacher excuses it. Parents get a weekly report of these results.</p>
       <h2>Stopping access</h2>
       <p>We can disable or block an account that breaks these terms. You can ask us to close your account at any time.</p>
       <h2>Availability</h2>

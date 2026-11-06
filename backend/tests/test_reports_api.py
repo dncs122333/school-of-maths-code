@@ -72,7 +72,8 @@ class TestReportsAPI:
         rows = {r["student_id"]: r for r in rep["student_summaries"]}
         assert rows[a["id"]]["tests_taken"] == 2 and rows[a["id"]]["tests_attended"] == 2
         assert rows[a["id"]]["avg_score"] == 75.0 and rows[a["id"]]["rank"] == 1
-        assert rows[b["id"]]["avg_score"] is None and rows[b["id"]]["rank"] is None
+        # Missed class tests count as 0 for rank, though there's no average of tests actually taken
+        assert rows[b["id"]]["avg_score"] is None and rows[b["id"]]["rank_score"] == 0 and rows[b["id"]]["rank"] == 2
 
         since = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
         rep = requests.get(f"{API}/reports/batch/{self.batch['id']}/term", params={"start": since},

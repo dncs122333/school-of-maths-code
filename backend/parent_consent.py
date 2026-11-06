@@ -20,7 +20,7 @@ from db import db
 from mailer import send_parent_consent, CONSENT_LINK_DAYS
 import rate_limit
 
-CONSENT_VERSION = "2026-11-05"  # change this whenever the wording, Terms or Privacy Policy change
+CONSENT_VERSION = "2026-11-07"  # change this whenever the wording, Terms or Privacy Policy change
 CONSENT_WORDING = ("I am the parent or guardian of {student}. I have read the Terms and Privacy Policy, and I agree "
                    "that School of Maths can use {student}'s details to run their classes, tests and progress reports.")
 

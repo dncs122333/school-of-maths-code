@@ -11,6 +11,7 @@ import { Label } from "./ui/label";
 const CONTACT_LINK = "inline-flex items-center gap-1 h-8 px-2.5 rounded-xl border-2 border-[#1E293B] bg-white hover:bg-[#FFF9E8] text-xs font-bold text-[#1E293B] shadow-[1px_1px_0_#1E293B]";
 
 const EVENT_LABELS = { requested: "Link issued to parent", confirmed: "Parent agreed", withdrawn: "Agreement withdrawn" };
+const REPORT_LABELS = { sent: "Report sent", queued: "Report waiting", failed: "Report failed", skipped: "No report sent" };
 const METHOD_LABELS = { email_link: "email link", signed_form: "signed form" };
 
 export const isWaitingForConsent = (student) => ["pending", "withdrawn"].includes(student.parent_consent_status);
@@ -135,6 +136,18 @@ export default function StudentContactActions({ student, batchId, isAdmin, onCha
     })) return;
     act(() => api.post(`/batches/${batchId}/students/${student.id}/consent/signed-form`), "Recorded. The student can start now.");
   };
+  const togglePause = async () => {
+    if (student.report_paused) {
+      act(() => api.put(`/batches/${batchId}/students/${student.id}/report-pause`, { paused: false }), `${student.name}'s weekly report resumed`);
+      return;
+    }
+    if (!await confirm({
+      title: `Pause ${student.name}'s weekly report?`,
+      description: "This parent stops getting the weekly email. Everyone else in the batch still gets theirs. It doesn't change consent, and a report that's waiting to go is stopped too. Results from paused weeks aren't sent later.",
+      confirmLabel: "Pause report",
+    })) return;
+    act(() => api.put(`/batches/${batchId}/students/${student.id}/report-pause`, { paused: true }), `${student.name}'s weekly report paused`);
+  };
   const withdraw = async () => {
     if (!await confirm({
       title: `Withdraw consent for ${student.name}?`,
@@ -153,6 +166,15 @@ export default function StudentContactActions({ student, batchId, isAdmin, onCha
           {status === "withdrawn" ? "Consent withdrawn" : waiting ? "Waiting for parent" : "Parent confirmed"}
         </span>
       )}
+      {student.report_paused ? (
+        <span data-testid={`report-paused-${student.id}`} className="inline-flex items-center h-8 px-2.5 rounded-xl border-2 border-[#B45309] bg-[#F5C842]/25 text-xs font-bold text-[#1E293B]">
+          Report paused
+        </span>
+      ) : REPORT_LABELS[student.report_status] && (
+        <span data-testid={`report-status-${student.id}`} className="inline-flex items-center h-8 px-2.5 rounded-xl border-2 border-[#1E293B]/30 bg-white text-xs font-bold text-[#1E293B]">
+          {REPORT_LABELS[student.report_status]}
+        </span>
+      )}
       {student.phone && <a href={`tel:+91${student.phone}`} className={CONTACT_LINK}><Phone className="h-3.5 w-3.5" /> Call student</a>}
       {parent?.phone && (
         <>
@@ -167,6 +189,11 @@ export default function StudentContactActions({ student, batchId, isAdmin, onCha
           <button type="button" disabled={busy} data-testid={`consent-resend-${student.id}`} onClick={resend} className={CONTACT_LINK}>Resend email</button>
           <button type="button" disabled={busy} data-testid={`consent-signed-${student.id}`} onClick={signedForm} className={CONTACT_LINK}>Signed form received</button>
         </>
+      )}
+      {student.report_paused !== undefined && parent && (
+        <button type="button" disabled={busy} data-testid={`report-pause-${student.id}`} onClick={togglePause} className={CONTACT_LINK}>
+          {student.report_paused ? "Resume weekly report" : "Pause weekly report"}
+        </button>
       )}
       {(student.phone || parent) && (
         <button type="button" data-testid={`edit-contact-${student.id}`} onClick={() => setDialog("edit")} className={CONTACT_LINK}><Pencil className="h-3.5 w-3.5" /> Edit</button>

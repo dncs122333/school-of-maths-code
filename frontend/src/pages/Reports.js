@@ -718,6 +718,7 @@ export default function Reports() {
               {/* Student Term Summary Rankings */}
               <div className="p-6 rounded-3xl bg-white border-[2.5px] border-[#1E293B] shadow-[4px_4px_0_#1E293B] space-y-4 overflow-x-auto">
                 <h3 className="font-head text-lg font-900 text-[#1E293B]">Student Cumulative Performance & Rank Matrix</h3>
+                <p className="text-xs text-[#1E293B]/70">Rank is the average across class tests: a missed test counts as 0, and an excused one is left out. Practice isn't counted.</p>
                 <table className="w-full text-xs min-w-[600px] border-collapse">
                   <thead>
                     <tr className="border-b-2 border-[#1E293B] text-left text-[#1E293B]">

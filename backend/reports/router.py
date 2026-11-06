@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from bson import ObjectId
 
 try:
+    from lib.class_tests import batch_class_tests, drop_uncounted_class_tests
     from db import db
     from auth import require_role, get_current_user
     from reports.aggregations import compute_test_analytics, compute_weekly_digest, compute_term_report, parse_utc_datetime
     from reports.pdf import render_test_report_pdf
 except ImportError:
+    from ..lib.class_tests import batch_class_tests, drop_uncounted_class_tests
     from ..db import db
     from ..auth import require_role, get_current_user
     from .aggregations import compute_test_analytics, compute_weekly_digest, compute_term_report, parse_utc_datetime
@@ -235,6 +237,7 @@ async def get_batch_weekly_digest(batch_id: str, user: dict = Depends(require_ro
         limit=5000,
         context="weekly digest submissions"
     )
+    window_subs = await drop_uncounted_class_tests(db, window_subs)
 
     recent_subs = []
     prior_subs = []
@@ -275,13 +278,9 @@ async def get_batch_term_report(
     enrolled_at = {k: v for k, v in enrolled_at.items() if v}
 
     # Independent reads run together: the submission query's test ids and the attendance class tests
-    async def _class_tests():
-        return [t async for t in db.tests.find(
-            {"kind": "test", "is_deleted": {"$ne": True}, "is_draft": {"$ne": True}, "valid_until": {"$ne": None},
-             "$or": [{"batch_id": batch_id}, {"batch_id": "all", "teacher_id": batch.get("teacher_id")}]},
-            {"_id": 0, "id": 1, "valid_from": 1, "valid_until": 1, "makeups": 1, "excused_student_ids": 1})]
     sub_query, class_tests = await asyncio.gather(
-        _get_batch_submissions_query(batch_id, student_ids, batch.get("teacher_id")), _class_tests())
+        _get_batch_submissions_query(batch_id, student_ids, batch.get("teacher_id")),
+        batch_class_tests(db, batch_id, batch.get("teacher_id")))
     if period_start:
         # Coarse string prefilter with a day's buffer for mixed offsets; exact UTC filtering below
         sub_query["created_at"] = {"$gte": (period_start - timedelta(days=1)).isoformat()}
@@ -290,6 +289,7 @@ async def get_batch_term_report(
         limit=10000,
         context="term submissions"
     )
+    all_submissions = await drop_uncounted_class_tests(db, all_submissions)
     if period_start or period_end:
         all_submissions = [s for s in all_submissions if _in_period(s.get("created_at"), period_start, period_end)]
 

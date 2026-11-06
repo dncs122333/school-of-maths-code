@@ -1,5 +1,5 @@
 """Pydantic request models."""
-from typing import Optional, List
+from typing import Annotated, Optional, List
 from pydantic import BaseModel, EmailStr, Field
 
 class RegisterInput(BaseModel):
@@ -34,6 +34,10 @@ class StudentContactInput(BaseModel):
     parent_email: Optional[EmailStr] = None
 
 
+class StudentReportPauseInput(BaseModel):
+    paused: bool
+
+
 class ForgotPasswordInput(BaseModel):
     email: EmailStr
 
@@ -66,6 +70,9 @@ class BatchUpdateInput(BaseModel):
     join_requires_approval: Optional[bool] = None
     joining_closed: Optional[bool] = None
     max_students: Optional[int] = None  # 0 clears the limit
+    report_weekday: Optional[int] = None  # parents' weekly report: 0 Monday to 6 Sunday, -1 clears it
+    reports_paused: Optional[bool] = None
+    report_note: Optional[str] = None
 
 
 class JoinInput(BaseModel):
@@ -99,9 +106,13 @@ class GenerateTestInput(BaseModel):
     window_minutes: Optional[int] = None
 
 
+# Seconds spent on a question. Capped at a day: one infinite value used to break a whole batch's reports.
+QuestionTime = Annotated[float, Field(ge=0, le=86400)]
+
+
 class SubmitInput(BaseModel):
     answers: List[int]
-    times: Optional[List[float]] = None
+    times: Optional[List[QuestionTime]] = None
     tab_switches: Optional[int] = 0
 
 

@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useAuth } from "../context/AuthContext";
 import StudentContactActions, { isWaitingForConsent } from "../components/StudentContactActions";
+import WeeklyReportSettings from "../components/WeeklyReportSettings";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
@@ -45,6 +46,7 @@ import {
   UserX,
   UserCheck,
   Trash2,
+  Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CircularProgress } from "../components/dashboard/WeakTopicCard";
@@ -1523,7 +1525,7 @@ export default function Batches() {
           </div>
 
           {/* Tab Selector */}
-          <div className="flex items-center gap-2 border-b-2 border-[#1E293B]/20 pb-3">
+          <div className="flex flex-wrap items-center gap-2 border-b-2 border-[#1E293B]/20 pb-3">
             <button
               type="button"
               data-testid="tab-students-fees"
@@ -1560,6 +1562,20 @@ export default function Batches() {
               }`}>
                 {filteredStudents.length}
               </span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="tab-weekly-reports"
+              onClick={() => setActiveTab("reports")}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all ${
+                activeTab === "reports"
+                  ? "bg-[#F5C842] text-[#1E293B] border-2 border-[#1E293B] shadow-[2px_2px_0_#1E293B]"
+                  : "bg-white text-[#1E293B]/70 hover:text-[#1E293B] hover:bg-[#FFF9E8] border-2 border-[#1E293B]/30"
+              }`}
+            >
+              <Mail className="h-4 w-4" />
+              <span>Weekly Reports</span>
             </button>
           </div>
 
@@ -2085,6 +2101,8 @@ export default function Batches() {
           )}
 
           {/* VIEW 2: ACADEMIC LEADERBOARD */}
+          {activeTab === "reports" && <WeeklyReportSettings batchId={selectedBatchId} />}
+
           {activeTab === "leaderboard" && (
             loadingDetails ? (
               <div className="rounded-2xl bg-[#FFF9E8] border-2 border-[#1E293B] p-16 text-center text-[#1E293B] flex items-center justify-center gap-2.5 shadow-[3px_3px_0_#1E293B]">

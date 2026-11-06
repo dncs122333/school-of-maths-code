@@ -30,6 +30,7 @@ The agreed home page design is version 22 of the mockup: `.superpowers/brainstor
 - [ ] Is an email link, or a signed form, enough as verifiable parental consent under India's data protection law? A student could enter a second email of their own as the parent's.
 - [ ] Is the consent wording right? It's in `backend/parent_consent.py`.
 - [ ] How long must consent records be kept, and is the anonymous record kept after a student is erased acceptable?
+- [ ] How do parents stop the weekly report emails, and does stopping them affect consent? Today they contact the centre, and the teacher pauses that student's report. Consent is unchanged.
 - [ ] Prepare a paper consent form for parents without email. The app records that one was received; the centre keeps the original.
 
 **Work that follows**
